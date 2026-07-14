@@ -3,7 +3,13 @@
 #include <QImage>
 #include <QVideoFrame>
 
-#include <ZXing/ReadBarcode.h>
+// zxing-cpp récupéré par FetchContent expose ses en-têtes à plat (core/src) ;
+// une installation système les range sous ZXing/. Les deux doivent marcher.
+#if __has_include(<ZXing/ReadBarcode.h>)
+#  include <ZXing/ReadBarcode.h>
+#else
+#  include <ReadBarcode.h>
+#endif
 
 namespace app {
 
