@@ -48,9 +48,16 @@ jobs:
       - name: Publier la Release
         env:
           GH_TOKEN: ${{ github.token }}
+        # Idempotent : GitHub peut livrer deux fois l'événement de tag, et un second
+        # `release create` échouerait sur « tag already exists ».
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            "colocourse-${GITHUB_REF_NAME}-arm64.apk" \
+          APK="colocourse-${GITHUB_REF_NAME}-arm64.apk"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$APK" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" "$APK" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Colo Course $GITHUB_REF_NAME" \
             --notes-file - <<'EOF'
