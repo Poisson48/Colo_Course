@@ -83,3 +83,36 @@ target_link_libraries(tst_itemmodel PRIVATE
 )
 
 add_test(NAME itemmodel COMMAND tst_itemmodel)
+
+# --- Crypto tests (XChaCha20-Poly1305, BIP340 Schnorr, NIP-01) ---
+qt_add_executable(tst_crypto
+    tst_crypto.cpp
+)
+
+target_include_directories(tst_crypto PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(tst_crypto PRIVATE
+    cryptolayer
+    core
+    net
+    Qt6::Test
+    Qt6::Core
+)
+
+add_test(NAME crypto COMMAND tst_crypto)
+
+# --- Pairing URI tests (pure C++, no Qt) ---
+add_executable(tst_pairing
+    tst_pairing.cpp
+)
+
+target_include_directories(tst_pairing PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/third_party
+)
+
+target_link_libraries(tst_pairing PRIVATE core)
+
+add_test(NAME pairing COMMAND tst_pairing)

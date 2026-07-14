@@ -5,6 +5,7 @@
 
 #include "appcontroller.h"
 #include "itemmodel.h"
+#include "qrimageprovider.h"
 
 int main(int argc, char *argv[])
 {
@@ -19,6 +20,9 @@ int main(int argc, char *argv[])
     }
 
     QQmlApplicationEngine engine;
+
+    // Register QR image provider
+    engine.addImageProvider(QStringLiteral("qr"), new app::QrImageProvider());
 
     // Expose AppController and ItemModel factory to QML.
     engine.rootContext()->setContextProperty(QStringLiteral("AppController"), &controller);

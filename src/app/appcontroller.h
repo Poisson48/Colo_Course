@@ -7,6 +7,7 @@
 #include <vector>
 #include "../store/database.h"
 #include "../core/types.h"
+#include "../core/pairing.h"
 
 namespace app {
 
@@ -68,6 +69,10 @@ public slots:
     void createList(const QString &title);
     // openList is called from QML to open a list; emits listOpened.
     void openList(const QString &listId);
+    // Parse URI → create list with provided key → true on success
+    bool joinList(const QString &uri);
+    // Build pairing URI for an existing list
+    QString joinUri(const QString &listId);
 
 signals:
     void onlineChanged();

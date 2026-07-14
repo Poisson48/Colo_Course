@@ -8,6 +8,7 @@
 
 #include "../core/types.h"
 #include "../core/crdt.h"
+#include "../core/pairing.h"
 
 namespace app {
 
@@ -166,6 +167,37 @@ void AppController::openList(const QString &listId) {
     auto metaOpt = m_db.getList(listId.toStdString());
     if (!metaOpt) return;
     emit listOpened(listId, QString::fromStdString(metaOpt->title));
+}
+
+bool AppController::joinList(const QString &uri)
+{
+    auto infoOpt = core::parseJoinUri(uri.toStdString());
+    if (!infoOpt) return false;
+
+    const core::JoinInfo& info = *infoOpt;
+
+    core::ListMeta meta;
+    meta.listId   = info.listId;
+    meta.key      = info.key;
+    meta.title    = info.title;
+    meta.titleVer = core::Ver{ 1, m_deviceId.toStdString() };
+    meta.lamport  = 1;
+    meta.created  = QDateTime::currentMSecsSinceEpoch();
+
+    bool created = m_db.createList(meta);
+    if (created) {
+        m_listsModel->prepend(meta, 0);
+    }
+    // Return true even if already exists (already member)
+    return true;
+}
+
+QString AppController::joinUri(const QString &listId)
+{
+    auto metaOpt = m_db.getList(listId.toStdString());
+    if (!metaOpt) return {};
+    return QString::fromStdString(
+        core::buildJoinUri(metaOpt->listId, metaOpt->key, metaOpt->title));
 }
 
 } // namespace app
