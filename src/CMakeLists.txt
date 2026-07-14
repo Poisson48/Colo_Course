@@ -1,3 +1,17 @@
+# --- net static library (QWebSocket, Nostr NIP-01) ---
+add_library(net STATIC
+    net/nostr.cpp
+    net/relayclient.cpp
+    net/relaypool.cpp
+)
+
+target_include_directories(net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(net PUBLIC
+    Qt6::Core
+    Qt6::WebSockets
+)
+
 # --- core static library (pure C++/STL, no Qt) ---
 add_library(core STATIC
     core/crdt.cpp
@@ -35,6 +49,7 @@ qt_add_qml_module(colocourse
 )
 
 target_link_libraries(colocourse PRIVATE
+    net
     store
     Qt6::Core
     Qt6::Quick

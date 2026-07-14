@@ -48,3 +48,20 @@ target_include_directories(tst_payload PRIVATE
 target_link_libraries(tst_payload PRIVATE core)
 
 add_test(NAME payload COMMAND tst_payload)
+
+# --- Relay / Nostr transport tests ---
+qt_add_executable(tst_relay
+    tst_relay.cpp
+)
+
+target_include_directories(tst_relay PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(tst_relay PRIVATE
+    net
+    Qt6::Test
+    Qt6::WebSockets
+)
+
+add_test(NAME relay COMMAND tst_relay)
