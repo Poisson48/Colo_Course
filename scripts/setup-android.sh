@@ -37,14 +37,18 @@ yes | "$SDKMANAGER" --licenses >/dev/null || true
 NDK="$SDK_ROOT/ndk/$NDK_VER"
 
 echo "== 3/5 Qt $QT_VER (hôte + android_arm64_v8a) =="
-if [ ! -d "$HOME/.venvs/aqt" ]; then
-  python3 -m venv "$HOME/.venvs/aqt"
-  "$HOME/.venvs/aqt/bin/pip" -q install aqtinstall
+# aqtinstall en install user (python3-venv absent d'Ubuntu par défaut)
+if ! python3 -m aqt version >/dev/null 2>&1; then
+  if ! python3 -m pip --version >/dev/null 2>&1; then
+    curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+    python3 /tmp/get-pip.py --user --break-system-packages >/dev/null
+  fi
+  python3 -m pip install --user --break-system-packages -q aqtinstall
 fi
-AQT="$HOME/.venvs/aqt/bin/aqt"
+AQT="python3 -m aqt"
 HOST_ARCH="$($AQT list-qt linux desktop --arch $QT_VER | tr ' ' '\n' | grep -m1 gcc_64)"
-[ -d "$QT_ROOT/$QT_VER/gcc_64" ] || "$AQT" install-qt linux desktop "$QT_VER" "$HOST_ARCH" -O "$QT_ROOT"
-[ -d "$QT_ROOT/$QT_VER/android_arm64_v8a" ] || "$AQT" install-qt linux android "$QT_VER" android_arm64_v8a -O "$QT_ROOT"
+[ -d "$QT_ROOT/$QT_VER/gcc_64" ] || $AQT install-qt linux desktop "$QT_VER" "$HOST_ARCH" -O "$QT_ROOT"
+[ -d "$QT_ROOT/$QT_VER/android_arm64_v8a" ] || $AQT install-qt linux android "$QT_VER" android_arm64_v8a -O "$QT_ROOT"
 
 TC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
