@@ -69,15 +69,17 @@ ComboBox {
         }
     }
 
+    // Pas de `required property` ici : déclarer une propriété requise ferait basculer
+    // le délégué en mode « propriétés requises », et Qt cesserait d'injecter le contexte
+    // du modèle — `modelData` deviendrait introuvable et la liste des rayons s'afficherait
+    // vide. Le contexte suffit largement pour un modèle qui n'est qu'un tableau.
     delegate: ItemDelegate {
-        required property int index
-        required property string modelData
-
+        id: option
         width: box.popup.width - 16
         height: 42
 
         contentItem: Label {
-            text: parent.modelData
+            text: modelData
             color: Theme.text
             font.pixelSize: 14
             verticalAlignment: Text.AlignVCenter
@@ -85,7 +87,7 @@ ComboBox {
 
         background: Rectangle {
             radius: 8
-            color: parent.hovered || box.currentIndex === parent.index
+            color: option.hovered || box.currentIndex === index
                    ? Theme.surfaceHigh : "transparent"
         }
 

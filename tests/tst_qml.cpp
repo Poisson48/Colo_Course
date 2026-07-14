@@ -11,8 +11,13 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
+#include <QQuickWindow>
+#include <QTemporaryDir>
 
 #include "app/appcontroller.h"
+#include "app/itemmodel.h"
+#include "core/types.h"
+#include "store/database.h"
 #include "app/qrimageprovider.h"
 #include "app/theme.h"
 #include "app/updater.h"
@@ -39,6 +44,21 @@ private:
     // check() n'est pas appelé : le test ne doit pas dépendre du réseau. L'Updater
     // reste à l'état Idle, la bannière de mise à jour reste donc masquée.
     app::Updater       m_updater;
+
+    // Tous les textes réellement posés à l'écran, en descendant l'arbre visuel. C'est
+    // la seule façon de vérifier qu'une ligne affiche bien ses données, sans dépendre
+    // de la structure interne des délégués.
+    static QStringList visibleTexts(QQuickItem *root) {
+        QStringList out;
+        if (!root)
+            return out;
+        const QVariant text = root->property("text");
+        if (text.isValid() && !text.toString().isEmpty())
+            out << text.toString();
+        for (QQuickItem *child : root->childItems())
+            out += visibleTexts(child);
+        return out;
+    }
 
     // Instancie une page avec les propriétés de contexte de l'app réelle.
     QObject *load(const QString &file, const QVariantMap &props = {}) {
@@ -131,6 +151,84 @@ private slots:
         // Aucun nom choisi : l'écran d'accueil doit le demander plutôt que de laisser
         // « Moi » se diffuser aux autres participants.
         QVERIFY(!m_ctrl.hasDisplayName());
+
+        delete window;
+    }
+
+    // Les lignes s'affichent-elles VRAIMENT ? Charger la page ne suffit pas à le dire :
+    // sans articles, aucun délégué n'est instancié, et une ligne cassée passe inaperçue.
+    // On ouvre donc une vraie liste, avec de vrais articles, dans la vraie fenêtre.
+    void test_listPage_rendersRows() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        store::Database db;
+        QVERIFY(db.open(dir.filePath("test.db")));
+
+        core::ListMeta meta;
+        meta.listId   = "list-1";
+        meta.key      = std::vector<uint8_t>(32, 0x01);
+        meta.title    = "Courses";
+        meta.titleVer = { 1, "dev-A" };
+        meta.lamport  = 1;
+        meta.created  = 1000;
+        QVERIFY(db.createList(meta));
+
+        // Le modèle exposé à QML est celui de l'AppController : on le charge à la main,
+        // sans init() (qui ouvrirait la base réelle et se connecterait aux relais).
+        app::ItemModel *model = m_ctrl.items();
+        model->load(db, "list-1", "dev-A");
+        model->addItem("Lait", "1L");
+        model->addItem("Papier toilette", "2", "6 couches épaisses", "Hygiène");
+        QCOMPARE(model->count(), 2);
+
+        qInstallMessageHandler(warningCollector);
+
+        QObject *window = load(QStringLiteral("Main.qml"));
+        QVERIFY(window);
+
+        // La page s'empile comme dans l'app : par le signal qu'émet openList().
+        QMetaObject::invokeMethod(&m_ctrl, "listOpened",
+                                  Q_ARG(QString, "list-1"), Q_ARG(QString, "Courses"));
+
+        // Laisser la vue créer ses délégués (elle le fait au rendu, pas à la poussée).
+        QTest::qWait(200);
+        qInstallMessageHandler(nullptr);
+
+        QVERIFY2(g_warnings.isEmpty(), qPrintable(g_warnings.join(QStringLiteral("\n"))));
+
+        // Le nom de chaque article doit être écrit quelque part à l'écran. S'il manque,
+        // c'est que les lignes ne reçoivent plus leurs données du modèle.
+        auto *win = qobject_cast<QQuickWindow *>(window);
+        QVERIFY(win);
+        const QStringList shown = visibleTexts(win->contentItem());
+        QVERIFY2(shown.contains(QStringLiteral("Lait")),
+                 qPrintable("textes affichés : " + shown.join(QStringLiteral(" | "))));
+        QVERIFY(shown.contains(QStringLiteral("Papier toilette")));
+        // Quantité et description viennent du même modèle : elles tombent avec le reste.
+        QVERIFY(shown.contains(QStringLiteral("1L")));
+
+        // Le menu des rayons ne se peuple qu'à l'ouverture : une liste vide ne se
+        // verrait qu'au moment où l'on veut classer un article.
+        QObject *aisleBox = window->findChild<QObject *>(QStringLiteral("addAisleBox"));
+        QVERIFY2(aisleBox, "sélecteur de rayon introuvable");
+
+        // Le popup du ComboBox est un objet à part : c'est lui qui s'ouvre.
+        auto *aislePopup = aisleBox->property("popup").value<QObject *>();
+        QVERIFY(aislePopup);
+
+        qInstallMessageHandler(warningCollector);
+        g_warnings.clear();
+        QMetaObject::invokeMethod(aislePopup, "open");
+        QTest::qWait(150);
+        qInstallMessageHandler(nullptr);
+
+        QVERIFY2(g_warnings.isEmpty(), qPrintable(g_warnings.join(QStringLiteral("\n"))));
+
+        const QStringList options = visibleTexts(win->contentItem());
+        QVERIFY2(options.contains(QStringLiteral("Crèmerie")),
+                 qPrintable("rayons proposés : " + options.join(QStringLiteral(" | "))));
+        QVERIFY(options.contains(QStringLiteral("Sans rayon")));
 
         delete window;
     }

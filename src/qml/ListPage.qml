@@ -338,7 +338,14 @@ Item {
                 width: items.width
                 height: root.shoppingMode ? 68 : 60
 
-                required property int index
+                // Surtout PAS `required property int index` : déclarer une propriété
+                // requise fait basculer le délégué en mode « propriétés requises », et
+                // Qt cesse alors d'injecter le contexte du modèle — tous les `model.xxx`
+                // de la ligne deviennent introuvables, et la liste s'affiche vide.
+                // On recopie donc l'index du contexte dans une propriété ordinaire, que
+                // la zone de dépôt peut lire sur la ligne qu'on lui glisse.
+                property int rowIndex: index
+
                 readonly property bool dragging: dragHandle.drag.active
 
                 z: dragging ? 2 : 1
@@ -351,7 +358,7 @@ Item {
                             return
                         // Franchir une frontière de rayon range l'article dans ce rayon :
                         // c'est le modèle qui en décide (moveItem), pas la vue.
-                        AppController.items.moveItem(source.index, wrapper.index)
+                        AppController.items.moveItem(source.rowIndex, wrapper.rowIndex)
                     }
                 }
 
@@ -669,6 +676,7 @@ Item {
 
                     AisleBox {
                         id: addAisleBox
+                        objectName: "addAisleBox"
                         Layout.preferredWidth: 132
                     }
                 }
