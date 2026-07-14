@@ -45,7 +45,10 @@ qt_add_executable(colocourse
 qt_add_qml_module(colocourse
     URI ColoCourse
     VERSION 1.0
-    QML_FILES qml/Main.qml
+    QML_FILES
+        qml/Main.qml
+        qml/ListsPage.qml
+        qml/ListPage.qml
 )
 
 target_link_libraries(colocourse PRIVATE
