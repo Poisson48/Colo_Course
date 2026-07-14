@@ -83,6 +83,36 @@ private slots:
         QVERIFY(app::Updater::isNewer("0.4.1",  "0.4"));
     }
 
+    // Les notes affichées avant l'installation : les nouveautés, et pas les consignes
+    // d'installation qui suivent (on est déjà en train d'installer).
+    void test_releaseNotes() {
+        const QString body =
+            "## Nouveautés\n"
+            "Mode Courses.\n"
+            "Rayons.\n"
+            "\n"
+            "---\n"
+            "\n"
+            "## Installation (Android, arm64)\n"
+            "Téléchargez l'APK ci-dessous.\n";
+
+        const QString notes = app::Updater::notesFromBody(body);
+
+        QVERIFY(notes.contains(QStringLiteral("Mode Courses.")));
+        QVERIFY(notes.contains(QStringLiteral("Rayons.")));
+        // Coupé au séparateur.
+        QVERIFY(!notes.contains(QStringLiteral("Installation")));
+        QVERIFY(!notes.contains(QStringLiteral("APK")));
+        // Le « ## » du Markdown n'a pas de rendu ici : il ne doit pas s'afficher.
+        QVERIFY(!notes.contains(QLatin1Char('#')));
+        QCOMPARE(notes.left(10), QStringLiteral("Nouveautés"));
+
+        // Une release sans séparateur reste lisible en entier.
+        QCOMPARE(app::Updater::notesFromBody("Juste un correctif."),
+                 QStringLiteral("Juste un correctif."));
+        QVERIFY(app::Updater::notesFromBody("").isEmpty());
+    }
+
     void init() {
         g_warnings.clear();
     }

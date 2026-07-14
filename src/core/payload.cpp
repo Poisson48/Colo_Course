@@ -25,6 +25,9 @@ static bool parseVersionedField(const json& arr, T& value, Ver& ver) {
         } else if constexpr (std::is_same_v<T, bool>) {
             if (!arr[0].is_boolean()) return false;
             value = arr[0].get<bool>();
+        } else if constexpr (std::is_same_v<T, int64_t>) {
+            if (!arr[0].is_number_integer()) return false;
+            value = arr[0].get<int64_t>();
         } else {
             return false;
         }
@@ -109,6 +112,12 @@ std::optional<Payload> parsePayload(const std::string& jsonStr) {
             if (f.contains("note")) {
                 if (parseVersionedField(f["note"], item.note, item.noteVer)) anyField = true;
             }
+            if (f.contains("aisle")) {
+                if (parseVersionedField(f["aisle"], item.aisle, item.aisleVer)) anyField = true;
+            }
+            if (f.contains("order")) {
+                if (parseVersionedField(f["order"], item.order, item.orderVer)) anyField = true;
+            }
             if (f.contains("done")) {
                 if (parseVersionedField(f["done"], item.done, item.doneVer)) anyField = true;
             }
@@ -176,7 +185,9 @@ std::string serializePayload(const Payload& p) {
         json f;
         f["name"] = json::array({item.name, verToJson(item.nameVer)});
         f["qty"]  = json::array({item.qty,  verToJson(item.qtyVer)});
-        f["note"] = json::array({item.note, verToJson(item.noteVer)});
+        f["note"]  = json::array({item.note,  verToJson(item.noteVer)});
+        f["aisle"] = json::array({item.aisle, verToJson(item.aisleVer)});
+        f["order"] = json::array({item.order, verToJson(item.orderVer)});
         f["done"] = json::array({item.done, verToJson(item.doneVer)});
         f["del"]  = json::array({item.del,  verToJson(item.delVer)});
         ji["f"]   = f;

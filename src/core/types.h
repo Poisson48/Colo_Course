@@ -40,6 +40,17 @@ struct Item {
     std::string note;
     Ver         noteVer;
 
+    // Rayon du magasin (« Crèmerie »), vide si non classé. Le libellé lui-même sert de
+    // clé : un pair qui ne connaît pas un rayon l'affiche quand même, sans rien perdre.
+    std::string aisle;
+    Ver         aisleVer;
+
+    // Position manuelle dans la liste. Valeurs espacées (initialisées sur `created`,
+    // en millisecondes) : réordonner = se glisser au milieu de l'intervalle voisin,
+    // sans avoir à renuméroter les autres — donc sans les faire entrer en conflit.
+    int64_t order = 0;
+    Ver     orderVer;
+
     bool done = false;
     Ver  doneVer;
     // Date de cochage (ms epoch, 0 si à acheter). Satellite de `done` : pas de version

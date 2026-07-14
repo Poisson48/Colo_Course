@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <algorithm>
 #include <atomic>
+#include <set>
 
 namespace app {
 
@@ -26,14 +27,56 @@ static int64_t nextCreated() {
 // helpers
 // ---------------------------------------------------------------------------
 
+const QStringList &ItemModel::aisles() {
+    // L'ordre est celui d'un parcours de magasin, pas l'alphabet : on entre par les
+    // fruits, on finit par l'entretien. C'est lui qui ordonne les sections.
+    static const QStringList kAisles = {
+        QStringLiteral("Fruits & légumes"),
+        QStringLiteral("Boulangerie"),
+        QStringLiteral("Boucherie"),
+        QStringLiteral("Poissonnerie"),
+        QStringLiteral("Crèmerie"),
+        QStringLiteral("Épicerie salée"),
+        QStringLiteral("Épicerie sucrée"),
+        QStringLiteral("Boissons"),
+        QStringLiteral("Surgelés"),
+        QStringLiteral("Hygiène"),
+        QStringLiteral("Entretien"),
+    };
+    return kAisles;
+}
+
+int ItemModel::aisleRank(const std::string &aisle) {
+    const int known = aisles().size();
+
+    // Non classé : tout à la fin. Les rayons forment un parcours ; un article sans
+    // rayon n'a pas de place dedans, on le vérifie en fin de course.
+    if (aisle.empty())
+        return known + 1;
+
+    const int idx = aisles().indexOf(QString::fromStdString(aisle));
+    // Rayon inconnu (version plus récente en face) : on ne le perd pas, on le range
+    // après les rayons connus mais avant les non classés.
+    return idx >= 0 ? idx : known;
+}
+
 bool ItemModel::rowLessThan(const Row &a, const Row &b) {
-    // Non-done before done.
+    const int rankA = aisleRank(a.item.aisle);
+    const int rankB = aisleRank(b.item.aisle);
+    if (rankA != rankB)
+        return rankA < rankB;
+    // Deux rayons de même rang mais de libellés différents (deux inconnus) : les
+    // départager, sinon les sections s'entremêleraient.
+    if (a.item.aisle != b.item.aisle)
+        return a.item.aisle < b.item.aisle;
+
+    // Dans un rayon : ce qui reste à prendre avant ce qui est déjà dans le panier.
     if (a.item.done != b.item.done)
         return !a.item.done; // false < true
-    // Same done status: earlier created first; use itemId as tiebreaker for stability.
-    if (a.item.created != b.item.created)
-        return a.item.created < b.item.created;
-    return a.item.itemId < b.item.itemId;
+
+    if (a.item.order != b.item.order)
+        return a.item.order < b.item.order;
+    return a.item.itemId < b.item.itemId;   // départage stable
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +151,7 @@ QVariant ItemModel::data(const QModelIndex &index, int role) const {
     case DoneRole:    return row.item.done;
     case DoneAtRole:  return static_cast<qlonglong>(row.item.doneAt);
     case CreatedRole: return static_cast<qlonglong>(row.item.created);
+    case AisleRole:   return QString::fromStdString(row.item.aisle);
     case ByNameRole: {
         if (row.item.by.empty())
             return QString{};
@@ -132,7 +176,15 @@ QHash<int, QByteArray> ItemModel::roleNames() const {
         { DoneAtRole,  "doneAt"  },
         { CreatedRole, "created" },
         { ByNameRole,  "byName"  },
+        { AisleRole,   "aisle"   },
     };
+}
+
+int ItemModel::aisleCount() const {
+    std::set<std::string> distinct;
+    for (const auto &row : m_rows)
+        distinct.insert(row.item.aisle);
+    return static_cast<int>(distinct.size());
 }
 
 QString ItemModel::existingName(const QString &name) const {
@@ -173,7 +225,8 @@ int ItemModel::findRow(const QString &itemId) const {
 // Mutation slots
 // ---------------------------------------------------------------------------
 
-void ItemModel::addItem(const QString &name, const QString &qty, const QString &note) {
+void ItemModel::addItem(const QString &name, const QString &qty,
+                        const QString &note, const QString &aisle) {
     if (!m_db) return;
 
     const int64_t lamport = m_db->bumpLamport(m_listId);
@@ -191,6 +244,13 @@ void ItemModel::addItem(const QString &name, const QString &qty, const QString &
     item.qtyVer  = ver;
     item.note    = note.trimmed().toStdString();
     item.noteVer = ver;
+    item.aisle   = aisle.trimmed().toStdString();
+    item.aisleVer = ver;
+    // Position initiale = date de création : l'article se pose en bas de son groupe,
+    // et l'écart avec le précédent (des millisecondes) laisse la place d'en insérer
+    // d'autres entre les deux sans renuméroter.
+    item.order    = ts;
+    item.orderVer = ver;
     item.done    = false;
     item.doneVer = ver;
     item.doneAt  = 0;
@@ -285,13 +345,14 @@ void ItemModel::toggleDone(const QString &itemId) {
 }
 
 void ItemModel::editItem(const QString &itemId, const QString &name,
-                         const QString &qty, const QString &note) {
+                         const QString &qty, const QString &note, const QString &aisle) {
     if (!m_db) return;
 
-    const std::string id      = itemId.toStdString();
-    const std::string newName = name.trimmed().toStdString();
-    const std::string newQty  = qty.trimmed().toStdString();
-    const std::string newNote = note.trimmed().toStdString();
+    const std::string id       = itemId.toStdString();
+    const std::string newName  = name.trimmed().toStdString();
+    const std::string newQty   = qty.trimmed().toStdString();
+    const std::string newNote  = note.trimmed().toStdString();
+    const std::string newAisle = aisle.trimmed().toStdString();
 
     if (newName.empty()) return; // un article sans nom n'a rien à afficher
 
@@ -299,26 +360,28 @@ void ItemModel::editItem(const QString &itemId, const QString &name,
                            [&](const core::Item &i){ return i.itemId == id; });
     if (it == m_items.end()) return;
 
-    const bool nameChanged = (it->name != newName);
-    const bool qtyChanged  = (it->qty  != newQty);
-    const bool noteChanged = (it->note != newNote);
-    if (!nameChanged && !qtyChanged && !noteChanged) return;
+    const bool nameChanged  = (it->name  != newName);
+    const bool qtyChanged   = (it->qty   != newQty);
+    const bool noteChanged  = (it->note  != newNote);
+    const bool aisleChanged = (it->aisle != newAisle);
+    if (!nameChanged && !qtyChanged && !noteChanged && !aisleChanged) return;
 
     const int64_t lamport = m_db->bumpLamport(m_listId);
     const core::Ver ver{ lamport, m_deviceId };
 
-    if (nameChanged) { it->name = newName; it->nameVer = ver; }
-    if (qtyChanged)  { it->qty  = newQty;  it->qtyVer  = ver; }
-    if (noteChanged) { it->note = newNote; it->noteVer = ver; }
+    if (nameChanged)  { it->name  = newName;  it->nameVer  = ver; }
+    if (qtyChanged)   { it->qty   = newQty;   it->qtyVer   = ver; }
+    if (noteChanged)  { it->note  = newNote;  it->noteVer  = ver; }
+    if (aisleChanged) { it->aisle = newAisle; it->aisleVer = ver; }
     it->touched = QDateTime::currentMSecsSinceEpoch();
 
     if (!m_db->upsertItem(*it)) return;
 
     emit localChanged(m_listId);
 
-    // Sous filtre, l'édition peut faire sortir la ligne de la recherche (ou l'y faire
-    // entrer) : seule une reconstruction donne le bon résultat.
-    if (!m_filter.isEmpty()) {
+    // Le rayon est la première clé de tri : l'article change de section, la ligne se
+    // déplace. De même sous filtre, où l'édition peut la faire sortir de la recherche.
+    if (aisleChanged || !m_filter.isEmpty()) {
         rebuildRows();
         return;
     }
@@ -336,6 +399,139 @@ void ItemModel::editItem(const QString &itemId, const QString &name,
 void ItemModel::removeItems(const QStringList &itemIds) {
     for (const QString &id : itemIds)
         removeItem(id);
+}
+
+void ItemModel::setAisle(const QString &itemId, const QString &aisle) {
+    if (!m_db) return;
+
+    const std::string id       = itemId.toStdString();
+    const std::string newAisle = aisle.trimmed().toStdString();
+
+    auto it = std::find_if(m_items.begin(), m_items.end(),
+                           [&](const core::Item &i){ return i.itemId == id; });
+    if (it == m_items.end() || it->aisle == newAisle) return;
+
+    const int64_t lamport = m_db->bumpLamport(m_listId);
+    it->aisle    = newAisle;
+    it->aisleVer = { lamport, m_deviceId };
+    it->touched  = QDateTime::currentMSecsSinceEpoch();
+
+    if (!m_db->upsertItem(*it)) return;
+
+    emit localChanged(m_listId);
+    // Le rayon est la première clé de tri : l'article change de section.
+    rebuildRows();
+}
+
+// Déplacement manuel. La nouvelle position se glisse entre les deux voisins de
+// destination ; c'est un simple champ LWW de plus, donc deux personnes qui réordonnent
+// en même temps convergent (le dernier gagne) au lieu de se marcher dessus.
+void ItemModel::moveItem(int from, int to) {
+    if (!m_db) return;
+    const int n = static_cast<int>(m_rows.size());
+    if (from < 0 || from >= n || to < 0 || to >= n || from == to) return;
+
+    core::Item moved = m_rows[static_cast<size_t>(from)].item;
+
+    // Voisins à l'arrivée, une fois la ligne retirée de sa place actuelle.
+    std::vector<Row> without = m_rows;
+    without.erase(without.begin() + from);
+
+    const Row *before = (to > 0) ? &without[static_cast<size_t>(to - 1)] : nullptr;
+    const Row *after  = (to < static_cast<int>(without.size()))
+                        ? &without[static_cast<size_t>(to)] : nullptr;
+
+    // L'article prend le rayon de la ligne qu'on a survolée pour le déposer — c'est
+    // elle que le doigt désigne. Selon le sens du geste, cette ligne se retrouve
+    // au-dessus ou en dessous de la place visée : en descendant, on vient se poser
+    // APRÈS elle (elle est donc `before`) ; en montant, on vient prendre sa place
+    // (elle est donc `after`). Prendre systématiquement `before` classerait l'article
+    // dans le rayon de la ligne précédente, qui peut être un tout autre rayon.
+    const Row *hovered = (from < to) ? before : after;
+    const std::string targetAisle = hovered ? hovered->item.aisle : moved.aisle;
+
+    // Les voisins qui comptent pour la position sont ceux du MÊME rayon et du même
+    // état (à acheter / pris) : le tri les sépare avant de regarder la position.
+    const auto sameGroup = [&](const Row *r) {
+        return r && r->item.aisle == targetAisle && r->item.done == moved.done;
+    };
+    const int64_t lo = sameGroup(before) ? before->item.order : 0;
+    const int64_t hi = sameGroup(after)  ? after->item.order  : 0;
+
+    int64_t order;
+    if (lo && hi)
+        order = lo + (hi - lo) / 2;          // entre les deux
+    else if (lo)
+        order = lo + 1000;                   // en fin de groupe
+    else if (hi)
+        order = hi - 1000;                   // en tête de groupe
+    else
+        order = moved.created;               // seul de son groupe
+
+    // Intervalle épuisé (des milliers de déplacements au même endroit) : renuméroter
+    // le groupe à grands pas plutôt que d'écraser silencieusement l'ordre voulu.
+    if (lo && hi && (order == lo || order == hi)) {
+        renumber(targetAisle, moved.done);
+        moveItem(from, to);   // les positions sont ré-espacées : rejouer le geste
+        return;
+    }
+
+    const int64_t lamport = m_db->bumpLamport(m_listId);
+    const core::Ver ver{ lamport, m_deviceId };
+    const int64_t now = QDateTime::currentMSecsSinceEpoch();
+
+    auto it = std::find_if(m_items.begin(), m_items.end(),
+                           [&](const core::Item &i){ return i.itemId == moved.itemId; });
+    if (it == m_items.end()) return;
+
+    it->order    = order;
+    it->orderVer = ver;
+    if (it->aisle != targetAisle) {
+        it->aisle    = targetAisle;
+        it->aisleVer = ver;
+    }
+    it->touched = now;
+
+    if (!m_db->upsertItem(*it)) return;
+
+    emit localChanged(m_listId);
+
+    // Déplacement de ligne, surtout pas beginResetModel : une reconstruction détruirait
+    // tous les délégués — dont celui que le doigt est en train de glisser.
+    // La position calculée place l'article exactement à `to` selon le tri : on peut
+    // donc déplacer la ligne directement, sans retrier.
+    const int dest = (from < to) ? to + 1 : to;   // Qt insère AVANT `dest`
+    beginMoveRows({}, from, from, {}, dest);
+    Row row = m_rows[static_cast<size_t>(from)];
+    row.item = *it;
+    m_rows.erase(m_rows.begin() + from);
+    m_rows.insert(m_rows.begin() + to, row);
+    endMoveRows();
+
+    const QModelIndex idx = index(to);
+    emit dataChanged(idx, idx, { AisleRole });
+}
+
+// Ré-espace les positions d'un groupe (même rayon, même état) par pas de 1000.
+void ItemModel::renumber(const std::string &aisle, bool done) {
+    if (!m_db) return;
+
+    const int64_t lamport = m_db->bumpLamport(m_listId);
+    const core::Ver ver{ lamport, m_deviceId };
+
+    int64_t next = 1000;
+    for (auto &row : m_rows) {
+        if (row.item.aisle != aisle || row.item.done != done)
+            continue;
+        auto it = std::find_if(m_items.begin(), m_items.end(),
+                               [&](const core::Item &i){ return i.itemId == row.item.itemId; });
+        if (it == m_items.end()) continue;
+        it->order    = next;
+        it->orderVer = ver;
+        m_db->upsertItem(*it);
+        next += 1000;
+    }
+    rebuildRows();
 }
 
 void ItemModel::uncheckAll() {

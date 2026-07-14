@@ -268,6 +268,8 @@ ApplicationWindow {
                     onClicked: {
                         if (Updater.readyToInstall)
                             Updater.install()
+                        else if (Updater.releaseNotes.length > 0)
+                            notesDialog.open()   // dire ce qu'on installe avant de l'installer
                         else
                             Updater.download()
                     }
@@ -313,6 +315,35 @@ ApplicationWindow {
         function onToast(message) {
             snackbar.show(message)
         }
+    }
+
+    // Ce que la mise à jour apporte. Personne n'installe de bon cœur une version dont
+    // il ne sait rien — et les notes sont déjà dans la release, il suffisait de les lire.
+    ColoDialog {
+        id: notesDialog
+        title: "Nouveautés — " + Updater.latestVersion
+        acceptText: "Mettre à jour"
+
+        Flickable {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(notes.implicitHeight, 320)
+            contentHeight: notes.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollIndicator.vertical: ScrollIndicator {}
+
+            Label {
+                id: notes
+                width: parent.width
+                text: Updater.releaseNotes
+                color: Theme.textDim
+                font.pixelSize: 14
+                wrapMode: Text.WordWrap
+                lineHeight: 1.25
+            }
+        }
+
+        onAccepted: Updater.download()
     }
 
     // Snackbar : retour visuel court (lien copié, liste rejointe, erreur…).

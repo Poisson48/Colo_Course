@@ -303,17 +303,80 @@ Item {
             bottomMargin: Theme.gap
             spacing: 6
 
-            // Ce qui reste à acheter est en haut (tri du modèle) ; une fois coché,
-            // l'article descend et s'estompe au lieu de disparaître.
-            delegate: SwipeDelegate {
-                id: row
-                width: items.width - 2 * Theme.gap
-                x: Theme.gap
-                // Plus haute en mode Courses : on la vise d'une main, en marchant.
+            // Sections par rayon. Elles n'apparaissent que si les articles sont
+            // effectivement classés : qui ne s'en sert pas ne voit aucun en-tête.
+            section.property: "aisle"
+            section.criteria: ViewSection.FullString
+            section.delegate: Item {
+                required property string section
+                width: items.width
+                height: AppController.items.aisleCount > 1 ? 34 : 0
+                visible: height > 0
+
+                Label {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.gap + 4
+                    anchors.verticalCenter: parent.verticalCenter
+                    // Le rayon vide est réel (« non classé »), il lui faut un nom.
+                    text: parent.section.length > 0 ? parent.section : "Sans rayon"
+                    color: Theme.accent
+                    font.pixelSize: 12
+                    font.weight: Font.DemiBold
+                    font.capitalization: Font.AllUppercase
+                }
+            }
+
+            // Ce qui reste à acheter est en haut de son rayon (tri du modèle) ; une
+            // fois coché, l'article descend et s'estompe au lieu de disparaître.
+            //
+            // Le délégué est un conteneur immobile (la place de la ligne dans la vue,
+            // et sa zone de dépôt) contenant la ligne elle-même, qui se détache sous le
+            // doigt pendant un glissement. Sans cette séparation, la ligne glissée
+            // suivrait le conteneur qui bouge sous elle, et le geste sauterait.
+            delegate: Item {
+                id: wrapper
+                width: items.width
                 height: root.shoppingMode ? 68 : 60
+
+                required property int index
+                readonly property bool dragging: dragHandle.drag.active
+
+                z: dragging ? 2 : 1
+
+                DropArea {
+                    anchors.fill: parent
+                    onEntered: function (drag) {
+                        const source = drag.source
+                        if (!source || source === wrapper)
+                            return
+                        // Franchir une frontière de rayon range l'article dans ce rayon :
+                        // c'est le modèle qui en décide (moveItem), pas la vue.
+                        AppController.items.moveItem(source.index, wrapper.index)
+                    }
+                }
+
+            SwipeDelegate {
+                id: row
+                width: wrapper.width - 2 * Theme.gap
+                x: Theme.gap
+                height: wrapper.height
                 padding: 0
 
                 readonly property bool selected: root.isSelected(model.itemId)
+
+                Drag.active: wrapper.dragging
+                Drag.source: wrapper
+                Drag.hotSpot.x: width / 2
+                Drag.hotSpot.y: height / 2
+
+                opacity: wrapper.dragging ? 0.85 : 1.0
+
+                // Pendant le glissement, la ligne quitte son conteneur pour la vue :
+                // elle reste sous le doigt pendant que les autres se réorganisent.
+                states: State {
+                    when: wrapper.dragging
+                    ParentChange { target: row; parent: items }
+                }
 
                 // Le swipe supprime : en sélection il entrerait en conflit avec le
                 // geste de sélection, et en mode Courses on ne supprime rien du tout —
@@ -398,7 +461,6 @@ Item {
                     // Repli tactile pour qui ne devine pas le swipe. Absent en mode
                     // Courses : rien ne doit pouvoir être supprimé d'un doigt distrait.
                     ToolButton {
-                        Layout.rightMargin: 4
                         Layout.alignment: Qt.AlignVCenter
                         visible: !root.selectionMode && !root.shoppingMode
                         width: Theme.touchTarget
@@ -411,6 +473,29 @@ Item {
                             verticalAlignment: Text.AlignVCenter
                         }
                         onClicked: deleteDialog.openFor([model.itemId], model.name)
+                    }
+
+                    // Poignée de déplacement. Un geste dédié, et pas l'appui long, qui
+                    // sert déjà à la sélection multiple. Absente en mode Courses : dans
+                    // un rayon, on coche, on ne réorganise pas.
+                    MouseArea {
+                        id: dragHandle
+                        Layout.rightMargin: 2
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.preferredWidth: visible ? 30 : 0
+                        Layout.preferredHeight: Theme.touchTarget
+                        visible: !root.selectionMode && !root.shoppingMode
+
+                        drag.target: visible ? row : undefined
+                        drag.axis: Drag.YAxis
+                        cursorShape: Qt.SizeVerCursor
+
+                        Label {
+                            anchors.centerIn: parent
+                            text: "⠿"
+                            color: Theme.textDim
+                            font.pixelSize: 16
+                        }
                     }
                 }
 
@@ -459,7 +544,8 @@ Item {
                         deleteDialog.openFor([model.itemId], model.name)
                     }
                 }
-            }
+            }   // SwipeDelegate
+            }   // wrapper (conteneur immobile + zone de dépôt)
         }
 
         // État vide. Une liste vide et une recherche sans résultat ne se disent pas
@@ -568,13 +654,23 @@ Item {
                     }
                 }
 
-                ColoTextField {
-                    id: addNoteField
+                RowLayout {
                     Layout.fillWidth: true
                     Layout.rightMargin: 60
                     visible: root.composing
-                    hint: "Description (facultatif)"
-                    onAccepted: root.addItem()
+                    spacing: 8
+
+                    ColoTextField {
+                        id: addNoteField
+                        Layout.fillWidth: true
+                        hint: "Description (facultatif)"
+                        onAccepted: root.addItem()
+                    }
+
+                    AisleBox {
+                        id: addAisleBox
+                        Layout.preferredWidth: 132
+                    }
                 }
             }
         }
@@ -662,10 +758,13 @@ Item {
     function commitItem() {
         AppController.items.addItem(nameField.text.trim(),
                                     qtyField.text.trim(),
-                                    addNoteField.text.trim())
+                                    addNoteField.text.trim(),
+                                    addAisleBox.aisle)
         nameField.text = ""
         qtyField.text = ""
         addNoteField.text = ""
+        // Le rayon, lui, ne se réinitialise pas : on remplit une liste rayon par rayon
+        // (« trois trucs de crèmerie »), le reproposer à chaque ajout serait pénible.
         nameField.forceActiveFocus()
     }
 
@@ -721,6 +820,7 @@ Item {
             editName.text = item.name
             editQty.text  = item.qty
             editNote.text = item.note
+            editAisle.aisle = item.aisle
             open()
             editName.forceActiveFocus()
             editName.selectAll()
@@ -745,6 +845,11 @@ Item {
             Layout.fillWidth: true
             hint: "Description"
             onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
+        }
+
+        AisleBox {
+            id: editAisle
+            Layout.fillWidth: true
         }
 
         Label {
@@ -772,7 +877,8 @@ Item {
         onAccepted: AppController.items.editItem(editDialog.itemId,
                                                  editName.text.trim(),
                                                  editQty.text.trim(),
-                                                 editNote.text.trim())
+                                                 editNote.text.trim(),
+                                                 editAisle.aisle)
     }
 
     ColoDialog {

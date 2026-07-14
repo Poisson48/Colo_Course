@@ -42,6 +42,25 @@ jobs:
     needs: [version, apk]
     runs-on: ubuntu-latest
     steps:
+      # Le message du tag EST le changelog : l'app l'affiche avant d'installer
+      # (cf. Updater::notesFromBody). Il faut donc le dépôt, et les tags annotés.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Nouveautés = message du tag
+        run: |
+          git fetch --force --tags origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          NOTES="$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")"
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            NOTES="Corrections et améliorations."
+          fi
+          {
+            echo "NOTES<<COLO_EOF"
+            printf '%s\n' "$NOTES"
+            echo "COLO_EOF"
+          } >> "$GITHUB_ENV"
+
       - uses: actions/download-artifact@v4
         with:
           name: colocourse-arm64-apk
@@ -56,15 +75,14 @@ jobs:
         # `release create` échouerait sur « tag already exists ».
         run: |
           APK="colocourse-${GITHUB_REF_NAME}-arm64.apk"
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$APK" \
-              --repo "$GITHUB_REPOSITORY" --clobber
-            exit 0
-          fi
-          gh release create "$GITHUB_REF_NAME" "$APK" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Colo Course $GITHUB_REF_NAME" \
-            --notes-file - <<'EOF'
+
+          # Corps de la release : les nouveautés d'abord — c'est CETTE partie que l'app
+          # affiche avant d'installer — puis une ligne « --- », puis ce qui n'a de sens
+          # que sur la page GitHub. L'app coupe au séparateur (Updater::notesFromBody).
+          {
+            printf '%s\n\n' "$NOTES"
+            printf -- '---\n\n'
+            cat <<'EOF'
           ## Installation (Android, arm64)
 
           Téléchargez l'APK ci-dessous, puis autorisez l'installation depuis cette source.
@@ -80,3 +98,14 @@ jobs:
           **Limite connue (v1)** : app fermée = pas de réception. Les changements sont
           récupérés à l'ouverture ou au retour au premier plan.
           EOF
+          } > notes.md
+
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$APK" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" "$APK" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Colo Course $GITHUB_REF_NAME" \
+            --notes-file notes.md

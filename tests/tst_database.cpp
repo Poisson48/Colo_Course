@@ -467,6 +467,13 @@ private slots:
         QVERIFY(it.note.empty());
         QCOMPARE(it.noteVer.lamport, int64_t(0));
         QCOMPARE(it.doneAt, int64_t(0));  // coché avant la migration : date inconnue
+        QVERIFY(it.aisle.empty());        // non classé, pas rangé au hasard
+        QCOMPARE(it.aisleVer.lamport, int64_t(0));
+
+        // La position est rétro-remplie sur la date de création : l'ordre affiché ne
+        // change pas à la mise à jour, et les valeurs restent assez espacées pour
+        // qu'on puisse toujours insérer entre deux voisins.
+        QCOMPARE(it.order, it.created);
 
         // Les nouvelles colonnes sont bien écrivables.
         core::Item edited = it;

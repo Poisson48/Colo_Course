@@ -127,6 +127,7 @@ set(COLO_QML_FILES
     qml/ShareSheet.qml
     qml/ColoDialog.qml
     qml/ColoTextField.qml
+    qml/AisleBox.qml
 )
 if(COLO_HAS_CAMERA)
     list(APPEND COLO_QML_FILES qml/ScanPage.qml)

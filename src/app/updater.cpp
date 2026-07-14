@@ -45,6 +45,28 @@ bool Updater::canInstall() const
 #endif
 }
 
+QString Updater::notesFromBody(const QString &body)
+{
+    QStringList kept;
+    for (const QString &line : body.split(QLatin1Char('\n'))) {
+        const QString trimmed = line.trimmed();
+        if (trimmed == QStringLiteral("---"))
+            break;   // à partir d'ici, c'est la page GitHub qui parle, pas l'app
+        // Les titres Markdown (« ## Nouveautés ») n'ont pas de rendu ici : le « # »
+        // s'afficherait tel quel.
+        QString clean = line;
+        while (clean.startsWith(QLatin1Char('#')))
+            clean.remove(0, 1);
+        kept << clean.trimmed();
+    }
+
+    // Lignes vides en trop en fin de bloc.
+    while (!kept.isEmpty() && kept.last().isEmpty())
+        kept.removeLast();
+
+    return kept.join(QLatin1Char('\n')).trimmed();
+}
+
 bool Updater::isNewer(const QString &candidate, const QString &current)
 {
     const auto parts = [](QString v) {
@@ -121,6 +143,11 @@ void Updater::check()
 
         const QString tag = obj.value(QStringLiteral("tag_name")).toString();
         m_releaseUrl = obj.value(QStringLiteral("html_url")).toString();
+
+        // Le corps de la release porte d'abord les nouveautés, puis une ligne « --- »,
+        // puis les consignes d'installation (utiles sur la page GitHub, hors sujet
+        // dans l'app : on est déjà en train d'installer). On coupe au séparateur.
+        m_releaseNotes = notesFromBody(obj.value(QStringLiteral("body")).toString());
 
         m_apkUrl.clear();
         for (const QJsonValue &v : obj.value(QStringLiteral("assets")).toArray()) {

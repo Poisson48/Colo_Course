@@ -259,7 +259,7 @@ private slots:
         const Item before = db.getItems(listId).front();
 
         QSignalSpy localSpy(&model, &ItemModel::localChanged);
-        model.editItem(itemId, "Papier toilette", "2 paquets", "6 couches épaisses");
+        model.editItem(itemId, "Papier toilette", "2 paquets", "6 couches épaisses", "");
         QCOMPARE(localSpy.count(), 1);
 
         // Le modèle expose les nouvelles valeurs, au même index (le tri ne dépend
@@ -300,7 +300,7 @@ private slots:
         const Item before = db.getItems(listId).front();
 
         QSignalSpy localSpy(&model, &ItemModel::localChanged);
-        model.editItem(itemId, "Lait", "1L", "");
+        model.editItem(itemId, "Lait", "1L", "", "");
         QCOMPARE(localSpy.count(), 0);
 
         const Item after = db.getItems(listId).front();
@@ -308,7 +308,7 @@ private slots:
         QCOMPARE(after.qtyVer.lamport,  before.qtyVer.lamport);
 
         // Un nom vide n'est pas un article : refusé, l'ancien nom reste.
-        model.editItem(itemId, "   ", "1L", "");
+        model.editItem(itemId, "   ", "1L", "", "");
         QCOMPARE(QString::fromStdString(db.getItems(listId).front().name),
                  QStringLiteral("Lait"));
     }
@@ -494,6 +494,167 @@ private slots:
 
         QCOMPARE(authorByItem["Lait"],    QStringLiteral("vous"));
         QCOMPARE(authorByItem["Harissa"], QStringLiteral("Marie"));
+    }
+
+    // Les sections suivent l'ordre du magasin, pas l'alphabet : « Fruits & légumes »
+    // avant « Crèmerie », et les non classés à la fin.
+    void test_aisleOrdering() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+
+        model.addItem("Éponge", "", "", "Entretien");
+        model.addItem("Pommes", "", "", "Fruits & légumes");
+        model.addItem("Truc",   "", "", "");              // non classé
+        model.addItem("Beurre", "", "", "Crèmerie");
+
+        QCOMPARE(model.count(), 4);
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Pommes"));     // rayon 0
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Beurre"));     // Crèmerie
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(),
+                 QStringLiteral("Éponge"));     // Entretien (dernier rayon connu)
+        QCOMPARE(model.data(model.index(3), ItemModel::NameRole).toString(),
+                 QStringLiteral("Truc"));       // non classé : après tout le reste
+
+        QCOMPARE(model.aisleCount(), 4);
+
+        // Un article coché descend au bas de SON rayon, pas au bas de la liste : on
+        // parcourt le magasin rayon par rayon.
+        model.addItem("Carottes", "", "", "Fruits & légumes");
+        const QString pommes = model.data(model.index(0), ItemModel::ItemIdRole).toString();
+        model.toggleDone(pommes);
+
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Carottes"));   // reste à prendre
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Pommes"));     // pris, mais toujours dans son rayon
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(),
+                 QStringLiteral("Beurre"));     // le rayon suivant n'a pas bougé
+    }
+
+    // Réordonner : la ligne va où on la dépose, et la nouvelle position est persistée
+    // avec une version (donc synchronisée).
+    void test_moveItem() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("A", "");
+        model.addItem("B", "");
+        model.addItem("C", "");
+
+        const QString idC = model.data(model.index(2), ItemModel::ItemIdRole).toString();
+
+        // C (dernier) déposé en tête.
+        model.moveItem(2, 0);
+        QCOMPARE(model.data(model.index(0), ItemModel::ItemIdRole).toString(), idC);
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(), QStringLiteral("A"));
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(), QStringLiteral("B"));
+
+        // Persisté et versionné : sans version, le pair d'en face rediffuserait
+        // l'ancienne position et l'écraserait au merge.
+        bool found = false;
+        for (const auto &it : db.getItems(listId)) {
+            if (it.itemId == idC.toStdString()) {
+                QVERIFY(it.orderVer.lamport > 0);
+                QCOMPARE(it.orderVer.deviceId, std::string("dev-A"));
+                found = true;
+            }
+        }
+        QVERIFY(found);
+
+        // L'ordre survit au rechargement : c'est bien la position qui trie, plus la
+        // date de création.
+        ItemModel reloaded;
+        reloaded.load(db, listId, "dev-A");
+        QCOMPARE(reloaded.data(reloaded.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("C"));
+
+        // Déplacement au milieu.
+        model.moveItem(0, 1);   // C entre A et B
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(), QStringLiteral("A"));
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(), QStringLiteral("C"));
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(), QStringLiteral("B"));
+
+        // Bornes : ne rien casser sur un index absurde.
+        model.moveItem(0, 0);
+        model.moveItem(-1, 2);
+        model.moveItem(1, 99);
+        QCOMPARE(model.count(), 3);
+    }
+
+    // Déposer une ligne sous l'en-tête d'un autre rayon la range dans ce rayon : c'est
+    // le geste naturel pour classer, et il n'y a pas d'autre lecture possible.
+    void test_moveItem_acrossAisleChangesAisle() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Pommes", "", "", "Fruits & légumes");
+        model.addItem("Beurre", "", "", "Crèmerie");
+        model.addItem("Truc",   "", "", "");   // non classé, donc en dernier
+
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(),
+                 QStringLiteral("Truc"));
+
+        // « Truc » déposé sur la ligne de Beurre → il rejoint la crèmerie.
+        model.moveItem(2, 1);
+
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Truc"));
+        QCOMPARE(model.data(model.index(1), ItemModel::AisleRole).toString(),
+                 QStringLiteral("Crèmerie"));
+
+        // Le rayon est versionné : il part au relais comme n'importe quel champ.
+        for (const auto &it : db.getItems(listId)) {
+            if (it.name == "Truc") {
+                QCOMPARE(it.aisle, std::string("Crèmerie"));
+                QVERIFY(it.aisleVer.lamport > 0);
+            }
+        }
+    }
+
+    // Ranger un article depuis le dialogue d'édition le fait changer de section.
+    void test_setAisle() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Lait", "");
+        model.addItem("Pommes", "", "", "Fruits & légumes");
+
+        // Lait n'est pas classé : il est donc en dernier.
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Lait"));
+
+        const QString lait = model.data(model.index(1), ItemModel::ItemIdRole).toString();
+        model.setAisle(lait, "Crèmerie");
+
+        // Crèmerie vient après Fruits & légumes, mais avant « non classé ».
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Lait"));
+        QCOMPARE(model.data(model.index(1), ItemModel::AisleRole).toString(),
+                 QStringLiteral("Crèmerie"));
+        QCOMPARE(model.aisleCount(), 2);
     }
 
     // Suppression groupée : tout disparaît de la vue, tout est marqué supprimé en base.

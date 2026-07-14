@@ -25,6 +25,16 @@ bool mergeItem(Item& local, const Item& remote) {
         local.noteVer = remote.noteVer;
         changed = true;
     }
+    if (remote.aisleVer > local.aisleVer) {
+        local.aisle    = remote.aisle;
+        local.aisleVer = remote.aisleVer;
+        changed = true;
+    }
+    if (remote.orderVer > local.orderVer) {
+        local.order    = remote.order;
+        local.orderVer = remote.orderVer;
+        changed = true;
+    }
     if (remote.doneVer > local.doneVer) {
         local.done    = remote.done;
         local.doneVer = remote.doneVer;

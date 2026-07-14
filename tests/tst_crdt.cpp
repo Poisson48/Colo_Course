@@ -595,6 +595,44 @@ static void test_MergeDoneAt() {
     EXPECT_EQ(local.doneAt, 0);
 }
 
+// Rayon et position sont des champs LWW comme les autres : deux personnes qui
+// réordonnent en même temps convergent (le dernier gagne) au lieu de diverger.
+static void test_MergeAisleAndOrder() {
+    Item local;
+    local.itemId   = "i1";
+    local.aisle    = "";
+    local.aisleVer = makeVer(0, "");
+    local.order    = 1000;
+    local.orderVer = makeVer(2, "devA");
+
+    Item remote = local;
+    remote.aisle    = "Crèmerie";
+    remote.aisleVer = makeVer(5, "devB");
+    remote.order    = 3000;
+    remote.orderVer = makeVer(5, "devB");
+
+    EXPECT_TRUE(mergeItem(local, remote));
+    EXPECT_EQ(local.aisle, "Crèmerie");
+    EXPECT_EQ(local.order, 3000);
+
+    // Un déplacement plus ancien ne défait pas le plus récent.
+    Item stale = local;
+    stale.order    = 9999;
+    stale.orderVer = makeVer(3, "devC");
+    EXPECT_FALSE(mergeItem(local, stale));
+    EXPECT_EQ(local.order, 3000);
+
+    // Un pair qui ignore ces champs (version {0,""}) ne les efface pas.
+    Item legacy = local;
+    legacy.aisle    = "";
+    legacy.aisleVer = makeVer(0, "");
+    legacy.order    = 0;
+    legacy.orderVer = makeVer(0, "");
+    EXPECT_FALSE(mergeItem(local, legacy));
+    EXPECT_EQ(local.aisle, "Crèmerie");
+    EXPECT_EQ(local.order, 3000);
+}
+
 static void test_MergeMember() {
     std::map<std::string, std::pair<std::string, Ver>> members;
 
@@ -658,6 +696,7 @@ int main() {
     test_MergeTitle();
     test_MergeNote();
     test_MergeDoneAt();
+    test_MergeAisleAndOrder();
     test_MergeMember();
     test_Associativity();
 

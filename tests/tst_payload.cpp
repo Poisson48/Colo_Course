@@ -63,6 +63,10 @@ static void test_AuthorNoteDoneAtRoundTrip() {
     item.qtyVer  = makeVer(3, "devA");
     item.note    = "6 couches épaisses";
     item.noteVer = makeVer(4, "devA");
+    item.aisle    = "Hygiène";
+    item.aisleVer = makeVer(4, "devA");
+    item.order    = 1721000000123LL;
+    item.orderVer = makeVer(4, "devA");
     item.done    = true;
     item.doneVer = makeVer(5, "devA");
     item.doneAt  = 1721000900000LL;
@@ -79,6 +83,9 @@ static void test_AuthorNoteDoneAtRoundTrip() {
     EXPECT_EQ(pi.note,            "6 couches épaisses");
     EXPECT_EQ(pi.noteVer.lamport, int64_t(4));
     EXPECT_EQ(pi.doneAt,          int64_t(1721000900000LL));
+    EXPECT_EQ(pi.aisle,           "Hygiène");
+    EXPECT_EQ(pi.order,           int64_t(1721000000123LL));
+    EXPECT_EQ(pi.orderVer.lamport, int64_t(4));
 
     // L'auteur se retrouve par son deviceId : c'est ce qui nomme la notification.
     auto author = parsed->members.find(parsed->by);
@@ -115,6 +122,12 @@ static void test_LegacyPayloadWithoutNewFields() {
     EXPECT_EQ(pi.noteVer.lamport, int64_t(0));
     EXPECT_EQ(pi.noteVer.deviceId, "");
     EXPECT_EQ(pi.doneAt,          int64_t(0));
+    // Rayon et position absents eux aussi : version {0,""}, que toute valeur réelle
+    // bat au merge — un ancien pair ne peut pas déclasser nos articles.
+    EXPECT_EQ(pi.aisle,            "");
+    EXPECT_EQ(pi.aisleVer.lamport, int64_t(0));
+    EXPECT_EQ(pi.order,            int64_t(0));
+    EXPECT_EQ(pi.orderVer.lamport, int64_t(0));
 }
 
 static void test_DeltaRoundTrip() {

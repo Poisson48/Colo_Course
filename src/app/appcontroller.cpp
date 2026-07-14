@@ -363,6 +363,10 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
         item.qtyVer  = ver;
         item.note    = src.note;
         item.noteVer = ver;
+        item.aisle    = src.aisle;
+        item.aisleVer = ver;
+        item.order    = src.order;   // la copie garde le classement de l'originale
+        item.orderVer = ver;
         item.done    = false;
         item.doneVer = ver;
         item.doneAt  = 0;

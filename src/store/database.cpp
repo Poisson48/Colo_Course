@@ -85,6 +85,9 @@ bool Database::createSchema()
             "  name TEXT,  name_l INT,  name_d TEXT,"
             "  qty  TEXT,  qty_l  INT,  qty_d  TEXT,"
             "  note TEXT,  note_l INT,  note_d TEXT,"
+            "  aisle TEXT, aisle_l INT, aisle_d TEXT,"
+            // « order » est un mot réservé SQL : la colonne s'appelle sort_order.
+            "  sort_order INT, sort_order_l INT, sort_order_d TEXT,"
             "  done INT,   done_l INT,  done_d TEXT,"
             "  done_at INT,"
             "  del  INT,   del_l  INT,  del_d  TEXT,"
@@ -152,13 +155,33 @@ bool Database::migrateSchema()
         // 0 = date de cochage inconnue (article coché avant cette version) : l'UI
         // affiche « coché » sans date plutôt qu'une date inventée.
         { QStringLiteral("done_at"), QStringLiteral("done_at INT DEFAULT 0") },
+        { QStringLiteral("aisle"),   QStringLiteral("aisle TEXT DEFAULT ''") },
+        { QStringLiteral("aisle_l"), QStringLiteral("aisle_l INT DEFAULT 0") },
+        { QStringLiteral("aisle_d"), QStringLiteral("aisle_d TEXT DEFAULT ''") },
+        { QStringLiteral("sort_order"),   QStringLiteral("sort_order INT DEFAULT 0") },
+        { QStringLiteral("sort_order_l"), QStringLiteral("sort_order_l INT DEFAULT 0") },
+        { QStringLiteral("sort_order_d"), QStringLiteral("sort_order_d TEXT DEFAULT ''") },
     };
+
+    const bool hadOrder = existing.contains(QStringLiteral("sort_order"));
 
     for (const auto& [name, def] : columns) {
         if (existing.contains(name)) continue;
         if (!q.exec(QStringLiteral("ALTER TABLE items ADD COLUMN ") + def)) {
             qWarning() << "migrateSchema: ADD COLUMN" << name
                        << "failed:" << q.lastError().text();
+            return false;
+        }
+    }
+
+    // Position initiale = date de création : l'ordre affiché ne change pas à la mise à
+    // jour, et les valeurs sont assez espacées (des millisecondes) pour qu'on puisse
+    // toujours se glisser entre deux voisins sans renuméroter la liste.
+    if (!hadOrder) {
+        if (!q.exec(QStringLiteral("UPDATE items SET sort_order = created"
+                                   " WHERE sort_order IS NULL OR sort_order = 0"))) {
+            qWarning() << "migrateSchema: backfill sort_order failed:"
+                       << q.lastError().text();
             return false;
         }
     }
@@ -274,14 +297,20 @@ bool Database::upsertItem(const core::Item& item)
         "  name, name_l, name_d,"
         "  qty,  qty_l,  qty_d,"
         "  note, note_l, note_d,"
+        "  aisle, aisle_l, aisle_d,"
+        "  sort_order, sort_order_l, sort_order_d,"
         "  done, done_l, done_d, done_at,"
         "  del,  del_l,  del_d,"
         "  touched)"
-        " VALUES (?,?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?,?, ?,?,?, ?)"
+        " VALUES (?,?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?,?, ?,?,?, ?)"
         " ON CONFLICT(list_id, item_id) DO UPDATE SET"
         "  name   = excluded.name,   name_l = excluded.name_l,   name_d = excluded.name_d,"
         "  qty    = excluded.qty,    qty_l  = excluded.qty_l,    qty_d  = excluded.qty_d,"
         "  note   = excluded.note,   note_l = excluded.note_l,   note_d = excluded.note_d,"
+        "  aisle  = excluded.aisle,  aisle_l = excluded.aisle_l, aisle_d = excluded.aisle_d,"
+        "  sort_order   = excluded.sort_order,"
+        "  sort_order_l = excluded.sort_order_l,"
+        "  sort_order_d = excluded.sort_order_d,"
         "  done   = excluded.done,   done_l = excluded.done_l,   done_d = excluded.done_d,"
         "  done_at = excluded.done_at,"
         "  del    = excluded.del,    del_l  = excluded.del_l,    del_d  = excluded.del_d,"
@@ -299,6 +328,12 @@ bool Database::upsertItem(const core::Item& item)
     q.addBindValue(qs(item.note));
     q.addBindValue(ll(item.noteVer.lamport));
     q.addBindValue(qs(item.noteVer.deviceId));
+    q.addBindValue(qs(item.aisle));
+    q.addBindValue(ll(item.aisleVer.lamport));
+    q.addBindValue(qs(item.aisleVer.deviceId));
+    q.addBindValue(ll(item.order));
+    q.addBindValue(ll(item.orderVer.lamport));
+    q.addBindValue(qs(item.orderVer.deviceId));
     q.addBindValue(item.done ? 1 : 0);
     q.addBindValue(ll(item.doneVer.lamport));
     q.addBindValue(qs(item.doneVer.deviceId));
@@ -331,6 +366,8 @@ std::vector<core::Item> Database::getItems(const std::string& listId)
         "  name, name_l, name_d,"
         "  qty,  qty_l,  qty_d,"
         "  note, note_l, note_d,"
+        "  aisle, aisle_l, aisle_d,"
+        "  sort_order, sort_order_l, sort_order_d,"
         "  done, done_l, done_d, done_at,"
         "  del,  del_l,  del_d,"
         "  touched"
@@ -352,12 +389,21 @@ std::vector<core::Item> Database::getItems(const std::string& listId)
         it.qtyVer      = verFromCols(q.value(7).toLongLong(), q.value(8).toString());
         it.note        = ss(q.value(9).toString());
         it.noteVer     = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
-        it.done        = q.value(12).toInt() != 0;
-        it.doneVer     = verFromCols(q.value(13).toLongLong(), q.value(14).toString());
-        it.doneAt      = q.value(15).toLongLong();
-        it.del         = q.value(16).toInt() != 0;
-        it.delVer      = verFromCols(q.value(17).toLongLong(), q.value(18).toString());
-        it.touched     = q.value(19).toLongLong();
+        it.aisle       = ss(q.value(12).toString());
+        it.aisleVer    = verFromCols(q.value(13).toLongLong(), q.value(14).toString());
+        it.order       = q.value(15).toLongLong();
+        it.orderVer    = verFromCols(q.value(16).toLongLong(), q.value(17).toString());
+        it.done        = q.value(18).toInt() != 0;
+        it.doneVer     = verFromCols(q.value(19).toLongLong(), q.value(20).toString());
+        it.doneAt      = q.value(21).toLongLong();
+        it.del         = q.value(22).toInt() != 0;
+        it.delVer      = verFromCols(q.value(23).toLongLong(), q.value(24).toString());
+        it.touched     = q.value(25).toLongLong();
+
+        // Base d'avant la position manuelle, ou article créé par un pair qui l'ignore :
+        // la date de création fait une position de départ cohérente avec l'affichage.
+        if (it.order == 0)
+            it.order = it.created;
         result.push_back(std::move(it));
     }
     return result;
