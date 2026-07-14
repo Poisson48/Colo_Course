@@ -50,16 +50,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/Qt
-          key: qt-${{ env.QT_VER }}-linux-android-arm64
+          key: qt-${{ env.QT_VER }}-linux-android-arm64-mm
 
       - name: Qt ${{ env.QT_VER }} (hôte + android_arm64_v8a)
         if: steps.cache-qt.outputs.cache-hit != 'true'
         run: |
           python3 -m pip install --user aqtinstall
           python3 -m aqt install-qt linux desktop "$QT_VER" linux_gcc_64 \
-            -m qtwebsockets -O "$HOME/Qt"
+            -m qtwebsockets qtmultimedia -O "$HOME/Qt"
           python3 -m aqt install-qt linux android "$QT_VER" android_arm64_v8a \
-            -m qtwebsockets -O "$HOME/Qt"
+            -m qtwebsockets qtmultimedia -O "$HOME/Qt"
 
       - name: Cache libs arm64
         id: cache-libs

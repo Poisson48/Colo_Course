@@ -8,10 +8,12 @@ PKGS=(
   build-essential cmake ninja-build gdb unzip
   # Qt 6 dev (aligné sur .github/workflows/ci.yml)
   qt6-base-dev qt6-declarative-dev qt6-websockets-dev libqt6sql6-sqlite
+  # caméra (scan du QR d'appairage)
+  qt6-multimedia-dev
   # modules QML nécessaires à l'exécution de l'app
   qml6-module-qtquick-controls qml6-module-qtquick-layouts
   qml6-module-qtquick-window qml6-module-qtquick-templates
-  qml6-module-qtqml-workerscript
+  qml6-module-qtqml-workerscript qml6-module-qtmultimedia
   # crypto
   libsodium-dev libsecp256k1-dev
 )

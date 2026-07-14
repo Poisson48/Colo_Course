@@ -5,9 +5,15 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 
+#include <QQmlEngine>
+
 #include "appcontroller.h"
+#include "permissions.h"
 #include "platform.h"
 #include "qrimageprovider.h"
+#ifdef COLO_HAS_CAMERA
+#  include "qrscanner.h"
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -40,6 +46,15 @@ int main(int argc, char *argv[])
         if (state == Qt::ApplicationActive)
             controller.syncEngine()->subscribeAllLists();
     });
+
+    // Types du scanner, dans le même module QML que les écrans (URI ColoCourse).
+    // Sans Qt Multimedia, ScanPage.qml n'est pas embarquée : son Loader échoue
+    // proprement et l'appairage se fait par lien.
+    app::Permissions permissions;
+    qmlRegisterSingletonInstance("ColoCourse", 1, 0, "Permissions", &permissions);
+#ifdef COLO_HAS_CAMERA
+    qmlRegisterType<app::QrScanner>("ColoCourse", 1, 0, "QrScanner");
+#endif
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("qr"), new app::QrImageProvider());

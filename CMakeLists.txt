@@ -12,7 +12,33 @@ else()
     find_package(Qt6 OPTIONAL_COMPONENTS Widgets)
 endif()
 
+# Caméra = scan du QR d'appairage : bonus, pas fondation. Sans Qt Multimedia (distro
+# qui ne le package pas), l'app build sans scanner et le collage de lien suffit.
+find_package(Qt6 OPTIONAL_COMPONENTS Multimedia)
+if(TARGET Qt6::Multimedia)
+    set(COLO_HAS_CAMERA ON)
+else()
+    set(COLO_HAS_CAMERA OFF)
+    message(STATUS "Qt Multimedia absent → scan du QR désactivé (appairage par lien seulement)")
+endif()
+
 qt_standard_project_setup()
+
+# zxing-cpp : décodage du QR d'appairage (qrcodegen, vendored, ne fait qu'encoder).
+# Récupéré à la compilation — statique, lecteurs seuls, pas d'écriture ni d'exemples.
+if(COLO_HAS_CAMERA)
+    include(FetchContent)
+    set(ZXING_READERS  ON  CACHE BOOL "" FORCE)
+    set(ZXING_WRITERS  OFF CACHE BOOL "" FORCE)
+    set(ZXING_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(ZXING_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+    set(ZXING_BLACKBOX_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(zxing
+        GIT_REPOSITORY https://github.com/zxing-cpp/zxing-cpp.git
+        GIT_TAG        v2.2.1
+    )
+    FetchContent_MakeAvailable(zxing)
+endif()
 
 add_subdirectory(src)
 

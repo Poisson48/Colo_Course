@@ -238,16 +238,69 @@ Item {
         onAccepted: AppController.createList(nameField.text.trim())
     }
 
+    // Scanner : plein écran, par-dessus tout le reste. Chargé seulement à l'ouverture —
+    // instancié d'emblée, il imposerait QtMultimedia au chargement de cette page, et
+    // un desktop sans ce module perdrait l'écran des listes entier.
+    Popup {
+        id: scanPopup
+        parent: Overlay.overlay
+        width: parent.width
+        height: parent.height
+        padding: 0
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        background: Rectangle { color: "black" }
+
+        Loader {
+            id: scanLoader
+            anchors.fill: parent
+            source: scanPopup.opened ? "ScanPage.qml" : ""
+
+            onStatusChanged: {
+                if (status === Loader.Error) {
+                    scanPopup.close()
+                    AppController.toast("Caméra indisponible sur cet appareil")
+                }
+            }
+        }
+
+        Connections {
+            target: scanLoader.item
+            ignoreUnknownSignals: true
+            function onJoined() { scanPopup.close() }
+            function onCloseRequested() { scanPopup.close() }
+        }
+    }
+
     ColoDialog {
         id: joinDialog
         title: "Rejoindre une liste"
         acceptText: "Rejoindre"
         acceptEnabled: uriField.text.trim().length > 0
 
+        Button {
+            Layout.fillWidth: true
+            implicitHeight: 52
+            text: "Scanner le QR code"
+            background: Rectangle {
+                radius: 12
+                color: parent.pressed ? Theme.accentDim : Theme.accent
+            }
+            contentItem: Label {
+                text: parent.text
+                color: "#0C1F10"
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: { joinDialog.close(); scanPopup.open() }
+        }
+
         Label {
             Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            text: "Collez le lien d'invitation reçu, ou scannez le QR code affiché sur l'autre appareil."
+            horizontalAlignment: Text.AlignHCenter
+            text: "ou collez le lien reçu"
             color: Theme.textDim
             font.pixelSize: 13
         }
