@@ -1,17 +1,28 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
+import QtQuick.Layouts
 
-// Choix du rayon. La liste des rayons vient du modèle (C++), dans l'ordre où on
-// traverse un magasin — c'est ce même ordre qui trie les sections de la liste.
-// « Sans rayon » est une valeur réelle (chaîne vide), pas l'absence de choix.
+// Choix du rayon. La liste vient du modèle (C++) : les rayons d'origine dans l'ordre
+// où on traverse un magasin, puis ceux que les participants ont inventés dans cette
+// liste. « Sans rayon » est une valeur réelle (chaîne vide), pas l'absence de choix.
 ComboBox {
     id: box
 
     // Le rayon choisi, "" pour « Sans rayon ».
     property string aisle: ""
 
-    readonly property var options: ["Sans rayon"].concat(AppController.items.aisleNames)
+    readonly property string newLabel: "Nouveau rayon…"
+
+    readonly property var options: {
+        let list = ["Sans rayon"].concat(AppController.items.aisleNames)
+        // Rayon fraîchement tapé : l'article n'est pas encore ajouté, donc le modèle ne
+        // le connaît pas — sans ça, le champ retomberait sur « Sans rayon » sous les
+        // yeux de l'utilisateur, juste après qu'il l'a saisi.
+        if (aisle.length > 0 && list.indexOf(aisle) < 0)
+            list.push(aisle)
+        return list.concat([newLabel])
+    }
 
     implicitHeight: 44
     model: options
@@ -20,14 +31,47 @@ ComboBox {
     onAisleChanged: {
         const wanted = aisle.length > 0 ? aisle : "Sans rayon"
         const at = options.indexOf(wanted)
-        // Rayon inconnu (article venu d'une version plus récente) : ne pas l'écraser
-        // en le forçant sur « Sans rayon », le laisser tel quel.
         if (at >= 0 && at !== currentIndex)
             currentIndex = at
     }
 
     onActivated: function (index) {
+        if (options[index] === newLabel) {
+            newAisleDialog.open()
+            return
+        }
         aisle = (index === 0) ? "" : options[index]
+    }
+
+    ColoDialog {
+        id: newAisleDialog
+        title: "Nouveau rayon"
+        acceptText: "Créer"
+        acceptEnabled: newAisleField.text.trim().length > 0
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            text: "Le rayon sera proposé pour les autres articles de cette liste, "
+                  + "et les participants le verront aussi."
+        }
+
+        ColoTextField {
+            id: newAisleField
+            Layout.fillWidth: true
+            hint: "Cave, Animalerie, Bébé…"
+            onAccepted: if (newAisleDialog.acceptEnabled) newAisleDialog.accept()
+        }
+
+        onOpened: { newAisleField.text = ""; newAisleField.forceActiveFocus() }
+
+        onAccepted: box.aisle = newAisleField.text.trim()
+        // Refusé : le champ affichait déjà « Nouveau rayon… », il faut le remettre sur
+        // le rayon réellement choisi.
+        onRejected: box.currentIndex = Math.max(0, box.options.indexOf(
+                        box.aisle.length > 0 ? box.aisle : "Sans rayon"))
     }
 
     background: Rectangle {
@@ -78,10 +122,14 @@ ComboBox {
         width: box.popup.width - 16
         height: 42
 
+        readonly property bool isNew: modelData === box.newLabel
+
         contentItem: Label {
             text: modelData
-            color: Theme.text
+            // « Nouveau rayon… » est une action, pas un rayon : elle se lit comme telle.
+            color: option.isNew ? Theme.accent : Theme.text
             font.pixelSize: 14
+            font.weight: option.isNew ? Font.DemiBold : Font.Normal
             verticalAlignment: Text.AlignVCenter
         }
 
@@ -91,10 +139,16 @@ ComboBox {
                    ? Theme.surfaceHigh : "transparent"
         }
 
+        // Le délégué est personnalisé : c'est lui qui traite le clic, onActivated n'est
+        // pas émis. La création d'un rayon doit donc être gérée ici aussi.
         onClicked: {
+            box.popup.close()
+            if (option.isNew) {
+                newAisleDialog.open()
+                return
+            }
             box.aisle = (index === 0) ? "" : box.options[index]
             box.currentIndex = index
-            box.popup.close()
         }
     }
 }

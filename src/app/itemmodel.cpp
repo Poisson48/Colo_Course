@@ -27,7 +27,7 @@ static int64_t nextCreated() {
 // helpers
 // ---------------------------------------------------------------------------
 
-const QStringList &ItemModel::aisles() {
+const QStringList &ItemModel::defaultAisles() {
     // L'ordre est celui d'un parcours de magasin, pas l'alphabet : on entre par les
     // fruits, on finit par l'entretien. C'est lui qui ordonne les sections.
     static const QStringList kAisles = {
@@ -47,17 +47,41 @@ const QStringList &ItemModel::aisles() {
 }
 
 int ItemModel::aisleRank(const std::string &aisle) {
-    const int known = aisles().size();
+    const int known = defaultAisles().size();
 
     // Non classé : tout à la fin. Les rayons forment un parcours ; un article sans
     // rayon n'a pas de place dedans, on le vérifie en fin de course.
     if (aisle.empty())
         return known + 1;
 
-    const int idx = aisles().indexOf(QString::fromStdString(aisle));
-    // Rayon inconnu (version plus récente en face) : on ne le perd pas, on le range
-    // après les rayons connus mais avant les non classés.
+    const int idx = defaultAisles().indexOf(QString::fromStdString(aisle));
+    // Rayon inventé : après les rayons d'origine, avant les non classés. Entre eux,
+    // c'est le libellé qui départage (rowLessThan) — donc le même ordre partout, sans
+    // avoir à synchroniser un classement des rayons.
     return idx >= 0 ? idx : known;
+}
+
+QStringList ItemModel::aisleNames() const {
+    QStringList names = defaultAisles();
+
+    // Les rayons inventés se déduisent des articles : ils voyagent déjà avec eux (le
+    // champ `aisle` porte le libellé), donc celui que l'un crée apparaît chez l'autre
+    // sans rien ajouter au protocole.
+    QStringList custom;
+    for (const auto &item : m_items) {
+        if (item.del || item.aisle.empty())
+            continue;
+        const QString aisle = QString::fromStdString(item.aisle);
+        if (!names.contains(aisle) && !custom.contains(aisle))
+            custom << aisle;
+    }
+
+    // Ordre alphabétique (sensible aux accents) : le même sur tous les appareils.
+    std::sort(custom.begin(), custom.end(), [](const QString &a, const QString &b) {
+        return QString::localeAwareCompare(a, b) < 0;
+    });
+
+    return names + custom;
 }
 
 bool ItemModel::rowLessThan(const Row &a, const Row &b) {
@@ -132,6 +156,8 @@ void ItemModel::rebuildRows() {
     endResetModel();
     emit countChanged();
     emit doneCountChanged();
+    // Un merge distant peut apporter un rayon qu'on ne connaissait pas.
+    emit aisleNamesChanged();
 }
 
 int ItemModel::rowCount(const QModelIndex &parent) const {
@@ -261,6 +287,7 @@ void ItemModel::addItem(const QString &name, const QString &qty,
     if (!m_db->upsertItem(item)) return;
 
     emit localChanged(m_listId);
+    emit aisleNamesChanged();
 
     // Insert into m_items (full set).
     m_items.push_back(item);
@@ -304,6 +331,7 @@ void ItemModel::toggleDone(const QString &itemId) {
     if (!m_db->upsertItem(*it)) return;
 
     emit localChanged(m_listId);
+    emit aisleNamesChanged();
 
     // Find current position in visible rows.
     const int oldPos = findRow(itemId);
@@ -378,6 +406,7 @@ void ItemModel::editItem(const QString &itemId, const QString &name,
     if (!m_db->upsertItem(*it)) return;
 
     emit localChanged(m_listId);
+    emit aisleNamesChanged();
 
     // Le rayon est la première clé de tri : l'article change de section, la ligne se
     // déplace. De même sous filtre, où l'édition peut la faire sortir de la recherche.
@@ -419,6 +448,7 @@ void ItemModel::setAisle(const QString &itemId, const QString &aisle) {
     if (!m_db->upsertItem(*it)) return;
 
     emit localChanged(m_listId);
+    emit aisleNamesChanged();
     // Le rayon est la première clé de tri : l'article change de section.
     rebuildRows();
 }
@@ -495,6 +525,7 @@ void ItemModel::moveItem(int from, int to) {
     if (!m_db->upsertItem(*it)) return;
 
     emit localChanged(m_listId);
+    emit aisleNamesChanged();
 
     // Déplacement de ligne, surtout pas beginResetModel : une reconstruction détruirait
     // tous les délégués — dont celui que le doigt est en train de glisser.
@@ -558,6 +589,7 @@ void ItemModel::uncheckAll() {
     if (!any) return;
 
     emit localChanged(m_listId);
+    emit aisleNamesChanged();
     // Tout a changé de camp et donc de place dans le tri : reconstruire est plus
     // simple, et plus sûr, que d'orchestrer N déplacements de lignes.
     rebuildRows();
@@ -586,6 +618,7 @@ void ItemModel::removeDone() {
     if (!any) return;
 
     emit localChanged(m_listId);
+    emit aisleNamesChanged();
     rebuildRows();
 }
 
@@ -610,6 +643,7 @@ void ItemModel::removeItem(const QString &itemId) {
     if (!m_db->upsertItem(*it)) return;
 
     emit localChanged(m_listId);
+    emit aisleNamesChanged();
 
     // Remove from visible rows.
     const int pos = findRow(itemId);

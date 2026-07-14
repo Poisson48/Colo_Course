@@ -24,8 +24,10 @@ class ItemModel : public QAbstractListModel {
     // Nombre de rayons distincts affichés. À un seul, les en-têtes de section ne
     // servent à rien : qui ne classe pas ses articles ne voit aucun changement.
     Q_PROPERTY(int aisleCount READ aisleCount NOTIFY countChanged)
-    // Les rayons proposés à la saisie, dans l'ordre du magasin.
-    Q_PROPERTY(QStringList aisleNames READ aisleNames CONSTANT)
+    // Les rayons proposés à la saisie : ceux d'origine, puis ceux que les participants
+    // ont inventés dans cette liste. NOTIFY et pas CONSTANT : un rayon créé doit
+    // apparaître aussitôt dans le choix, ici comme chez les autres.
+    Q_PROPERTY(QStringList aisleNames READ aisleNames NOTIFY aisleNamesChanged)
 
 public:
     enum Roles {
@@ -41,10 +43,10 @@ public:
         AisleRole,
     };
 
-    // Rayons connus, dans l'ordre où on traverse un magasin. C'est cet ordre qui trie
+    // Rayons d'origine, dans l'ordre où on traverse un magasin. C'est cet ordre qui trie
     // les sections : la liste se lit comme un parcours, pas comme un alphabet.
     // Un rayon vide (« ») veut dire « non classé » et passe en dernier.
-    static const QStringList &aisles();
+    static const QStringList &defaultAisles();
 
     explicit ItemModel(QObject *parent = nullptr);
 
@@ -59,7 +61,10 @@ public:
     int count() const;
     int doneCount() const;
     int aisleCount() const;
-    QStringList aisleNames() const { return aisles(); }
+    // Rayons d'origine + rayons inventés dans cette liste (déduits des articles :
+    // aucun champ de plus à synchroniser, et un rayon dont plus rien ne dépend
+    // disparaît de lui-même).
+    QStringList aisleNames() const;
 
     QString filter() const { return m_filter; }
     void    setFilter(const QString &filter);
@@ -100,6 +105,7 @@ signals:
     void countChanged();
     void doneCountChanged();
     void filterChanged();
+    void aisleNamesChanged();
     // Emitted after any local write (addItem, toggleDone, removeItem, editItem).
     void localChanged(const std::string& listId);
 

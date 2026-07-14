@@ -136,12 +136,10 @@ Item {
             width: Theme.touchTarget
             height: Theme.touchTarget
             visible: !root.selectionMode && !root.shoppingMode
-            contentItem: Label {
-                text: "⋮"
+            contentItem: Icon {
+                name: "menu"
                 color: Theme.text
-                font.pixelSize: 20
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
+                size: 18
             }
             onClicked: pageMenu.popup()
         }
@@ -209,7 +207,7 @@ Item {
                     text: AppController.items.count === 0
                           ? "Liste vide"
                           : (AppController.items.doneCount === AppController.items.count
-                             ? "Tout est dans le panier 🎉"
+                             ? "Tout est dans le panier"
                              : AppController.items.doneCount + " sur "
                                + AppController.items.count + " dans le panier")
                     color: Theme.text
@@ -274,12 +272,10 @@ Item {
                 ToolButton {
                     Layout.preferredWidth: Theme.touchTarget
                     Layout.preferredHeight: Theme.touchTarget
-                    contentItem: Label {
-                        text: "×"
+                    contentItem: Icon {
+                        name: "close"
                         color: Theme.textDim
-                        font.pixelSize: 20
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
+                        size: 17
                     }
                     onClicked: root.closeSearch()
                 }
@@ -472,12 +468,10 @@ Item {
                         visible: !root.selectionMode && !root.shoppingMode
                         width: Theme.touchTarget
                         height: Theme.touchTarget
-                        contentItem: Label {
-                            text: "×"
+                        contentItem: Icon {
+                            name: "close"
                             color: Theme.textDim
-                            font.pixelSize: 15
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                            size: 14
                         }
                         onClicked: deleteDialog.openFor([model.itemId], model.name)
                     }
@@ -497,11 +491,11 @@ Item {
                         drag.axis: Drag.YAxis
                         cursorShape: Qt.SizeVerCursor
 
-                        Label {
+                        Icon {
                             anchors.centerIn: parent
-                            text: "⠿"
+                            name: "grip"
                             color: Theme.textDim
-                            font.pixelSize: 16
+                            size: 16
                         }
                     }
                 }

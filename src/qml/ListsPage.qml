@@ -118,12 +118,23 @@ Item {
                     radius: 22
                     color: model.count > 0 ? Theme.accentDim : Theme.surfaceHigh
 
+                    // Reste à acheter, ou une coche quand tout est pris. La coche est
+                    // dessinée : « ✓ » n'est pas garanti dans les polices d'Android.
                     Label {
                         anchors.centerIn: parent
-                        text: model.count > 0 ? model.count : "✓"
-                        color: model.count > 0 ? "#FFFFFF" : Theme.accent   // accentDim est foncé dans les deux thèmes
-                        font.pixelSize: model.count > 0 ? 17 : 18
+                        visible: model.count > 0
+                        text: model.count
+                        color: "#FFFFFF"   // accentDim est foncé dans les deux thèmes
+                        font.pixelSize: 17
                         font.weight: Font.DemiBold
+                    }
+
+                    Icon {
+                        anchors.centerIn: parent
+                        visible: model.count === 0
+                        name: "check"
+                        color: Theme.accent
+                        size: 22
                     }
                 }
 
@@ -159,12 +170,10 @@ Item {
                     Layout.alignment: Qt.AlignVCenter
                     width: Theme.touchTarget
                     height: Theme.touchTarget
-                    contentItem: Label {
-                        text: "⋮"
+                    contentItem: Icon {
+                        name: "menu"
                         color: Theme.textDim
-                        font.pixelSize: 20
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
+                        size: 18
                     }
                     onClicked: {
                         cardMenu.listId = model.listId

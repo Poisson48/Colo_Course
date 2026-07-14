@@ -225,6 +225,14 @@ private slots:
 
         QVERIFY2(g_warnings.isEmpty(), qPrintable(g_warnings.join(QStringLiteral("\n"))));
 
+        // Voir l'écran sans téléphone ni serveur X :
+        //   QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+        //   COLO_SCREENSHOT=/tmp/ui.png ./tst_qml
+        // Le rendu logiciel dessine hors écran ; c'est le seul moyen de vérifier ce qui
+        // ne se voit pas (icônes manquantes, thème clair illisible) autrement qu'à l'œil.
+        if (qEnvironmentVariableIsSet("COLO_SCREENSHOT"))
+            win->grabWindow().save(qEnvironmentVariable("COLO_SCREENSHOT"));
+
         const QStringList options = visibleTexts(win->contentItem());
         QVERIFY2(options.contains(QStringLiteral("Crèmerie")),
                  qPrintable("rayons proposés : " + options.join(QStringLiteral(" | "))));

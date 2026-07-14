@@ -150,12 +150,10 @@ Item {
             ToolButton {
                 Layout.preferredWidth: Theme.touchTarget
                 Layout.preferredHeight: Theme.touchTarget
-                contentItem: Label {
-                    text: "×"
+                contentItem: Icon {
+                    name: "close"
                     color: "white"
-                    font.pixelSize: 18
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                    size: 17
                 }
                 onClicked: root.closeRequested()
             }

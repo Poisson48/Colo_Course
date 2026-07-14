@@ -539,6 +539,52 @@ private slots:
                  QStringLiteral("Beurre"));     // le rayon suivant n'a pas bougé
     }
 
+    // Rayon inventé : il voyage avec l'article (le champ porte le libellé), donc il
+    // apparaît dans les choix sans qu'on ait rien à synchroniser de plus.
+    void test_customAisle() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+
+        QCOMPARE(model.aisleNames(), ItemModel::defaultAisles());
+
+        QSignalSpy aisleSpy(&model, &ItemModel::aisleNamesChanged);
+        model.addItem("Croquettes", "", "", "Animalerie");
+        model.addItem("Vin",        "", "", "Cave");
+        model.addItem("Pommes",     "", "", "Fruits & légumes");
+        QVERIFY(aisleSpy.count() > 0);   // le choix se met à jour tout de suite
+
+        // Les rayons d'origine d'abord, puis les inventés par ordre alphabétique — le
+        // même ordre sur tous les appareils, sans classement à synchroniser.
+        const QStringList names = model.aisleNames();
+        QCOMPARE(names.size(), ItemModel::defaultAisles().size() + 2);
+        QCOMPARE(names.at(names.size() - 2), QStringLiteral("Animalerie"));
+        QCOMPARE(names.last(),               QStringLiteral("Cave"));
+
+        // Tri : les rayons inventés passent après les rayons d'origine, mais avant les
+        // articles non classés.
+        model.addItem("Truc", "");   // sans rayon
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Pommes"));      // rayon d'origine
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Croquettes"));  // Animalerie
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(),
+                 QStringLiteral("Vin"));         // Cave
+        QCOMPARE(model.data(model.index(3), ItemModel::NameRole).toString(),
+                 QStringLiteral("Truc"));        // non classé, toujours en dernier
+
+        // Un rayon dont plus aucun article ne dépend disparaît des choix de lui-même.
+        const QString vin = model.data(model.index(2), ItemModel::ItemIdRole).toString();
+        model.removeItem(vin);
+        QVERIFY(!model.aisleNames().contains(QStringLiteral("Cave")));
+        QVERIFY(model.aisleNames().contains(QStringLiteral("Animalerie")));
+    }
+
     // Réordonner : la ligne va où on la dépose, et la nouvelle position est persistée
     // avec une version (donc synchronisée).
     void test_moveItem() {

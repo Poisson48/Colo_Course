@@ -89,12 +89,10 @@ ApplicationWindow {
                 Layout.preferredWidth: Theme.touchTarget
                 Layout.preferredHeight: Theme.touchTarget
                 visible: stack.depth > 1
-                contentItem: Text {
-                    text: "←"          // ←
-                    font.pixelSize: 22
+                contentItem: Icon {
+                    name: "back"
                     color: Theme.text
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                    size: 22
                 }
                 // Même chemin que le bouton retour Android : la flèche doit sortir du
                 // mode sélection avant de quitter la page.
@@ -176,7 +174,7 @@ ApplicationWindow {
                 font.pixelSize: 12
                 text: window.pending
                       ? "Envoi de " + AppController.pendingChanges + " modification(s)…"
-                      : "À jour ✓"
+                      : "Tout est synchronisé"
             }
         }
 
@@ -279,12 +277,10 @@ ApplicationWindow {
                     visible: !Updater.downloading
                     implicitWidth: 36
                     implicitHeight: Theme.touchTarget
-                    contentItem: Label {
-                        text: "×"
+                    contentItem: Icon {
+                        name: "close"
                         color: Theme.textDim
-                        font.pixelSize: 18
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
+                        size: 16
                     }
                     onClicked: Updater.dismiss()
                 }
