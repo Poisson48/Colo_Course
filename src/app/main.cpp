@@ -5,9 +5,13 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 
+#include <QQmlEngine>
+
 #include "appcontroller.h"
+#include "permissions.h"
 #include "platform.h"
 #include "qrimageprovider.h"
+#include "qrscanner.h"
 
 int main(int argc, char *argv[])
 {
@@ -40,6 +44,11 @@ int main(int argc, char *argv[])
         if (state == Qt::ApplicationActive)
             controller.syncEngine()->subscribeAllLists();
     });
+
+    // Types du scanner, dans le même module QML que les écrans (URI ColoCourse).
+    app::Permissions permissions;
+    qmlRegisterSingletonInstance("ColoCourse", 1, 0, "Permissions", &permissions);
+    qmlRegisterType<app::QrScanner>("ColoCourse", 1, 0, "QrScanner");
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("qr"), new app::QrImageProvider());

@@ -70,8 +70,10 @@ target_link_libraries(cryptolayer PUBLIC
 add_library(applib STATIC
     app/appcontroller.cpp
     app/itemmodel.cpp
+    app/permissions.cpp
     app/platform.cpp
     app/qrimageprovider.cpp
+    app/qrscanner.cpp
     app/syncengine.cpp
 )
 
@@ -83,7 +85,9 @@ target_link_libraries(applib PUBLIC
     net
     store
     qrcodegen
+    ZXing::ZXing
     Qt6::Core
+    Qt6::Multimedia
     Qt6::Quick
     Qt6::Sql
     Qt6::WebSockets
@@ -111,6 +115,7 @@ qt_add_qml_module(colocourse
         qml/Main.qml
         qml/ListsPage.qml
         qml/ListPage.qml
+        qml/ScanPage.qml
         qml/ShareSheet.qml
         qml/ColoDialog.qml
         qml/ColoTextField.qml
@@ -124,6 +129,7 @@ target_link_libraries(colocourse PRIVATE
     store
     qrcodegen
     Qt6::Core
+    Qt6::Multimedia
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Sql
@@ -132,8 +138,8 @@ target_link_libraries(colocourse PRIVATE
     PkgConfig::SECP256K1
 )
 
-# Paquet Android : manifest (permissions, label, icône), ressources et le Java
-# le Java du pont plateforme (android/src/org/colocourse/app/Platform.java).
+# Paquet Android : manifest (permissions, label, icône), ressources, et le Java du
+# pont plateforme (android/src/org/colocourse/app/Platform.java).
 set_property(TARGET colocourse PROPERTY
     QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/android")
 # targetSdk 34 volontairement, pas 35 : à partir d'Android 15, cibler 35 impose
