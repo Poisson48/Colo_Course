@@ -87,3 +87,19 @@ Ordre strict : 0 → 1 → 2 (tests CRDT blindés **avant** tout réseau) → 3/
 - Le validateur lit le diff, pas les fichiers entiers.
 - Pas de refactoring opportuniste hors du périmètre de la tâche.
 - Toute décision nouvelle se consigne dans SPEC.md ou PLAN.md (une fois), jamais re-débattue.
+
+## 7. REPRISE (état au 14/07/2026, fin de session)
+
+Branche `feat/android` : APK arm64 **construit avec succès** →
+`build-android/src/android-build/build/outputs/apk/release/android-build-release-unsigned.apk`.
+
+Reste pour finir 6.1 :
+1. L'APK est **non signé** → builder en debug (signature auto) : dans scripts/build-android.sh
+   remplacer `-DCMAKE_BUILD_TYPE=Release` par `Debug`, ou signer avec apksigner + keystore debug.
+2. Installer sur téléphone (adb via usbipd sous WSL, ou copie manuelle de l'APK).
+3. Vérifier au premier lancement : connexion relais, création liste, appairage QR entre desktop et mobile.
+4. Merger feat/android dans main (squash), cocher 6.1.
+
+Environnement de la machine actuelle (à réinstaller ailleurs via scripts/) :
+`scripts/setup-dev.sh` (desktop) puis `scripts/setup-android.sh` (kit Android complet, sans sudo
+sauf openjdk-17 et libsecp256k1-dev/libsodium-dev). Le build APK : `scripts/build-android.sh`.

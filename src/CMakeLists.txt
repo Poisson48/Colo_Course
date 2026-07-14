@@ -1,7 +1,9 @@
-# Find libsodium and libsecp256k1 via pkg-config
+# Find libsodium and libsecp256k1 via pkg-config.
+# IMPORTED_TARGET: les cibles portent aussi les -L, indispensable en cross-build
+# (le préfixe Android n'est pas dans les chemins par défaut du linker).
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(SODIUM REQUIRED libsodium)
-pkg_check_modules(SECP256K1 REQUIRED libsecp256k1)
+pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
+pkg_check_modules(SECP256K1 REQUIRED IMPORTED_TARGET libsecp256k1)
 
 # --- qrcodegen static library (vendored from Nayuki) ---
 add_library(qrcodegen STATIC
@@ -57,15 +59,11 @@ add_library(cryptolayer STATIC
 target_include_directories(cryptolayer PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
-target_include_directories(cryptolayer PRIVATE
-    ${SODIUM_INCLUDE_DIRS}
-    ${SECP256K1_INCLUDE_DIRS}
-)
 target_link_libraries(cryptolayer PUBLIC
     Qt6::Core
     net
-    ${SODIUM_LIBRARIES}
-    ${SECP256K1_LIBRARIES}
+    PkgConfig::SODIUM
+    PkgConfig::SECP256K1
 )
 
 # --- app library (AppController, ItemModel, QrImageProvider, SyncEngine) ---
@@ -88,8 +86,8 @@ target_link_libraries(applib PUBLIC
     Qt6::Quick
     Qt6::Sql
     Qt6::WebSockets
-    ${SODIUM_LIBRARIES}
-    ${SECP256K1_LIBRARIES}
+    PkgConfig::SODIUM
+    PkgConfig::SECP256K1
 )
 
 if(TARGET Qt6::Widgets)
@@ -120,6 +118,19 @@ target_link_libraries(colocourse PRIVATE
     Qt6::Quick
     Qt6::Sql
     Qt6::WebSockets
-    ${SODIUM_LIBRARIES}
-    ${SECP256K1_LIBRARIES}
+    PkgConfig::SODIUM
+    PkgConfig::SECP256K1
 )
+
+# Android n'embarque pas OpenSSL : sans ces .so, QSslSocket est muet et les
+# connexions wss:// aux relais échouent silencieusement.
+if(ANDROID)
+    include(FetchContent)
+    FetchContent_Declare(android_openssl
+        GIT_REPOSITORY https://github.com/KDAB/android_openssl.git
+        GIT_TAG master
+    )
+    FetchContent_MakeAvailable(android_openssl)
+    include(${android_openssl_SOURCE_DIR}/android_openssl.cmake)
+    add_android_openssl_libraries(colocourse)
+endif()
