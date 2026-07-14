@@ -26,19 +26,19 @@ qt_standard_project_setup()
 
 # zxing-cpp : décodage du QR d'appairage (qrcodegen, vendored, ne fait qu'encoder).
 # Récupéré à la compilation — statique, lecteurs seuls, pas d'écriture ni d'exemples.
-if(COLO_HAS_CAMERA)
-    include(FetchContent)
-    set(ZXING_READERS  ON  CACHE BOOL "" FORCE)
-    set(ZXING_WRITERS  OFF CACHE BOOL "" FORCE)
-    set(ZXING_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(ZXING_UNIT_TESTS OFF CACHE BOOL "" FORCE)
-    set(ZXING_BLACKBOX_TESTS OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(zxing
-        GIT_REPOSITORY https://github.com/zxing-cpp/zxing-cpp.git
-        GIT_TAG        v2.2.1
-    )
-    FetchContent_MakeAvailable(zxing)
-endif()
+# Hors du garde COLO_HAS_CAMERA : le décodeur doit rester compilé (et testé) même
+# quand Qt Multimedia manque, sinon le seul test de décodage ne tournerait jamais.
+include(FetchContent)
+set(ZXING_READERS  ON  CACHE BOOL "" FORCE)
+set(ZXING_WRITERS  OFF CACHE BOOL "" FORCE)
+set(ZXING_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(ZXING_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(ZXING_BLACKBOX_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(zxing
+    GIT_REPOSITORY https://github.com/zxing-cpp/zxing-cpp.git
+    GIT_TAG        v2.2.1
+)
+FetchContent_MakeAvailable(zxing)
 
 add_subdirectory(src)
 

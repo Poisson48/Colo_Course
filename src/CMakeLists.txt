@@ -66,6 +66,11 @@ target_link_libraries(cryptolayer PUBLIC
     PkgConfig::SECP256K1
 )
 
+# --- qrdecode : décodage QR (zxing), sans dépendance à la caméra ---
+add_library(qrdecode STATIC app/qrdecode.cpp)
+target_include_directories(qrdecode PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/app)
+target_link_libraries(qrdecode PUBLIC Qt6::Gui ZXing::ZXing)
+
 # --- app library (AppController, ItemModel, QrImageProvider, SyncEngine) ---
 set(APPLIB_SOURCES
     app/appcontroller.cpp
@@ -90,6 +95,7 @@ target_link_libraries(applib PUBLIC
     net
     store
     qrcodegen
+    qrdecode
     Qt6::Core
     Qt6::Quick
     Qt6::Sql
@@ -99,7 +105,7 @@ target_link_libraries(applib PUBLIC
 )
 
 if(COLO_HAS_CAMERA)
-    target_link_libraries(applib PUBLIC ZXing::ZXing Qt6::Multimedia)
+    target_link_libraries(applib PUBLIC Qt6::Multimedia)
     target_compile_definitions(applib PUBLIC COLO_HAS_CAMERA)
 endif()
 

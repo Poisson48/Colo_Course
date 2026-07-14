@@ -141,3 +141,21 @@ target_include_directories(tst_pairing PRIVATE
 target_link_libraries(tst_pairing PRIVATE core)
 
 add_test(NAME pairing COMMAND tst_pairing)
+
+# --- QR decode (zxing) : le QR affiché doit être relu par l'autre appareil ---
+qt_add_executable(tst_qrdecode
+    tst_qrdecode.cpp
+)
+
+target_link_libraries(tst_qrdecode PRIVATE
+    qrdecode
+    qrcodegen
+    core
+    Qt6::Test
+    Qt6::Gui
+)
+
+add_test(NAME qrdecode COMMAND tst_qrdecode)
+# QTEST_MAIN instancie une QGuiApplication : sans display (CI, conteneur), le test
+# avorte au démarrage. Le rendu du QR se fait sur une QImage, aucun écran requis.
+set_tests_properties(qrdecode PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
