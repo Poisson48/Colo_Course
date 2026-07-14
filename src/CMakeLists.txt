@@ -1,3 +1,16 @@
+# --- store static library ---
+add_library(store STATIC
+    store/database.cpp
+)
+
+target_include_directories(store PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(store PUBLIC
+    Qt6::Core
+    Qt6::Sql
+)
+
+# --- main application ---
 qt_add_executable(colocourse
     app/main.cpp
 )
@@ -9,6 +22,7 @@ qt_add_qml_module(colocourse
 )
 
 target_link_libraries(colocourse PRIVATE
+    store
     Qt6::Core
     Qt6::Quick
     Qt6::Sql
