@@ -48,7 +48,8 @@ fi
 AQT="python3 -m aqt"
 HOST_ARCH="$($AQT list-qt linux desktop --arch $QT_VER | tr ' ' '\n' | grep -m1 gcc_64)"
 [ -d "$QT_ROOT/$QT_VER/gcc_64" ] || $AQT install-qt linux desktop "$QT_VER" "$HOST_ARCH" -O "$QT_ROOT"
-[ -d "$QT_ROOT/$QT_VER/android_arm64_v8a" ] || $AQT install-qt linux android "$QT_VER" android_arm64_v8a -O "$QT_ROOT"
+[ -d "$QT_ROOT/$QT_VER/android_arm64_v8a" ] || \
+  $AQT install-qt linux android "$QT_VER" android_arm64_v8a -m qtwebsockets -O "$QT_ROOT"
 
 TC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
