@@ -67,15 +67,19 @@ target_link_libraries(cryptolayer PUBLIC
 )
 
 # --- app library (AppController, ItemModel, QrImageProvider, SyncEngine) ---
-add_library(applib STATIC
+set(APPLIB_SOURCES
     app/appcontroller.cpp
     app/itemmodel.cpp
     app/permissions.cpp
     app/platform.cpp
     app/qrimageprovider.cpp
-    app/qrscanner.cpp
     app/syncengine.cpp
 )
+if(COLO_HAS_CAMERA)
+    list(APPEND APPLIB_SOURCES app/qrscanner.cpp)
+endif()
+
+add_library(applib STATIC ${APPLIB_SOURCES})
 
 target_include_directories(applib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -85,15 +89,18 @@ target_link_libraries(applib PUBLIC
     net
     store
     qrcodegen
-    ZXing::ZXing
     Qt6::Core
-    Qt6::Multimedia
     Qt6::Quick
     Qt6::Sql
     Qt6::WebSockets
     PkgConfig::SODIUM
     PkgConfig::SECP256K1
 )
+
+if(COLO_HAS_CAMERA)
+    target_link_libraries(applib PUBLIC ZXing::ZXing Qt6::Multimedia)
+    target_compile_definitions(applib PUBLIC COLO_HAS_CAMERA)
+endif()
 
 if(TARGET Qt6::Widgets)
     target_link_libraries(applib PUBLIC Qt6::Widgets)
@@ -108,18 +115,23 @@ qt_add_executable(colocourse
 # pas Theme comme singleton et toutes ses couleurs arrivent en `undefined`.
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
+set(COLO_QML_FILES
+    qml/Main.qml
+    qml/ListsPage.qml
+    qml/ListPage.qml
+    qml/ShareSheet.qml
+    qml/ColoDialog.qml
+    qml/ColoTextField.qml
+    qml/Theme.qml
+)
+if(COLO_HAS_CAMERA)
+    list(APPEND COLO_QML_FILES qml/ScanPage.qml)
+endif()
+
 qt_add_qml_module(colocourse
     URI ColoCourse
     VERSION 1.0
-    QML_FILES
-        qml/Main.qml
-        qml/ListsPage.qml
-        qml/ListPage.qml
-        qml/ScanPage.qml
-        qml/ShareSheet.qml
-        qml/ColoDialog.qml
-        qml/ColoTextField.qml
-        qml/Theme.qml
+    QML_FILES ${COLO_QML_FILES}
 )
 
 target_link_libraries(colocourse PRIVATE
@@ -129,7 +141,6 @@ target_link_libraries(colocourse PRIVATE
     store
     qrcodegen
     Qt6::Core
-    Qt6::Multimedia
     Qt6::Quick
     Qt6::QuickControls2
     Qt6::Sql

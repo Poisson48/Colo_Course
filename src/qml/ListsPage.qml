@@ -238,7 +238,9 @@ Item {
         onAccepted: AppController.createList(nameField.text.trim())
     }
 
-    // Scanner : plein écran, par-dessus tout le reste.
+    // Scanner : plein écran, par-dessus tout le reste. Chargé seulement à l'ouverture —
+    // instancié d'emblée, il imposerait QtMultimedia au chargement de cette page, et
+    // un desktop sans ce module perdrait l'écran des listes entier.
     Popup {
         id: scanPopup
         parent: Overlay.overlay
@@ -249,10 +251,24 @@ Item {
         closePolicy: Popup.CloseOnEscape
         background: Rectangle { color: "black" }
 
-        ScanPage {
+        Loader {
+            id: scanLoader
             anchors.fill: parent
-            onJoined: scanPopup.close()
-            onCloseRequested: scanPopup.close()
+            source: scanPopup.opened ? "ScanPage.qml" : ""
+
+            onStatusChanged: {
+                if (status === Loader.Error) {
+                    scanPopup.close()
+                    AppController.toast("Caméra indisponible sur cet appareil")
+                }
+            }
+        }
+
+        Connections {
+            target: scanLoader.item
+            ignoreUnknownSignals: true
+            function onJoined() { scanPopup.close() }
+            function onCloseRequested() { scanPopup.close() }
         }
     }
 

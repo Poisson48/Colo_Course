@@ -6,7 +6,11 @@ Une app minimaliste de gestion de liste de courses : créez une liste, partagez-
 
 [![CI](https://github.com/Poisson48/Colo_Course/actions/workflows/ci.yml/badge.svg)](https://github.com/Poisson48/Colo_Course/actions/workflows/ci.yml)
 
-<!-- TODO capture: docs/img/screenshot.png -->
+<p align="center">
+  <img src="docs/screenshots/lists.png" width="250" alt="Écran des listes">
+  <img src="docs/screenshots/items.png" width="250" alt="Articles d'une liste">
+  <img src="docs/screenshots/share.png" width="250" alt="Partage par QR code">
+</p>
 
 ## Comment ça marche
 
@@ -14,7 +18,7 @@ Une app minimaliste de gestion de liste de courses : créez une liste, partagez-
 - **Copie locale complète** : chaque appareil stocke tous les items et l'historique en SQLite.
 - **Sync chiffrée E2E** : les données circulent via des relais Nostr publics (store-and-forward gratuit). Les relais ne voient que des blobs chiffrés ; la clé de déchiffrement reste sur l'appareil.
 - **Sans conflits** : CRDT maison avec Last-Writer-Wins par champ (nom, quantité, coché) et horloges de Lamport. Les modifications simultanées convergent identiquement sur tous les appareils, sans intervention.
-- **Appairage simple** : créez une liste, générez un QR code avec la clé chiffrée, scannez depuis l'autre appareil. URI `colocourse://` pour partage en texte.
+- **Appairage simple** : créez une liste, puis soit l'autre appareil **scanne le QR code**, soit vous lui **envoyez le lien** `colocourse://` (WhatsApp, SMS…) — un appui dessus ouvre l'app et rejoint la liste. Le lien porte la clé : ne le publiez pas.
 - **Plusieurs listes** : gérez autant de listes qu'il y a de contextes (courses à la maison, coloc, boulot…), chacune avec ses participants.
 - **Hors ligne d'abord** : les modifications s'ajoutent immédiatement localement dans une file d'attente. Au retour du réseau, la sync reprend automatiquement.
 

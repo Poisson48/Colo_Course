@@ -26,6 +26,10 @@ Dialog {
     modal: true
     focus: true
     padding: 20
+
+    // Le voile du style Material éclaircit le fond sombre : l'écran paraît délavé
+    // dès qu'un dialogue s'ouvre. On l'assombrit à la place.
+    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.6) }
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     background: Rectangle {

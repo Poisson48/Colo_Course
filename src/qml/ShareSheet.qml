@@ -25,6 +25,7 @@ Popup {
     modal: true
     padding: 0
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    Overlay.modal: Rectangle { color: Qt.rgba(0, 0, 0, 0.6) }
 
     background: Rectangle {
         color: Theme.surface

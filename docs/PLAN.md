@@ -24,6 +24,12 @@ participants différents. Notification quand des changements arrivent hors ligne
   Les relais ne voient que des blobs chiffrés. Une liste = un canal = une clé.
 - **Licence : GPLv3** (compatible Qt open source).
 
+**Dépendances** (règle §4.5 : toute nouvelle dépendance est listée ici) : Qt 6 (Core, Quick,
+QuickControls2, Sql, WebSockets), libsodium, libsecp256k1, qrcodegen (vendored, encode le QR),
+**Qt Multimedia** (caméra) et **zxing-cpp v2.2.1** (décode le QR ; FetchContent, lecteurs seuls).
+Les deux dernières sont **optionnelles** : sans Qt Multimedia, l'app build sans scanner et
+l'appairage se fait par lien.
+
 ## 3. Workflow git à 3 rôles (économie de tokens)
 
 Chaque tâche du plan passe par 3 sessions distinctes, chacune avec le modèle le moins cher
@@ -76,7 +82,8 @@ Convention effort : **min** = Haiku sans réflexion étendue · **std** = Sonnet
 | 4.3 | Découverte LAN (mDNS) pour sync locale instantanée — **reporté v2** (bonus : la sync relais couvre le besoin) | Haiku (boilerplate) | min | ⏸ |
 | 5.1 | Intégration bout-en-bout : modif → op CRDT → chiffré → relais → merge distant ; tests d'intégration multi-instances | Sonnet | std | ✅ |
 | 6.1 | Déploiement Android : manifest, permissions, icônes, notifications à l'ouverture | Haiku/Sonnet | min/std | ✅ (smoke test téléphone à faire) |
-| 6.2 | README public, captures, instructions de build | Haiku | min | ✅ (captures à ajouter) |
+| 6.2 | README public, captures, instructions de build | Haiku | min | ✅ |
+| 7.1 | Passe UX + correctifs de fond : thème sombre, écrans refondus, clé de liste manquante, publication des écritures locales, scan QR caméra, deep link `colocourse://` | Opus | haut | ✅ |
 
 Ordre strict : 0 → 1 → 2 (tests CRDT blindés **avant** tout réseau) → 3/4 en parallèle → 5 → 6.
 
@@ -99,11 +106,20 @@ onglet *Actions* → artefacts du run. Le build local reste possible :
 `.github/workflows/release.yml`, qui publie l'APK dans les Releases GitHub. `versionName` = le
 tag, `versionCode` = nombre de commits (entier croissant, exigé par Android).
 
-Reste à faire (hors code) :
-1. **Smoke test sur téléphone** : `adb install -r colocourse-arm64.apk`, puis vérifier au premier
-   lancement la connexion relais, la création de liste, l'appairage QR desktop ↔ mobile, et
-   l'arrivée d'une notification quand l'autre appareil modifie une liste.
-2. Captures d'écran pour le README (reste de 6.2).
+**Bugs de fond corrigés pendant la passe UX 7.1** (ils rendaient l'app inopérante en vrai, alors
+que les tests passaient — ceux-ci câblaient eux-mêmes ce que l'app ne câblait pas) :
+1. `ItemModel::localChanged` n'était connecté à rien et `registerItemModel` jamais appelé :
+   aucune écriture locale n'était publiée, aucun événement distant ne rafraîchissait l'écran.
+   `AppController` possède désormais l'`ItemModel` et fait le câblage.
+2. `createList()` laissait la clé de liste **vide** : URI d'appairage rejetée (32 octets exigés)
+   et chiffrement/canal identiques pour tout le monde. → `net::generateListKey()`.
+3. Une liste créée après le démarrage n'était souscrite qu'au lancement suivant.
+
+Vérifié bout-en-bout avec deux instances desktop sur les vrais relais : B rejoint par lien,
+récupère l'historique, et reçoit en direct un article ajouté sur A.
+
+Reste à faire (hors code) : **smoke test sur téléphone** — installer l'APK, vérifier le scan du
+QR entre les deux appareils et l'arrivée d'une notification.
 
 Limite v1 assumée (SPEC §8) : app fermée = pas de réception. Le rattrapage se fait au lancement
 et au retour au premier plan.
