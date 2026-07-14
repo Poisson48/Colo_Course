@@ -18,6 +18,43 @@ ApplicationWindow {
 
     readonly property bool offline: !AppController.online
 
+    // Bouton retour Android : Qt le délivre ici comme une demande de fermeture de
+    // fenêtre. Sans ce handler, il quittait l'app — depuis une liste ouverte comme
+    // depuis un dialogue, ce qui ressemble à un plantage. On l'absorbe tant qu'il
+    // reste quelque chose à refermer, et on ne quitte qu'à la racine.
+    onClosing: function (close) {
+        close.accepted = false
+
+        const page = stack.currentItem
+        if (window.closeTopPopup(page))
+            return
+        if (page && typeof page.handleBack === "function" && page.handleBack())
+            return
+        if (stack.depth > 1) {
+            stack.pop()
+            return
+        }
+
+        close.accepted = true
+    }
+
+    // Un Popup a pour parent visuel l'Overlay, mais reste déclaré dans la page :
+    // on le retrouve dans ses `data`. Le dernier ouvert est le plus haut → fermé
+    // en premier (un dialogue par-dessus le scanner, par exemple).
+    function closeTopPopup(page) {
+        if (!page)
+            return false
+        const kids = page.data
+        for (let i = kids.length - 1; i >= 0; --i) {
+            const child = kids[i]
+            if (child && child.opened === true && typeof child.close === "function") {
+                child.close()
+                return true
+            }
+        }
+        return false
+    }
+
     // Barre supérieure : titre de la page courante + actions fournies par la page.
     header: Rectangle {
         color: Theme.surface
@@ -40,7 +77,14 @@ ApplicationWindow {
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
-                onClicked: stack.pop()
+                // Même chemin que le bouton retour Android : la flèche doit sortir du
+                // mode sélection avant de quitter la page.
+                onClicked: {
+                    const page = stack.currentItem
+                    if (page && typeof page.handleBack === "function" && page.handleBack())
+                        return
+                    stack.pop()
+                }
             }
 
             Label {

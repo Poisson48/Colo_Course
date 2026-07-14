@@ -49,18 +49,37 @@ cmake --build "$ROOT/build-android" --target apk -j"$(nproc)"
 UNSIGNED="$(find "$ROOT/build-android" -name '*-release-unsigned.apk' | head -1)"
 [ -n "$UNSIGNED" ] || { echo "APK non signé introuvable dans build-android/" >&2; exit 1; }
 
-# Android refuse d'installer un APK non signé. Le keystore de debug suffit pour
-# installer sur son propre téléphone ; ce n'est PAS une clé de publication Play Store.
-KEYSTORE="${KEYSTORE:-$HOME/.android/debug.keystore}"
-KEYALIAS="${KEYALIAS:-androiddebugkey}"
-STOREPASS="${STOREPASS:-android}"
-if [ ! -f "$KEYSTORE" ]; then
-  echo "== keystore de debug généré : $KEYSTORE =="
-  mkdir -p "$(dirname "$KEYSTORE")"
-  keytool -genkeypair -keystore "$KEYSTORE" -alias "$KEYALIAS" \
-    -storepass "$STOREPASS" -keypass "$STOREPASS" \
-    -keyalg RSA -keysize 2048 -validity 10000 \
-    -dname "CN=Colo Course Debug, O=ColoCourse, C=FR" >/dev/null
+# Android refuse d'installer un APK non signé, et refuse de mettre à jour une app
+# dont la signature a changé (« App not installed » / INSTALL_FAILED_UPDATE_INCOMPATIBLE) :
+# la seule issue est de désinstaller, ce qui efface les listes locales. La clé DOIT
+# donc rester la même d'une version à l'autre.
+#
+# En CI, $HOME est neuf à chaque run : sans clé fournie, le bloc de repli ci-dessous
+# en générait une nouvelle à chaque build — donc une signature différente à chaque
+# release. On passe désormais la clé de publication par ANDROID_KEYSTORE_B64
+# (secret GitHub, cf. scripts/make-release-key.sh).
+if [ -n "${ANDROID_KEYSTORE_B64:-}" ]; then
+  KEYSTORE="$(mktemp -t colocourse-keystore.XXXXXX.jks)"
+  trap 'rm -f "$KEYSTORE"' EXIT
+  printf '%s' "$ANDROID_KEYSTORE_B64" | base64 -d > "$KEYSTORE"
+  KEYALIAS="${KEYALIAS:?ANDROID_KEYSTORE_B64 fourni sans KEYALIAS}"
+  STOREPASS="${STOREPASS:?ANDROID_KEYSTORE_B64 fourni sans STOREPASS}"
+  echo "== signature avec la clé de publication (alias $KEYALIAS) =="
+else
+  # Build local : le keystore de debug de la machine persiste d'un build à l'autre,
+  # les réinstallations par-dessus fonctionnent donc sans désinstaller.
+  KEYSTORE="${KEYSTORE:-$HOME/.android/debug.keystore}"
+  KEYALIAS="${KEYALIAS:-androiddebugkey}"
+  STOREPASS="${STOREPASS:-android}"
+  if [ ! -f "$KEYSTORE" ]; then
+    echo "== keystore de debug généré : $KEYSTORE =="
+    mkdir -p "$(dirname "$KEYSTORE")"
+    keytool -genkeypair -keystore "$KEYSTORE" -alias "$KEYALIAS" \
+      -storepass "$STOREPASS" -keypass "$STOREPASS" \
+      -keyalg RSA -keysize 2048 -validity 10000 \
+      -dname "CN=Colo Course Debug, O=ColoCourse, C=FR" >/dev/null
+  fi
+  echo "== signature avec le keystore de debug local : $KEYSTORE =="
 fi
 
 BT="$SDK_ROOT/build-tools/$BUILD_TOOLS_VER"

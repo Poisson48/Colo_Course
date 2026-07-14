@@ -40,6 +40,13 @@ Item {
         }
     }
 
+    // Pas encore de nom choisi (installation neuve, ou mise à jour depuis une version
+    // qui ne le demandait pas) : on le demande avant tout le reste.
+    Component.onCompleted: {
+        if (!AppController.hasDisplayName)
+            nameDialog.open()
+    }
+
     ListView {
         id: listView
         anchors.fill: parent
@@ -207,6 +214,14 @@ Item {
             onTriggered: shareSheet.openFor(cardMenu.listId, cardMenu.listName)
         }
         MenuItem {
+            text: "Renommer la liste"
+            onTriggered: renameDialog.openFor(cardMenu.listId, cardMenu.listName)
+        }
+        MenuItem {
+            text: "Dupliquer la liste"
+            onTriggered: duplicateDialog.openFor(cardMenu.listId, cardMenu.listName)
+        }
+        MenuItem {
             text: "Quitter la liste"
             onTriggered: {
                 leaveDialog.listId = cardMenu.listId
@@ -319,10 +334,79 @@ Item {
     }
 
     ColoDialog {
+        id: renameDialog
+        title: "Renommer la liste"
+        acceptText: "Renommer"
+        acceptEnabled: renameField.text.trim().length > 0
+
+        property string listId: ""
+
+        function openFor(id, currentName) {
+            listId = id
+            open()
+            renameField.text = currentName
+            renameField.forceActiveFocus()
+            renameField.selectAll()
+        }
+
+        ColoTextField {
+            id: renameField
+            Layout.fillWidth: true
+            hint: "Nom de la liste"
+            onAccepted: if (renameDialog.acceptEnabled) renameDialog.accept()
+        }
+
+        onAccepted: AppController.renameList(renameDialog.listId, renameField.text.trim())
+    }
+
+    ColoDialog {
+        id: duplicateDialog
+        title: "Dupliquer la liste"
+        acceptText: "Dupliquer"
+        acceptEnabled: duplicateField.text.trim().length > 0
+
+        property string listId: ""
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            text: "Une nouvelle liste, avec les mêmes articles, tous à acheter. "
+                  + "Elle est indépendante : la partager demande un nouveau lien."
+        }
+
+        ColoTextField {
+            id: duplicateField
+            Layout.fillWidth: true
+            hint: "Nom de la copie"
+            onAccepted: if (duplicateDialog.acceptEnabled) duplicateDialog.accept()
+        }
+
+        function openFor(id, currentName) {
+            listId = id
+            open()
+            duplicateField.text = currentName + " (copie)"
+            duplicateField.forceActiveFocus()
+            duplicateField.selectAll()
+        }
+
+        onAccepted: AppController.duplicateList(duplicateDialog.listId,
+                                                duplicateField.text.trim())
+    }
+
+    ColoDialog {
         id: nameDialog
-        title: "Mon nom"
+        title: AppController.hasDisplayName ? "Mon nom" : "Comment vous appelez-vous ?"
         acceptText: "Enregistrer"
         acceptEnabled: displayNameField.text.trim().length > 0
+
+        // Au premier lancement, ce nom n'a pas encore été choisi : tant qu'il vaut
+        // « Moi », les autres participants reçoivent « 2 articles modifiés par Moi ».
+        // On le demande donc d'emblée, et on ne laisse pas esquiver d'un appui à côté.
+        closePolicy: AppController.hasDisplayName
+                     ? (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
+                     : Popup.NoAutoClose
 
         Label {
             Layout.fillWidth: true
@@ -340,7 +424,10 @@ Item {
         }
 
         onOpened: {
-            displayNameField.text = AppController.displayName
+            // Premier lancement : champ vide plutôt que « Moi » prérempli, qu'on
+            // validerait sans y penser — et tout le monde s'appellerait « Moi ».
+            displayNameField.text = AppController.hasDisplayName
+                                    ? AppController.displayName : ""
             displayNameField.forceActiveFocus()
             displayNameField.selectAll()
         }

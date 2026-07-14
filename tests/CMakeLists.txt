@@ -84,6 +84,34 @@ target_link_libraries(tst_itemmodel PRIVATE
 
 add_test(NAME itemmodel COMMAND tst_itemmodel)
 
+# --- QML : les écrans se chargent-ils, et la logique qu'ils portent tient-elle ? ---
+qt_add_executable(tst_qml
+    tst_qml.cpp
+)
+
+target_include_directories(tst_qml PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+# Les pages sont chargées depuis les sources, pas depuis le module QML compilé dans
+# l'exécutable : le test voit exactement les fichiers que le développeur édite.
+target_compile_definitions(tst_qml PRIVATE
+    COLO_QML_DIR="${CMAKE_SOURCE_DIR}/src/qml"
+)
+
+target_link_libraries(tst_qml PRIVATE
+    applib
+    store
+    core
+    qrcodegen
+    Qt6::Test
+    Qt6::Quick
+    Qt6::QuickControls2
+)
+
+add_test(NAME qml COMMAND tst_qml)
+set_tests_properties(qml PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # --- Crypto tests (XChaCha20-Poly1305, BIP340 Schnorr, NIP-01) ---
 qt_add_executable(tst_crypto
     tst_crypto.cpp

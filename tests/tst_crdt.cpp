@@ -534,6 +534,67 @@ static void test_MergeTitle() {
 }
 
 // mergeMember
+// La description suit la même règle LWW que les autres champs, indépendamment d'eux.
+static void test_MergeNote() {
+    Item local;
+    local.itemId  = "i1";
+    local.name    = "Pq";
+    local.nameVer = makeVer(3, "devA");
+    local.note    = "";
+    local.noteVer = makeVer(0, "");
+
+    Item remote = local;
+    remote.note    = "6 couches épaisses";
+    remote.noteVer = makeVer(4, "devB");
+
+    EXPECT_TRUE(mergeItem(local, remote));
+    EXPECT_EQ(local.note, "6 couches épaisses");
+    // Le nom n'était pas concerné : sa version ne bouge pas.
+    EXPECT_EQ(local.nameVer.lamport, 3);
+
+    // Une note plus ancienne ne réécrit pas la plus récente.
+    Item stale = local;
+    stale.note    = "n'importe quoi";
+    stale.noteVer = makeVer(2, "devC");
+    EXPECT_FALSE(mergeItem(local, stale));
+    EXPECT_EQ(local.note, "6 couches épaisses");
+
+    // Un pair qui ignore le champ (version {0,""}) ne l'efface pas non plus.
+    Item legacy = local;
+    legacy.note    = "";
+    legacy.noteVer = makeVer(0, "");
+    EXPECT_FALSE(mergeItem(local, legacy));
+    EXPECT_EQ(local.note, "6 couches épaisses");
+}
+
+// doneAt est un satellite de `done` : la date suit celui qui gagne le merge sur done.
+static void test_MergeDoneAt() {
+    Item local;
+    local.itemId  = "i1";
+    local.done    = false;
+    local.doneVer = makeVer(2, "devA");
+    local.doneAt  = 0;
+
+    Item remote = local;
+    remote.done    = true;
+    remote.doneVer = makeVer(5, "devB");
+    remote.doneAt  = 1'700'000'000'000;
+
+    EXPECT_TRUE(mergeItem(local, remote));
+    EXPECT_TRUE(local.done);
+    EXPECT_EQ(local.doneAt, 1'700'000'000'000);
+
+    // Décochage plus récent : done repasse à false, et la date de cochage disparaît.
+    Item uncheck = local;
+    uncheck.done    = false;
+    uncheck.doneVer = makeVer(7, "devA");
+    uncheck.doneAt  = 0;
+
+    EXPECT_TRUE(mergeItem(local, uncheck));
+    EXPECT_FALSE(local.done);
+    EXPECT_EQ(local.doneAt, 0);
+}
+
 static void test_MergeMember() {
     std::map<std::string, std::pair<std::string, Ver>> members;
 
@@ -595,6 +656,8 @@ int main() {
     test_LateJoinConvergence();
     test_GcEligibility();
     test_MergeTitle();
+    test_MergeNote();
+    test_MergeDoneAt();
     test_MergeMember();
     test_Associativity();
 

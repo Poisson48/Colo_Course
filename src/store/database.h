@@ -81,6 +81,8 @@ public:
 
 private:
     bool createSchema();
+    // Ajoute les colonnes absentes des bases créées par une version antérieure.
+    bool migrateSchema();
 
     QSqlDatabase m_db;
     QString      m_connectionName;

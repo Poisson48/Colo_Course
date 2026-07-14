@@ -12,6 +12,19 @@ on:
         description: "android:versionCode"
         type: string
         default: "1"
+      require_release_key:
+        description: "Échouer si la clé de publication manque (releases)"
+        type: boolean
+        default: false
+    secrets:
+      # Clé de publication. Absente (fork, dépôt fraîchement cloné) → l'APK est signé
+      # avec une clé de debug jetable : installable, mais pas mettable à jour par-dessus.
+      ANDROID_KEYSTORE_B64:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEYSTORE_PASS:
+        required: false
 
 env:
   QT_VER: 6.8.2
@@ -74,11 +87,29 @@ jobs:
           ANDROID_NDK_ROOT="$ANDROID_SDK_ROOT/ndk/$NDK_VER" \
             bash scripts/build-android-deps.sh
 
+      # Une release signée par une clé qui change à chaque build est ininstallable
+      # par-dessus la précédente : mieux vaut échouer ici, avec la marche à suivre.
+      - name: Vérifier la clé de publication
+        if: inputs.require_release_key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::Secret ANDROID_KEYSTORE_B64 absent. Sans clé de publication stable," \
+                 "chaque release aurait une signature différente et ne pourrait pas être" \
+                 "installée par-dessus la précédente. Créez la clé une fois :" \
+                 "bash scripts/make-release-key.sh"
+            exit 1
+          fi
+
       - name: Build + signature de l'APK
         env:
           VERSION_NAME: ${{ inputs.version_name }}
           VERSION_CODE: ${{ inputs.version_code }}
           OUT: ${{ github.workspace }}/colocourse-arm64.apk
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          STOREPASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
         # ANDROID_SDK_ROOT vient du runner : il n'existe que dans l'env du shell.
         run: SDK_ROOT="$ANDROID_SDK_ROOT" bash scripts/build-android.sh
 

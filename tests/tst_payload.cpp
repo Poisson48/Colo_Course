@@ -45,6 +45,78 @@ static Ver makeVer(int64_t l, const std::string& dev) {
 // Tests
 // ---------------------------------------------------------------------------
 
+// Auteur, description et date de cochage font l'aller-retour.
+static void test_AuthorNoteDoneAtRoundTrip() {
+    Payload p;
+    p.type   = Payload::Type::delta;
+    p.listId = "list-abc";
+    p.by     = "devA";
+
+    Item item;
+    item.listId  = "list-abc";
+    item.itemId  = "item-001";
+    item.created = 1721000000000LL;
+    item.by      = "devA";
+    item.name    = "Papier toilette";
+    item.nameVer = makeVer(3, "devA");
+    item.qty     = "2 paquets";
+    item.qtyVer  = makeVer(3, "devA");
+    item.note    = "6 couches épaisses";
+    item.noteVer = makeVer(4, "devA");
+    item.done    = true;
+    item.doneVer = makeVer(5, "devA");
+    item.doneAt  = 1721000900000LL;
+    p.items.push_back(item);
+
+    p.members["devA"] = {"Marie", makeVer(3, "devA")};
+
+    auto parsed = parsePayload(serializePayload(p));
+    EXPECT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->by, "devA");
+    EXPECT_EQ(parsed->items.size(), size_t(1));
+
+    const Item& pi = parsed->items[0];
+    EXPECT_EQ(pi.note,            "6 couches épaisses");
+    EXPECT_EQ(pi.noteVer.lamport, int64_t(4));
+    EXPECT_EQ(pi.doneAt,          int64_t(1721000900000LL));
+
+    // L'auteur se retrouve par son deviceId : c'est ce qui nomme la notification.
+    auto author = parsed->members.find(parsed->by);
+    EXPECT_TRUE(author != parsed->members.end());
+    EXPECT_EQ(author->second.first, "Marie");
+}
+
+// Un payload émis par la version précédente n'a ni "by", ni "note", ni "doneAt" :
+// il doit rester lisible, et ses champs absents valoir « rien » (version {0,""}),
+// pour qu'un merge ne les prenne jamais pour un effacement volontaire.
+static void test_LegacyPayloadWithoutNewFields() {
+    const std::string legacy = R"({
+        "v": 1, "t": "delta", "list": "list-abc",
+        "items": [{
+            "id": "item-001", "created": 1721000000000, "by": "devA",
+            "f": {
+                "name": ["Lait", [12, "devA"]],
+                "qty":  ["1L",   [12, "devA"]],
+                "done": [false,  [12, "devA"]],
+                "del":  [false,  [12, "devA"]]
+            }
+        }],
+        "members": {"devA": ["Marie", [12, "devA"]]}
+    })";
+
+    auto parsed = parsePayload(legacy);
+    EXPECT_TRUE(parsed.has_value());
+    EXPECT_TRUE(parsed->by.empty());
+    EXPECT_EQ(parsed->items.size(), size_t(1));
+
+    const Item& pi = parsed->items[0];
+    EXPECT_EQ(pi.name,            "Lait");
+    EXPECT_EQ(pi.note,            "");
+    EXPECT_EQ(pi.noteVer.lamport, int64_t(0));
+    EXPECT_EQ(pi.noteVer.deviceId, "");
+    EXPECT_EQ(pi.doneAt,          int64_t(0));
+}
+
 static void test_DeltaRoundTrip() {
     Payload p;
     p.type   = Payload::Type::delta;
@@ -219,6 +291,8 @@ int main() {
     std::printf("=== tst_payload ===\n");
 
     test_DeltaRoundTrip();
+    test_AuthorNoteDoneAtRoundTrip();
+    test_LegacyPayloadWithoutNewFields();
     test_SnapRoundTrip();
     test_MalformedJson();
     test_WrongVersion();

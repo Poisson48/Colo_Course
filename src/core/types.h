@@ -36,8 +36,15 @@ struct Item {
     std::string qty;
     Ver         qtyVer;
 
+    // Précision libre : « 6 couches épaisses », « la marque bleue », « sans sucre ».
+    std::string note;
+    Ver         noteVer;
+
     bool done = false;
     Ver  doneVer;
+    // Date de cochage (ms epoch, 0 si à acheter). Satellite de `done` : pas de version
+    // propre, il suit doneVer — celui qui gagne le merge sur `done` apporte sa date.
+    int64_t doneAt = 0;
 
     bool del = false;
     Ver  delVer;

@@ -84,7 +84,9 @@ bool Database::createSchema()
             "  by TEXT,"
             "  name TEXT,  name_l INT,  name_d TEXT,"
             "  qty  TEXT,  qty_l  INT,  qty_d  TEXT,"
+            "  note TEXT,  note_l INT,  note_d TEXT,"
             "  done INT,   done_l INT,  done_d TEXT,"
+            "  done_at INT,"
             "  del  INT,   del_l  INT,  del_d  TEXT,"
             "  touched INT,"
             "  PRIMARY KEY(list_id, item_id)"
@@ -120,6 +122,43 @@ bool Database::createSchema()
     for (const QString& stmt : ddl) {
         if (!q.exec(stmt)) {
             qWarning() << "createSchema error:" << q.lastError().text() << stmt;
+            return false;
+        }
+    }
+    return migrateSchema();
+}
+
+// Les bases déjà installées ont été créées par une version antérieure : CREATE TABLE
+// IF NOT EXISTS ne les touche plus, il faut ajouter les colonnes manquantes à la main.
+// SQLite n'a pas d'ADD COLUMN IF NOT EXISTS → on lit d'abord les colonnes existantes.
+bool Database::migrateSchema()
+{
+    QSqlQuery q(m_db);
+
+    QStringList existing;
+    if (!q.exec(QStringLiteral("PRAGMA table_info(items)"))) {
+        qWarning() << "migrateSchema: PRAGMA failed:" << q.lastError().text();
+        return false;
+    }
+    while (q.next())
+        existing << q.value(1).toString();
+
+    // (colonne, définition). Une note absente vaut "" en version {0,""} : toute note
+    // réelle la bat au merge LWW, donc la migration ne perd rien.
+    const QList<QPair<QString, QString>> columns = {
+        { QStringLiteral("note"),    QStringLiteral("note TEXT DEFAULT ''") },
+        { QStringLiteral("note_l"),  QStringLiteral("note_l INT DEFAULT 0") },
+        { QStringLiteral("note_d"),  QStringLiteral("note_d TEXT DEFAULT ''") },
+        // 0 = date de cochage inconnue (article coché avant cette version) : l'UI
+        // affiche « coché » sans date plutôt qu'une date inventée.
+        { QStringLiteral("done_at"), QStringLiteral("done_at INT DEFAULT 0") },
+    };
+
+    for (const auto& [name, def] : columns) {
+        if (existing.contains(name)) continue;
+        if (!q.exec(QStringLiteral("ALTER TABLE items ADD COLUMN ") + def)) {
+            qWarning() << "migrateSchema: ADD COLUMN" << name
+                       << "failed:" << q.lastError().text();
             return false;
         }
     }
@@ -234,14 +273,17 @@ bool Database::upsertItem(const core::Item& item)
         " (list_id, item_id, created, by,"
         "  name, name_l, name_d,"
         "  qty,  qty_l,  qty_d,"
-        "  done, done_l, done_d,"
+        "  note, note_l, note_d,"
+        "  done, done_l, done_d, done_at,"
         "  del,  del_l,  del_d,"
         "  touched)"
-        " VALUES (?,?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?, ?)"
+        " VALUES (?,?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?,?, ?,?,?, ?)"
         " ON CONFLICT(list_id, item_id) DO UPDATE SET"
         "  name   = excluded.name,   name_l = excluded.name_l,   name_d = excluded.name_d,"
         "  qty    = excluded.qty,    qty_l  = excluded.qty_l,    qty_d  = excluded.qty_d,"
+        "  note   = excluded.note,   note_l = excluded.note_l,   note_d = excluded.note_d,"
         "  done   = excluded.done,   done_l = excluded.done_l,   done_d = excluded.done_d,"
+        "  done_at = excluded.done_at,"
         "  del    = excluded.del,    del_l  = excluded.del_l,    del_d  = excluded.del_d,"
         "  touched = excluded.touched"));
     q.addBindValue(qs(item.listId));
@@ -254,9 +296,13 @@ bool Database::upsertItem(const core::Item& item)
     q.addBindValue(qs(item.qty));
     q.addBindValue(ll(item.qtyVer.lamport));
     q.addBindValue(qs(item.qtyVer.deviceId));
+    q.addBindValue(qs(item.note));
+    q.addBindValue(ll(item.noteVer.lamport));
+    q.addBindValue(qs(item.noteVer.deviceId));
     q.addBindValue(item.done ? 1 : 0);
     q.addBindValue(ll(item.doneVer.lamport));
     q.addBindValue(qs(item.doneVer.deviceId));
+    q.addBindValue(ll(item.doneAt));
     q.addBindValue(item.del ? 1 : 0);
     q.addBindValue(ll(item.delVer.lamport));
     q.addBindValue(qs(item.delVer.deviceId));
@@ -284,7 +330,8 @@ std::vector<core::Item> Database::getItems(const std::string& listId)
         "SELECT item_id, created, by,"
         "  name, name_l, name_d,"
         "  qty,  qty_l,  qty_d,"
-        "  done, done_l, done_d,"
+        "  note, note_l, note_d,"
+        "  done, done_l, done_d, done_at,"
         "  del,  del_l,  del_d,"
         "  touched"
         " FROM items WHERE list_id = ? ORDER BY created ASC"));
@@ -303,11 +350,14 @@ std::vector<core::Item> Database::getItems(const std::string& listId)
         it.nameVer     = verFromCols(q.value(4).toLongLong(), q.value(5).toString());
         it.qty         = ss(q.value(6).toString());
         it.qtyVer      = verFromCols(q.value(7).toLongLong(), q.value(8).toString());
-        it.done        = q.value(9).toInt() != 0;
-        it.doneVer     = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
-        it.del         = q.value(12).toInt() != 0;
-        it.delVer      = verFromCols(q.value(13).toLongLong(), q.value(14).toString());
-        it.touched     = q.value(15).toLongLong();
+        it.note        = ss(q.value(9).toString());
+        it.noteVer     = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
+        it.done        = q.value(12).toInt() != 0;
+        it.doneVer     = verFromCols(q.value(13).toLongLong(), q.value(14).toString());
+        it.doneAt      = q.value(15).toLongLong();
+        it.del         = q.value(16).toInt() != 0;
+        it.delVer      = verFromCols(q.value(17).toLongLong(), q.value(18).toString());
+        it.touched     = q.value(19).toLongLong();
         result.push_back(std::move(it));
     }
     return result;

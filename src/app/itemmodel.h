@@ -20,7 +20,9 @@ public:
         ItemIdRole = Qt::UserRole + 1,
         NameRole,
         QtyRole,
+        NoteRole,
         DoneRole,
+        DoneAtRole,
         CreatedRole,
     };
 
@@ -37,13 +39,20 @@ public:
     int count() const;
 
 public slots:
-    void addItem(const QString &name, const QString &qty);
+    void addItem(const QString &name, const QString &qty, const QString &note = {});
     void toggleDone(const QString &itemId);
     void removeItem(const QString &itemId);
+    // Suppression groupée (mode sélection) : un seul lot publié, pas N événements.
+    void removeItems(const QStringList &itemIds);
+    // Édition LWW du nom, de la quantité et de la description. Les champs inchangés
+    // gardent leur version : réécrire une valeur identique ferait gagner ce champ
+    // contre une modification distante concurrente qu'on n'a pas encore reçue.
+    void editItem(const QString &itemId, const QString &name,
+                  const QString &qty, const QString &note);
 
 signals:
     void countChanged();
-    // Emitted after any local write (addItem, toggleDone, removeItem).
+    // Emitted after any local write (addItem, toggleDone, removeItem, editItem).
     void localChanged(const std::string& listId);
 
 private:

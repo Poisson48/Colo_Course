@@ -9,20 +9,106 @@ Item {
     required property string listId
     required property string listTitle
 
-    readonly property string pageTitle: listTitle
+    // Sélection multiple : vide = mode normal. Un appui long sur une ligne y entre.
+    property var selectedIds: []
+    readonly property bool selectionMode: selectedIds.length > 0
 
-    property Component actions: ToolButton {
-        width: 92
-        height: Theme.touchTarget
-        contentItem: Label {
-            text: "Partager"
-            color: Theme.accent
-            font.pixelSize: 14
-            font.weight: Font.DemiBold
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
+    readonly property string pageTitle: selectionMode
+        ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
+        : listTitle
+
+    // Retour (bouton Android ou flèche) : sortir de la sélection avant de quitter la page.
+    function handleBack() {
+        if (selectionMode) {
+            selectedIds = []
+            return true
         }
-        onClicked: shareSheet.openFor(root.listId, root.listTitle)
+        return false
+    }
+
+    function isSelected(itemId) {
+        return selectedIds.indexOf(itemId) >= 0
+    }
+
+    function toggleSelection(itemId) {
+        // Réassignation d'un nouveau tableau : muter en place ne notifierait personne.
+        const next = selectedIds.slice()
+        const at = next.indexOf(itemId)
+        if (at >= 0)
+            next.splice(at, 1)
+        else
+            next.push(itemId)
+        selectedIds = next
+    }
+
+    // Le titre suit le renommage, d'ici ou d'un autre appareil.
+    Connections {
+        target: AppController
+        function onListRenamed(listId, title) {
+            if (listId === root.listId)
+                root.listTitle = title
+        }
+    }
+
+    property Component actions: Row {
+        spacing: 0
+
+        ToolButton {
+            width: 96
+            height: Theme.touchTarget
+            visible: root.selectionMode
+            contentItem: Label {
+                text: "Supprimer"
+                color: Theme.danger
+                font.pixelSize: 14
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: deleteDialog.openFor(root.selectedIds)
+        }
+
+        ToolButton {
+            width: 88
+            height: Theme.touchTarget
+            visible: !root.selectionMode
+            contentItem: Label {
+                text: "Partager"
+                color: Theme.accent
+                font.pixelSize: 14
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: shareSheet.openFor(root.listId, root.listTitle)
+        }
+
+        ToolButton {
+            width: Theme.touchTarget
+            height: Theme.touchTarget
+            visible: !root.selectionMode
+            contentItem: Label {
+                text: "⋮"
+                color: Theme.text
+                font.pixelSize: 20
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: pageMenu.popup()
+        }
+    }
+
+    Menu {
+        id: pageMenu
+
+        MenuItem {
+            text: "Renommer la liste"
+            onTriggered: renameDialog.open()
+        }
+        MenuItem {
+            text: "Dupliquer la liste"
+            onTriggered: duplicateDialog.open()
+        }
     }
 
     ShareSheet { id: shareSheet }
@@ -50,10 +136,17 @@ Item {
                 height: 60
                 padding: 0
 
+                readonly property bool selected: root.isSelected(model.itemId)
+
+                // Le swipe supprime : en mode sélection il entrerait en conflit avec
+                // le geste de sélection, on le désactive.
+                swipe.enabled: !root.selectionMode
+
                 background: Rectangle {
                     radius: 12
-                    color: row.pressed ? Theme.surfaceHigh : Theme.surface
-                    border.color: Theme.outline
+                    color: row.selected ? Theme.accentDim
+                         : (row.pressed ? Theme.surfaceHigh : Theme.surface)
+                    border.color: row.selected ? Theme.accent : Theme.outline
                     border.width: 1
                 }
 
@@ -65,11 +158,18 @@ Item {
                         Layout.alignment: Qt.AlignVCenter
                         implicitWidth: Theme.touchTarget
                         implicitHeight: Theme.touchTarget
-                        checked: model.done
+                        // En mode sélection, la case coche la ligne ; sinon elle
+                        // marque l'article comme acheté.
+                        checked: root.selectionMode ? row.selected : model.done
                         Material.accent: Theme.accent
                         // onToggled et pas onCheckedChanged : ce dernier repart en
                         // boucle quand le modèle se recharge après un merge distant.
-                        onToggled: AppController.items.toggleDone(model.itemId)
+                        onToggled: {
+                            if (root.selectionMode)
+                                root.toggleSelection(model.itemId)
+                            else
+                                AppController.items.toggleDone(model.itemId)
+                        }
                     }
 
                     ColumnLayout {
@@ -87,10 +187,18 @@ Item {
                             elide: Text.ElideRight
                         }
 
+                        // Quantité et description sur une seule ligne : « 2 · sans sucre ».
                         Label {
                             Layout.fillWidth: true
-                            visible: model.qty && model.qty.length > 0
-                            text: model.qty
+                            visible: text.length > 0
+                            text: {
+                                const parts = []
+                                if (model.qty && model.qty.length > 0)
+                                    parts.push(model.qty)
+                                if (model.note && model.note.length > 0)
+                                    parts.push(model.note)
+                                return parts.join(" · ")
+                            }
                             color: Theme.textDim
                             font.pixelSize: 13
                             elide: Text.ElideRight
@@ -101,6 +209,7 @@ Item {
                     ToolButton {
                         Layout.rightMargin: 4
                         Layout.alignment: Qt.AlignVCenter
+                        visible: !root.selectionMode
                         width: Theme.touchTarget
                         height: Theme.touchTarget
                         contentItem: Label {
@@ -110,8 +219,18 @@ Item {
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
                         }
-                        onClicked: AppController.items.removeItem(model.itemId)
+                        onClicked: deleteDialog.openFor([model.itemId], model.name)
                     }
+                }
+
+                // Appui long : entrer en sélection multiple. Appui simple : éditer,
+                // ou étendre la sélection si elle est déjà commencée.
+                onPressAndHold: root.toggleSelection(model.itemId)
+                onClicked: {
+                    if (root.selectionMode)
+                        root.toggleSelection(model.itemId)
+                    else
+                        editDialog.openFor(model)
                 }
 
                 // Glisser vers la gauche : suppression, avec un fond rouge explicite.
@@ -131,7 +250,12 @@ Item {
                         font.weight: Font.DemiBold
                     }
 
-                    SwipeDelegate.onClicked: AppController.items.removeItem(model.itemId)
+                    SwipeDelegate.onClicked: {
+                        // La ligne est rouverte : si la confirmation est refusée,
+                        // l'article ne doit pas rester en position « glissée ».
+                        row.swipe.close()
+                        deleteDialog.openFor([model.itemId], model.name)
+                    }
                 }
             }
         }
@@ -169,9 +293,11 @@ Item {
         }
 
         // Barre d'ajout : collée en bas, au-dessus du clavier (adjustResize).
+        // Masquée en sélection : on supprime, on n'ajoute pas.
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 72
+            visible: !root.selectionMode
             color: Theme.surface
 
             Rectangle {
@@ -227,6 +353,62 @@ Item {
         }
     }
 
+    // Barre de sélection : rappelle ce qui est sélectionné et comment en sortir.
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 60
+        visible: root.selectionMode
+        color: Theme.surfaceHigh
+
+        Rectangle { width: parent.width; height: 1; color: Theme.outline }
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.pad
+            anchors.rightMargin: 10
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                text: root.selectedIds.length + (root.selectedIds.length > 1
+                                                 ? " articles sélectionnés"
+                                                 : " article sélectionné")
+                color: Theme.text
+                font.pixelSize: 14
+                elide: Text.ElideRight
+            }
+
+            Button {
+                flat: true
+                implicitHeight: Theme.touchTarget
+                contentItem: Label {
+                    text: "Annuler"
+                    color: Theme.textDim
+                    font.pixelSize: 14
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: root.selectedIds = []
+            }
+
+            Button {
+                flat: true
+                implicitHeight: Theme.touchTarget
+                contentItem: Label {
+                    text: "Supprimer"
+                    color: Theme.danger
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: deleteDialog.openFor(root.selectedIds)
+            }
+        }
+    }
+
     function addItem() {
         const name = nameField.text.trim()
         if (name.length === 0)
@@ -235,5 +417,174 @@ Item {
         nameField.text = ""
         qtyField.text = ""
         nameField.forceActiveFocus()
+    }
+
+    // Une date lisible : « aujourd'hui à 18:32 », « hier à 09:05 », sinon « 3 juil. à 14:20 ».
+    function formatStamp(ms) {
+        if (!ms || ms <= 0)
+            return ""
+        const d = new Date(ms)
+        const now = new Date()
+        const sameDay = d.toDateString() === now.toDateString()
+        const yesterday = new Date(now.getTime() - 86400000).toDateString() === d.toDateString()
+        const time = Qt.formatDateTime(d, "HH:mm")
+        if (sameDay)
+            return "aujourd'hui à " + time
+        if (yesterday)
+            return "hier à " + time
+        return Qt.formatDateTime(d, "d MMM") + " à " + time
+    }
+
+    // --- Dialogues ---
+
+    ColoDialog {
+        id: editDialog
+        title: "Modifier l'article"
+        acceptText: "Enregistrer"
+        acceptEnabled: editName.text.trim().length > 0
+
+        property string itemId: ""
+        // real et pas int : un timestamp en millisecondes déborde l'int 32 bits de QML.
+        property real   createdMs: 0
+        property real   doneAtMs: 0
+
+        function openFor(item) {
+            itemId    = item.itemId
+            createdMs = item.created
+            doneAtMs  = item.doneAt
+            editName.text = item.name
+            editQty.text  = item.qty
+            editNote.text = item.note
+            open()
+            editName.forceActiveFocus()
+            editName.selectAll()
+        }
+
+        ColoTextField {
+            id: editName
+            Layout.fillWidth: true
+            hint: "Article"
+            onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
+        }
+
+        ColoTextField {
+            id: editQty
+            Layout.fillWidth: true
+            hint: "Quantité (2, 500 g, 1 pack…)"
+            onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
+        }
+
+        ColoTextField {
+            id: editNote
+            Layout.fillWidth: true
+            hint: "Précision (6 couches épaisses…)"
+            onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 12
+            text: {
+                const lines = []
+                const added = root.formatStamp(editDialog.createdMs)
+                if (added.length > 0)
+                    lines.push("Ajouté " + added)
+                if (editDialog.doneAtMs > 0)
+                    lines.push("Coché " + root.formatStamp(editDialog.doneAtMs))
+                return lines.join("\n")
+            }
+        }
+
+        onAccepted: AppController.items.editItem(editDialog.itemId,
+                                                 editName.text.trim(),
+                                                 editQty.text.trim(),
+                                                 editNote.text.trim())
+    }
+
+    ColoDialog {
+        id: deleteDialog
+        title: "Supprimer ?"
+        acceptText: "Supprimer"
+        destructive: true
+
+        property var    ids: []
+        property string itemName: ""
+
+        function openFor(itemIds, name) {
+            ids = itemIds.slice()
+            itemName = name !== undefined ? name : ""
+            open()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 14
+            text: deleteDialog.ids.length === 1 && deleteDialog.itemName.length > 0
+                  ? "« " + deleteDialog.itemName + " » sera retiré de la liste, pour tout le monde."
+                  : deleteDialog.ids.length + (deleteDialog.ids.length > 1
+                        ? " articles seront retirés de la liste, pour tout le monde."
+                        : " article sera retiré de la liste, pour tout le monde.")
+        }
+
+        onAccepted: {
+            AppController.items.removeItems(deleteDialog.ids)
+            root.selectedIds = []
+        }
+    }
+
+    ColoDialog {
+        id: renameDialog
+        title: "Renommer la liste"
+        acceptText: "Renommer"
+        acceptEnabled: renameField.text.trim().length > 0
+
+        ColoTextField {
+            id: renameField
+            Layout.fillWidth: true
+            hint: "Nom de la liste"
+            onAccepted: if (renameDialog.acceptEnabled) renameDialog.accept()
+        }
+
+        onOpened: {
+            renameField.text = root.listTitle
+            renameField.forceActiveFocus()
+            renameField.selectAll()
+        }
+        onAccepted: AppController.renameList(root.listId, renameField.text.trim())
+    }
+
+    ColoDialog {
+        id: duplicateDialog
+        title: "Dupliquer la liste"
+        acceptText: "Dupliquer"
+        acceptEnabled: duplicateField.text.trim().length > 0
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            text: "Une nouvelle liste, avec les mêmes articles, tous à acheter. "
+                  + "Elle est indépendante : la partager demande un nouveau lien."
+        }
+
+        ColoTextField {
+            id: duplicateField
+            Layout.fillWidth: true
+            hint: "Nom de la copie"
+            onAccepted: if (duplicateDialog.acceptEnabled) duplicateDialog.accept()
+        }
+
+        onOpened: {
+            duplicateField.text = root.listTitle + " (copie)"
+            duplicateField.forceActiveFocus()
+            duplicateField.selectAll()
+        }
+        onAccepted: AppController.duplicateList(root.listId, duplicateField.text.trim())
     }
 }

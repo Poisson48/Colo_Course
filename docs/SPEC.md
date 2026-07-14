@@ -33,11 +33,15 @@ Chaque champ porte sa propre version :
 |---|---|---|
 | `name` | string (≤ 200 chars) | libellé de l'article |
 | `qty` | string (≤ 50 chars, libre : "2", "1 kg"…) | quantité |
+| `note` | string (libre : "6 couches épaisses"…) | précision sur ce qu'on veut |
 | `done` | bool | coché = acheté |
 | `del` | bool | tombstone (supprimé) |
 
-Plus deux métadonnées non versionnées, fixées à la création : `created` (ms epoch, pour le
-tri d'affichage) et `by` (deviceId créateur).
+Plus des métadonnées non versionnées : `created` (ms epoch, fixé à la création, sert au
+tri d'affichage), `by` (deviceId créateur), et `doneAt` (ms epoch du cochage, 0 si à
+acheter). `doneAt` n'a pas de version propre : c'est un satellite de `done`, celui qui
+gagne le merge sur `done` apporte sa date. Un article coché avant l'introduction du champ
+vaut 0 — « coché, date inconnue », pas une date inventée.
 
 ### 2.2 Liste
 
@@ -115,19 +119,29 @@ Publication sur TOUS les relais joignables ; réception dédupliquée par id d'�
 ## 4. Format des messages (payload clair)
 
 ```json
-{"v":1,"t":"delta","list":"<listId>",
+{"v":1,"t":"delta","list":"<listId>","by":"<deviceId émetteur>",
  "items":[
-   {"id":"<uuid>","created":1721000000000,"by":"<deviceId>",
+   {"id":"<uuid>","created":1721000000000,"by":"<deviceId>","doneAt":1721000900000,
     "f":{"name":["Lait",[12,"<devA>"]],
          "qty":["1L",[12,"<devA>"]],
+         "note":["demi-écrémé",[13,"<devA>"]],
          "done":[true,[15,"<devB>"]],
          "del":[false,[12,"<devA>"]]}}]}
 ```
 
-`snap` : même schéma avec `"t":"snap"` plus `"title":["Courses",[3,"<devA>"]]` et
-`"members":{"<deviceId>":["Léo",[1,"<devA>"]]}`. Un `delta` peut aussi porter `title` ou
-`members` s'ils viennent de changer. Champs inconnus : ignorés (forward-compat). `"v"` ≠ 1 :
-événement ignoré.
+`snap` : même schéma avec `"t":"snap"` plus `"members":{"<deviceId>":["Léo",[1,"<devA>"]]}`.
+Le `delta` porte toujours `"title":["Courses",[3,"<devA>"]]` (le titre est un champ LWW
+comme un autre : ne l'émettre qu'au snapshot retarderait un renommage de plusieurs jours)
+et l'entrée `members` de son émetteur.
+
+`"by"` au niveau du payload nomme l'émetteur : c'est lui qui permet de retrouver son
+entrée `members`, donc d'écrire « 3 articles ajoutés par Marie » — et de ne pas se notifier
+de son propre événement quand le relais nous le renvoie. Un payload sans `"by"` (version
+antérieure) reste lisible ; l'auteur est alors dit « Quelqu'un » plutôt que deviné.
+
+Champs inconnus : ignorés (forward-compat). Champs connus mais absents : version `[0,""]`,
+que toute valeur réelle bat au merge — un pair qui ignore `note` ne peut donc pas l'effacer.
+`"v"` ≠ 1 : événement ignoré.
 
 ## 5. Appairage (QR / clé)
 
@@ -153,7 +167,9 @@ lists(list_id TEXT PK, key BLOB, title TEXT, title_ver_l INT, title_ver_d TEXT,
 items(list_id TEXT, item_id TEXT, created INT, by TEXT,
       name TEXT,  name_l INT,  name_d TEXT,
       qty  TEXT,  qty_l  INT,  qty_d  TEXT,
+      note TEXT,  note_l INT,  note_d TEXT,
       done INT,   done_l INT,  done_d TEXT,
+      done_at INT,   -- ms epoch du cochage, 0 si à acheter (satellite de done, §2.1)
       del  INT,   del_l  INT,  del_d  TEXT,
       touched INT,   -- ms epoch de la dernière écriture locale ; jamais synchronisé (§2.4)
       PRIMARY KEY(list_id, item_id));
@@ -165,6 +181,11 @@ settings(key TEXT PK, value TEXT);         -- deviceId, displayName, relays…
 ```
 
 Toute application d'un merge + mise à jour de `lamport`/`last_sync` est transactionnelle.
+
+Le schéma évolue par ajout de colonnes : `CREATE TABLE IF NOT EXISTS` ne touche pas une
+base déjà installée, une migration au démarrage ajoute donc les colonnes manquantes
+(`PRAGMA table_info` puis `ALTER TABLE ADD COLUMN`). Une colonne ajoutée vaut « rien »
+(`''` / `0`) sur les lignes existantes, jamais une valeur inventée.
 
 ## 7. Architecture du code
 

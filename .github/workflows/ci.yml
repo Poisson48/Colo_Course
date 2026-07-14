@@ -28,3 +28,6 @@ jobs:
   # APK arm64 signé, récupérable dans les artefacts du run.
   android:
     uses: ./.github/workflows/android.yml
+    # Signé avec la clé de publication si elle est configurée : un APK de CI s'installe
+    # alors par-dessus une release, sans désinstaller.
+    secrets: inherit

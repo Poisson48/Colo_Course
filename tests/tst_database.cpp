@@ -1,6 +1,8 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QDateTime>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 
 #include "../src/store/database.h"
 #include "../src/core/types.h"
@@ -407,6 +409,81 @@ private slots:
         // Une liste effacée puis recréée repart vierge (pas d'items ressuscités).
         QVERIFY(db.createList(makeList("list-A")));
         QVERIFY(db.getItems("list-A").empty());
+    }
+
+    // Une base créée par une version antérieure n'a ni colonnes note*, ni done_at.
+    // CREATE TABLE IF NOT EXISTS ne les ajoute pas : sans migration, toute lecture
+    // d'article échoue et l'app est vide après mise à jour.
+    void test_migration_fromSchemaWithoutNoteAndDoneAt() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath("legacy.db");
+
+        // --- Base « ancienne version », écrite à la main ---
+        {
+            QSqlDatabase old = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                         QStringLiteral("legacy"));
+            old.setDatabaseName(path);
+            QVERIFY(old.open());
+
+            QSqlQuery q(old);
+            QVERIFY(q.exec(QStringLiteral(
+                "CREATE TABLE items ("
+                "  list_id TEXT, item_id TEXT, created INT, by TEXT,"
+                "  name TEXT, name_l INT, name_d TEXT,"
+                "  qty  TEXT, qty_l  INT, qty_d  TEXT,"
+                "  done INT,  done_l INT, done_d TEXT,"
+                "  del  INT,  del_l  INT, del_d  TEXT,"
+                "  touched INT,"
+                "  PRIMARY KEY(list_id, item_id))")));
+            QVERIFY(q.exec(QStringLiteral(
+                "INSERT INTO items VALUES ("
+                "  'list-A', 'item-1', 1000, 'dev-A',"
+                "  'Lait', 3, 'dev-A',"
+                "  '1L',   3, 'dev-A',"
+                "  1,      4, 'dev-A',"
+                "  0,      3, 'dev-A',"
+                "  5000)")));
+            old.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("legacy"));
+
+        // --- Ouverture par la version courante : la migration ajoute les colonnes ---
+        Database db;
+        QVERIFY(db.open(path));
+
+        const auto items = db.getItems("list-A");
+        QCOMPARE(items.size(), size_t(1));
+
+        // Les données d'avant sont intactes…
+        const core::Item &it = items.front();
+        QCOMPARE(QString::fromStdString(it.name), QStringLiteral("Lait"));
+        QCOMPARE(QString::fromStdString(it.qty),  QStringLiteral("1L"));
+        QVERIFY(it.done);
+        QCOMPARE(it.nameVer.lamport, int64_t(3));
+
+        // …et les nouveaux champs valent « rien », pas une valeur inventée. Une note
+        // en version {0,""} perd contre n'importe quelle note réelle au merge.
+        QVERIFY(it.note.empty());
+        QCOMPARE(it.noteVer.lamport, int64_t(0));
+        QCOMPARE(it.doneAt, int64_t(0));  // coché avant la migration : date inconnue
+
+        // Les nouvelles colonnes sont bien écrivables.
+        core::Item edited = it;
+        edited.note    = "6 couches épaisses";
+        edited.noteVer = {5, "dev-A"};
+        edited.doneAt  = 1'700'000'000'000;
+        QVERIFY(db.upsertItem(edited));
+
+        const auto reread = db.getItems("list-A").front();
+        QCOMPARE(QString::fromStdString(reread.note), QStringLiteral("6 couches épaisses"));
+        QCOMPARE(reread.doneAt, int64_t(1'700'000'000'000));
+
+        // Rouvrir une base déjà migrée ne doit pas retenter l'ALTER TABLE.
+        db.close();
+        Database again;
+        QVERIFY(again.open(path));
+        QCOMPARE(again.getItems("list-A").size(), size_t(1));
     }
 };
 

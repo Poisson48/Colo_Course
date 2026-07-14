@@ -20,9 +20,15 @@ bool mergeItem(Item& local, const Item& remote) {
         local.qtyVer = remote.qtyVer;
         changed = true;
     }
+    if (remote.noteVer > local.noteVer) {
+        local.note    = remote.note;
+        local.noteVer = remote.noteVer;
+        changed = true;
+    }
     if (remote.doneVer > local.doneVer) {
         local.done    = remote.done;
         local.doneVer = remote.doneVer;
+        local.doneAt  = remote.doneAt;
         changed = true;
     }
     if (remote.delVer > local.delVer) {

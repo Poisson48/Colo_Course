@@ -32,3 +32,6 @@ android-build/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 aqtinstall.log
+
+# Sortie de ctest lancé depuis la racine
+Testing/

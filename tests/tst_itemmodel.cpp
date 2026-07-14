@@ -242,6 +242,135 @@ private slots:
         // Just test that lists model is initially empty/valid.
         QVERIFY(ctrl.lists() != nullptr);
     }
+
+    // editItem : nom, quantité et description partent en LWW ; la ligne ne bouge pas.
+    void test_editItem_updatesFieldsAndVersions() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Pq", "1");
+
+        const QString itemId = model.data(model.index(0), ItemModel::ItemIdRole).toString();
+        const Item before = db.getItems(listId).front();
+
+        QSignalSpy localSpy(&model, &ItemModel::localChanged);
+        model.editItem(itemId, "Papier toilette", "2 paquets", "6 couches épaisses");
+        QCOMPARE(localSpy.count(), 1);
+
+        // Le modèle expose les nouvelles valeurs, au même index (le tri ne dépend
+        // ni du nom, ni de la quantité, ni de la note).
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Papier toilette"));
+        QCOMPARE(model.data(model.index(0), ItemModel::QtyRole).toString(),
+                 QStringLiteral("2 paquets"));
+        QCOMPARE(model.data(model.index(0), ItemModel::NoteRole).toString(),
+                 QStringLiteral("6 couches épaisses"));
+
+        // Persisté, avec des versions qui battent les précédentes : sans ça, un pair
+        // qui rediffuse l'ancienne valeur écraserait l'édition au merge.
+        const Item after = db.getItems(listId).front();
+        QCOMPARE(QString::fromStdString(after.name), QStringLiteral("Papier toilette"));
+        QCOMPARE(QString::fromStdString(after.note), QStringLiteral("6 couches épaisses"));
+        QVERIFY(after.nameVer > before.nameVer);
+        QVERIFY(after.qtyVer  > before.qtyVer);
+        QVERIFY(after.noteVer > before.noteVer);
+        // done n'a pas été touché : sa version ne doit pas bouger.
+        QCOMPARE(after.doneVer.lamport, before.doneVer.lamport);
+    }
+
+    // Rééditer à l'identique ne doit rien émettre : une version neuve sur une valeur
+    // inchangée ferait gagner ce champ contre une édition distante concurrente.
+    void test_editItem_noopWhenUnchanged() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Lait", "1L");
+
+        const QString itemId = model.data(model.index(0), ItemModel::ItemIdRole).toString();
+        const Item before = db.getItems(listId).front();
+
+        QSignalSpy localSpy(&model, &ItemModel::localChanged);
+        model.editItem(itemId, "Lait", "1L", "");
+        QCOMPARE(localSpy.count(), 0);
+
+        const Item after = db.getItems(listId).front();
+        QCOMPARE(after.nameVer.lamport, before.nameVer.lamport);
+        QCOMPARE(after.qtyVer.lamport,  before.qtyVer.lamport);
+
+        // Un nom vide n'est pas un article : refusé, l'ancien nom reste.
+        model.editItem(itemId, "   ", "1L", "");
+        QCOMPARE(QString::fromStdString(db.getItems(listId).front().name),
+                 QStringLiteral("Lait"));
+    }
+
+    // toggleDone horodate le cochage, et efface la date au décochage.
+    void test_toggleDone_stampsDoneAt() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Beurre", "");
+
+        const QString itemId = model.data(model.index(0), ItemModel::ItemIdRole).toString();
+        QCOMPARE(db.getItems(listId).front().doneAt, int64_t(0));
+
+        const int64_t before = QDateTime::currentMSecsSinceEpoch();
+        model.toggleDone(itemId);
+        const Item done = db.getItems(listId).front();
+        QVERIFY(done.done);
+        QVERIFY(done.doneAt >= before);
+
+        model.toggleDone(itemId);
+        const Item undone = db.getItems(listId).front();
+        QVERIFY(!undone.done);
+        QCOMPARE(undone.doneAt, int64_t(0));
+    }
+
+    // Suppression groupée : tout disparaît de la vue, tout est marqué supprimé en base.
+    void test_removeItems_bulk() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Lait", "");
+        model.addItem("Pain", "");
+        model.addItem("Œufs", "");
+        QCOMPARE(model.count(), 3);
+
+        const QString first  = model.data(model.index(0), ItemModel::ItemIdRole).toString();
+        const QString second = model.data(model.index(1), ItemModel::ItemIdRole).toString();
+
+        model.removeItems({ first, second });
+
+        // Le troisième survit ; les deux autres sont des tombstones (del=true), pas
+        // des lignes effacées : les autres appareils doivent apprendre la suppression.
+        QCOMPARE(model.count(), 1);
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Œufs"));
+
+        int tombstones = 0;
+        for (const auto &it : db.getItems(listId))
+            if (it.del) ++tombstones;
+        QCOMPARE(tombstones, 2);
+    }
 };
 
 QTEST_GUILESS_MAIN(ItemModelTest)

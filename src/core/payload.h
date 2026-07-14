@@ -17,6 +17,11 @@ struct Payload {
     Type        type = Type::delta;
     std::string listId;
 
+    // deviceId de l'émetteur. Sans lui, le receveur devine l'auteur en prenant la
+    // première entrée de members — arbitraire dans un snap, qui les porte toutes.
+    // Champ optionnel : absent des payloads émis par les versions antérieures.
+    std::string by;
+
     std::vector<Item> items;
 
     // snap-only fields (also allowed in delta when changed)

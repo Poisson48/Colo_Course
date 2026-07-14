@@ -87,6 +87,9 @@ std::optional<Payload> parsePayload(const std::string& jsonStr) {
             if (jitem.contains("by") && jitem["by"].is_string()) {
                 item.by = jitem["by"].get<std::string>();
             }
+            if (jitem.contains("doneAt") && jitem["doneAt"].is_number_integer()) {
+                item.doneAt = jitem["doneAt"].get<int64_t>();
+            }
 
             if (!jitem.contains("f") || !jitem["f"].is_object()) continue;
             const json& f = jitem["f"];
@@ -100,6 +103,11 @@ std::optional<Payload> parsePayload(const std::string& jsonStr) {
             }
             if (f.contains("qty")) {
                 if (parseVersionedField(f["qty"], item.qty, item.qtyVer)) anyField = true;
+            }
+            // Absent des payloads émis par les versions antérieures : la note reste vide
+            // en version {0,""}, que toute note réelle bat au merge (jamais d'écrasement).
+            if (f.contains("note")) {
+                if (parseVersionedField(f["note"], item.note, item.noteVer)) anyField = true;
             }
             if (f.contains("done")) {
                 if (parseVersionedField(f["done"], item.done, item.doneVer)) anyField = true;
@@ -116,6 +124,10 @@ std::optional<Payload> parsePayload(const std::string& jsonStr) {
             p.items.push_back(std::move(item));
         }
     }
+
+    // Parse optional author deviceId.
+    if (j.contains("by") && j["by"].is_string())
+        p.by = j["by"].get<std::string>();
 
     // Parse optional title (snap or delta-with-title)
     if (j.contains("title")) {
@@ -150,6 +162,8 @@ std::string serializePayload(const Payload& p) {
     j["v"]    = 1;
     j["t"]    = (p.type == Payload::Type::delta) ? "delta" : "snap";
     j["list"] = p.listId;
+    if (!p.by.empty())
+        j["by"] = p.by;
 
     json items = json::array();
     for (const auto& item : p.items) {
@@ -157,10 +171,12 @@ std::string serializePayload(const Payload& p) {
         ji["id"]      = item.itemId;
         ji["created"] = item.created;
         ji["by"]      = item.by;
+        ji["doneAt"]  = item.doneAt;
 
         json f;
         f["name"] = json::array({item.name, verToJson(item.nameVer)});
         f["qty"]  = json::array({item.qty,  verToJson(item.qtyVer)});
+        f["note"] = json::array({item.note, verToJson(item.noteVer)});
         f["done"] = json::array({item.done, verToJson(item.doneVer)});
         f["del"]  = json::array({item.del,  verToJson(item.delVer)});
         ji["f"]   = f;

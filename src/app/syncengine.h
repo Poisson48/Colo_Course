@@ -77,6 +77,9 @@ signals:
     // N items changed in listId by authorName (from a remote event).
     void remoteChanges(const QString& listId, int count, const QString& authorName);
 
+    // Le titre de listId a été renommé par un autre appareil (merge LWW gagné).
+    void listTitleChanged(const QString& listId, const QString& title);
+
     // Forwarded online state (so AppController can bind its property).
     void onlineChanged(bool online);
 

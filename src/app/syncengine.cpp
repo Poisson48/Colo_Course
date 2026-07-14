@@ -156,8 +156,15 @@ void SyncEngine::publishDelta(const std::string& listId)
     p.listId = listId;
     p.items  = items;
 
+    // Le titre est versionné (LWW) comme les articles : sans lui dans le delta, un
+    // renommage n'atteindrait les autres qu'au prochain snap (jusqu'à 100 deltas
+    // ou 7 jours plus tard). Le renvoyer à chaque fois est idempotent et sans coût.
+    p.title    = metaOpt->title;
+    p.titleVer = metaOpt->titleVer;
+
     // Include our own member entry so remote peers know our display name.
     const std::string devId = m_deviceId.toStdString();
+    p.by = devId;
     p.members[devId] = {m_displayName.toStdString(),
                         core::Ver{metaOpt->lamport, devId}};
 
@@ -183,6 +190,7 @@ void SyncEngine::publishSnap(const std::string& listId)
     p.titleVer  = metaOpt->titleVer;
 
     const std::string devId = m_deviceId.toStdString();
+    p.by = devId;
 
     // Populate members from DB.
     // getMembers only returns (deviceId, name) — we need the ver.
@@ -322,6 +330,7 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
         maxLamport = std::max({maxLamport,
                                item.nameVer.lamport,
                                item.qtyVer.lamport,
+                               item.noteVer.lamport,
                                item.doneVer.lamport,
                                item.delVer.lamport});
     }
@@ -346,12 +355,17 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
     }
 
     // Merge title if present.
+    // Un renommage distant ne change aucun article : sans signal dédié, l'écran des
+    // listes garderait l'ancien nom jusqu'au prochain lancement.
     if (payload.title && payload.titleVer) {
         auto metaOpt2 = m_db->getList(listId);
         if (metaOpt2) {
             bool titleChanged = core::mergeTitle(*metaOpt2, *payload.title, *payload.titleVer);
-            if (titleChanged)
+            if (titleChanged) {
                 m_db->updateListTitle(listId, metaOpt2->title, metaOpt2->titleVer);
+                emit listTitleChanged(QString::fromStdString(listId),
+                                      QString::fromStdString(metaOpt2->title));
+            }
         }
     }
 
@@ -369,24 +383,32 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
         modelIt->second->load(*m_db, listId, m_deviceId.toStdString());
     }
 
-    // Determine author name from members map.
+    // Nom de l'auteur. Le payload porte son deviceId (champ "by") : on lit SON entrée
+    // dans members. Sans ce champ (ancienne version), members.begin() est le seul repli
+    // possible — juste pour un delta, qui ne porte que l'auteur ; dans un snap, qui les
+    // porte tous, la première entrée est un deviceId arbitraire, éventuellement le nôtre
+    // (d'où les « modifié par Moi »). Dans ce cas on préfère taire le nom.
+    const std::string ourDevId = m_deviceId.toStdString();
+    // Notre propre événement nous revient du relais : les données ont déjà été fusionnées
+    // ci-dessus (sans effet), mais il ne faut pas se notifier soi-même.
+    const bool ownEvent = (payload.by == ourDevId);
+
     QString authorName;
-    const std::string evPubkey = ev.pubkey.toStdString();
-    // Try to find author from merged members.
-    for (const auto& [did, name] : m_db->getMembers(listId)) {
-        // We can't easily map pubkey → deviceId; use the payload members directly.
-        (void)did; (void)name;
-    }
-    // Try payload members first (they carry displayName).
-    if (!payload.members.empty()) {
+    if (!payload.by.empty()) {
+        auto authorIt = payload.members.find(payload.by);
+        if (authorIt != payload.members.end())
+            authorName = QString::fromStdString(authorIt->second.first);
+    } else if (payload.type == core::Payload::Type::delta && payload.members.size() == 1
+               && payload.members.begin()->first != ourDevId) {
         authorName = QString::fromStdString(payload.members.begin()->second.first);
     }
     if (authorName.isEmpty()) authorName = QStringLiteral("Quelqu'un");
 
     const int count = static_cast<int>(changedIds.size());
-    if (count > 0) {
+    if (count > 0)
         emit remoteChanges(QString::fromStdString(listId), count, authorName);
 
+    if (count > 0 && !ownEvent) {
         // System notification.
         auto metaOpt3 = m_db->getList(listId);
         const QString listTitle = metaOpt3

@@ -87,6 +87,17 @@ void ListsModel::prepend(const core::ListMeta &meta, int uncheckedCount) {
     endInsertRows();
 }
 
+void ListsModel::rename(const QString &listId, const QString &name) {
+    const auto it = std::find_if(m_rows.begin(), m_rows.end(),
+                                 [&](const Row &r){ return r.listId == listId; });
+    if (it == m_rows.end() || it->name == name) return;
+
+    it->name = name;
+    const int row = static_cast<int>(std::distance(m_rows.begin(), it));
+    const QModelIndex idx = index(row);
+    emit dataChanged(idx, idx, { NameRole });
+}
+
 void ListsModel::remove(const QString &listId) {
     const auto it = std::find_if(m_rows.begin(), m_rows.end(),
                                  [&](const Row &r){ return r.listId == listId; });
@@ -144,15 +155,17 @@ bool AppController::init() {
     auto dispOpt = m_db.getSetting("displayName");
     if (dispOpt) {
         m_displayName = QString::fromStdString(*dispOpt);
+    } else if (settings.contains(kDisplayName)) {
+        m_displayName = settings.value(kDisplayName).toString();
     } else {
-        if (settings.contains(kDisplayName)) {
-            m_displayName = settings.value(kDisplayName).toString();
-        } else {
-            m_displayName = QStringLiteral("Moi");
-        }
-        m_db.setSetting("displayName", m_displayName.toStdString());
-        settings.setValue(kDisplayName, m_displayName);
+        // Repli tant que l'utilisateur n'a rien choisi. Non persisté : il sera redemandé.
+        m_displayName = QStringLiteral("Moi");
     }
+
+    // Drapeau explicite, et pas « displayName existe » : les installations d'avant
+    // portent un « Moi » persisté que personne n'a choisi. Elles passent ici une fois,
+    // l'écran d'accueil redemande le nom, et le drapeau se pose au premier choix.
+    m_hasDisplayName = m_db.getSetting("displayNameSet").has_value();
 
     // --- Load lists ---
     m_listsModel->reload(m_db);
@@ -181,6 +194,8 @@ bool AppController::init() {
             this,          &AppController::onSyncOnlineChanged);
     connect(&m_syncEngine, &SyncEngine::remoteChanges,
             this,          &AppController::onRemoteChanges);
+    connect(&m_syncEngine, &SyncEngine::listTitleChanged,
+            this,          &AppController::onRemoteTitleChanged);
 
     // Toute écriture locale (ajout, cochage, suppression) doit partir au relais.
     // Sans cette connexion, l'app modifie sa base et ne synchronise jamais rien.
@@ -223,12 +238,21 @@ void AppController::onRemoteChanges(const QString& /*listId*/, int /*count*/, co
     m_listsModel->reload(m_db);
 }
 
+void AppController::onRemoteTitleChanged(const QString& listId, const QString& title) {
+    m_listsModel->rename(listId, title);
+    emit listRenamed(listId, title);
+}
+
 QString AppController::deviceId() const {
     return m_deviceId;
 }
 
 QString AppController::displayName() const {
     return m_displayName;
+}
+
+bool AppController::hasDisplayName() const {
+    return m_hasDisplayName;
 }
 
 void AppController::createList(const QString &title) {
@@ -256,6 +280,93 @@ void AppController::createList(const QString &title) {
     }
 }
 
+void AppController::renameList(const QString &listId, const QString &title) {
+    const QString trimmed = title.trimmed();
+    if (trimmed.isEmpty()) return;
+
+    const std::string id = listId.toStdString();
+    auto metaOpt = m_db.getList(id);
+    if (!metaOpt || metaOpt->title == trimmed.toStdString()) return;
+
+    // Écriture locale = tick du Lamport de la liste : la nouvelle version bat celle
+    // qu'on connaissait, et gagne le merge LWW chez les autres participants.
+    const int64_t lamport = m_db.bumpLamport(id);
+    const core::Ver ver{ lamport, m_deviceId.toStdString() };
+
+    if (!m_db.updateListTitle(id, trimmed.toStdString(), ver)) return;
+
+    m_listsModel->rename(listId, trimmed);
+    emit listRenamed(listId, trimmed);
+    m_syncEngine.onLocalChange(id);
+}
+
+void AppController::duplicateList(const QString &listId, const QString &title) {
+    auto srcOpt = m_db.getList(listId.toStdString());
+    if (!srcOpt) return;
+
+    const QString trimmed = title.trimmed();
+
+    core::ListMeta copy;
+    copy.listId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    // Clé neuve : la copie est une liste à part, pas une seconde vue de l'originale.
+    // Réutiliser la clé source la ferait écrire dans le canal de l'originale.
+    copy.key      = net::generateListKey();
+    copy.title    = (trimmed.isEmpty()
+                        ? QString::fromStdString(srcOpt->title) + QStringLiteral(" (copie)")
+                        : trimmed).toStdString();
+    copy.titleVer = core::Ver{ 1, m_deviceId.toStdString() };
+    copy.lamport  = 1;
+    copy.created  = QDateTime::currentMSecsSinceEpoch();
+
+    if (copy.key.size() != 32) {
+        emit toast(QStringLiteral("Échec de la génération de la clé de chiffrement"));
+        return;
+    }
+    if (!m_db.createList(copy)) return;
+
+    // Les articles sont recopiés à acheter (done=false) : on duplique une liste pour
+    // la refaire. Les tombstones de l'originale ne sont pas repris.
+    int copied = 0;
+    for (const auto &src : m_db.getItems(srcOpt->listId)) {
+        if (src.del) continue;
+
+        const int64_t lamport = m_db.bumpLamport(copy.listId);
+        const core::Ver ver{ lamport, m_deviceId.toStdString() };
+
+        core::Item item;
+        item.listId  = copy.listId;
+        // itemId neuf : garder celui de la source ferait entrer en collision les deux
+        // listes si l'une des deux était un jour fusionnée avec l'autre.
+        item.itemId  = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+        item.created = copy.created + copied; // conserve l'ordre d'affichage de la source
+        item.by      = m_deviceId.toStdString();
+        item.name    = src.name;
+        item.nameVer = ver;
+        item.qty     = src.qty;
+        item.qtyVer  = ver;
+        item.note    = src.note;
+        item.noteVer = ver;
+        item.done    = false;
+        item.doneVer = ver;
+        item.doneAt  = 0;
+        item.del     = false;
+        item.delVer  = ver;
+        item.touched = copy.created;
+
+        if (m_db.upsertItem(item)) ++copied;
+    }
+
+    m_listsModel->prepend(copy, copied);
+    m_syncEngine.onListJoined(copy.listId);
+    // Publier le contenu : sans ça, quelqu'un qui rejoindrait la copie par lien
+    // trouverait un canal vide tant que personne n'y touche.
+    m_syncEngine.onLocalChange(copy.listId);
+
+    emit toast(copied > 0
+        ? QStringLiteral("Liste dupliquée — %1 article(s) à acheter").arg(copied)
+        : QStringLiteral("Liste dupliquée"));
+}
+
 void AppController::leaveList(const QString &listId) {
     const std::string id = listId.toStdString();
     m_syncEngine.unregisterItemModel(id);
@@ -276,7 +387,17 @@ void AppController::handleJoinUrl(const QUrl &url) {
 
 void AppController::setDisplayName(const QString &name) {
     const QString trimmed = name.trimmed();
-    if (trimmed.isEmpty() || trimmed == m_displayName) return;
+    if (trimmed.isEmpty()) return;
+
+    // Même nom mais premier choix explicite : il reste à poser le drapeau, sinon
+    // l'écran d'accueil redemanderait le nom à chaque lancement.
+    const bool firstChoice = !m_hasDisplayName;
+    if (trimmed == m_displayName && !firstChoice) return;
+
+    if (firstChoice) {
+        m_hasDisplayName = true;
+        m_db.setSetting("displayNameSet", "1");
+    }
 
     m_displayName = trimmed;
     m_db.setSetting("displayName", m_displayName.toStdString());

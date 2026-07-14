@@ -33,6 +33,10 @@ jobs:
     with:
       version_name: ${{ needs.version.outputs.name }}
       version_code: ${{ needs.version.outputs.code }}
+      # Une release doit porter la clé de publication : sinon elle ne s'installerait
+      # pas par-dessus la version précédente.
+      require_release_key: true
+    secrets: inherit
 
   publish:
     needs: [version, apk]
@@ -66,9 +70,12 @@ jobs:
           Téléchargez l'APK ci-dessous, puis autorisez l'installation depuis cette source.
           En ligne de commande : `adb install -r colocourse-*-arm64.apk`
 
-          APK signé avec une **clé de debug** : il s'installe sur votre téléphone mais ne
-          passe pas par le Play Store. Pour mettre à jour, gardez la même provenance
-          (une signature différente impose de désinstaller d'abord).
+          APK signé avec la clé de publication du projet : les versions suivantes
+          s'installent **par-dessus**, sans désinstaller ni perdre vos listes.
+
+          *Venant d'une version antérieure à la v0.3.0 ? Ces APK-là portaient une
+          signature qui changeait à chaque build : une dernière désinstallation est
+          nécessaire avant d'installer celui-ci.*
 
           **Limite connue (v1)** : app fermée = pas de réception. Les changements sont
           récupérés à l'ouverture ou au retour au premier plan.

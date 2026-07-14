@@ -41,6 +41,9 @@ public:
     // Remove a row by listId (no-op if absent).
     void remove(const QString &listId);
 
+    // Change a row's displayed name (no-op if absent).
+    void rename(const QString &listId, const QString &name);
+
 private:
     struct Row {
         QString listId;
@@ -61,6 +64,10 @@ class AppController : public QObject {
     Q_PROPERTY(bool online READ online NOTIFY onlineChanged)
     // Nom affiché aux autres participants ("3 articles ajoutés par Marie").
     Q_PROPERTY(QString displayName READ displayName WRITE setDisplayName NOTIFY displayNameChanged)
+    // false tant que l'utilisateur n'a pas choisi son nom : l'écran d'accueil le
+    // demande. Sans ça, tout le monde s'appelle « Moi » et les notifications
+    // deviennent illisibles (« 2 articles modifiés par Moi »).
+    Q_PROPERTY(bool hasDisplayName READ hasDisplayName NOTIFY displayNameChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -75,11 +82,18 @@ public:
 
     QString deviceId() const;
     QString displayName() const;
+    bool    hasDisplayName() const;
 
     store::Database &db() { return m_db; }
 
 public slots:
     void createList(const QString &title);
+    // Renommer une liste. Le titre est un champ CRDT (LWW) : le renommage part au
+    // relais comme une modification d'article.
+    void renameList(const QString &listId, const QString &title);
+    // Dupliquer une liste : nouvelle liste, nouvelle clé, articles recopiés « à
+    // acheter ». Purement local — c'est une liste distincte, pas un partage.
+    void duplicateList(const QString &listId, const QString &title);
     // openList is called from QML to open a list; emits listOpened.
     void openList(const QString &listId);
     // Parse URI → create list with provided key → true on success
@@ -107,12 +121,15 @@ signals:
     void displayNameChanged();
     // Emitted when QML should push the item page.
     void listOpened(const QString &listId, const QString &title);
+    // Titre changé (ici ou par un autre appareil) : l'en-tête de la liste ouverte suit.
+    void listRenamed(const QString &listId, const QString &title);
     // Message court à afficher en bas de l'écran (snackbar).
     void toast(const QString &message);
 
 private slots:
     void onSyncOnlineChanged(bool online);
     void onRemoteChanges(const QString& listId, int count, const QString& authorName);
+    void onRemoteTitleChanged(const QString& listId, const QString& title);
     // Écriture locale dans la liste ouverte → publier + rafraîchir les compteurs.
     void onLocalItemChange(const std::string& listId);
 
@@ -125,6 +142,7 @@ private:
     bool             m_online = false;
     QString          m_deviceId;
     QString          m_displayName;
+    bool             m_hasDisplayName = false;
     std::string      m_openListId;   // liste actuellement chargée dans m_itemModel
 };
 

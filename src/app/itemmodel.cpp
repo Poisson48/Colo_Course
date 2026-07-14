@@ -79,7 +79,9 @@ QVariant ItemModel::data(const QModelIndex &index, int role) const {
     case ItemIdRole:  return QString::fromStdString(row.item.itemId);
     case NameRole:    return QString::fromStdString(row.item.name);
     case QtyRole:     return QString::fromStdString(row.item.qty);
+    case NoteRole:    return QString::fromStdString(row.item.note);
     case DoneRole:    return row.item.done;
+    case DoneAtRole:  return static_cast<qlonglong>(row.item.doneAt);
     case CreatedRole: return static_cast<qlonglong>(row.item.created);
     default:          return {};
     }
@@ -90,7 +92,9 @@ QHash<int, QByteArray> ItemModel::roleNames() const {
         { ItemIdRole,  "itemId"  },
         { NameRole,    "name"    },
         { QtyRole,     "qty"     },
+        { NoteRole,    "note"    },
         { DoneRole,    "done"    },
+        { DoneAtRole,  "doneAt"  },
         { CreatedRole, "created" },
     };
 }
@@ -111,7 +115,7 @@ int ItemModel::findRow(const QString &itemId) const {
 // Mutation slots
 // ---------------------------------------------------------------------------
 
-void ItemModel::addItem(const QString &name, const QString &qty) {
+void ItemModel::addItem(const QString &name, const QString &qty, const QString &note) {
     if (!m_db) return;
 
     const int64_t lamport = m_db->bumpLamport(m_listId);
@@ -127,8 +131,11 @@ void ItemModel::addItem(const QString &name, const QString &qty) {
     item.nameVer = ver;
     item.qty     = qty.toStdString();
     item.qtyVer  = ver;
+    item.note    = note.trimmed().toStdString();
+    item.noteVer = ver;
     item.done    = false;
     item.doneVer = ver;
+    item.doneAt  = 0;
     item.del     = false;
     item.delVer  = ver;
     item.touched = ts;
@@ -167,6 +174,7 @@ void ItemModel::toggleDone(const QString &itemId) {
 
     it->done    = !it->done;
     it->doneVer = ver;
+    it->doneAt  = it->done ? now : 0;  // décoché → plus de date de cochage
     it->touched = now;
 
     if (!m_db->upsertItem(*it)) return;
@@ -190,7 +198,7 @@ void ItemModel::toggleDone(const QString &itemId) {
         // Position unchanged — just update data.
         m_rows[static_cast<size_t>(oldPos)].item = *it;
         const QModelIndex idx = index(oldPos);
-        emit dataChanged(idx, idx, { DoneRole });
+        emit dataChanged(idx, idx, { DoneRole, DoneAtRole });
     } else {
         // Move row.
         // Qt's beginMoveRows destination is the row BEFORE which we insert.
@@ -204,8 +212,55 @@ void ItemModel::toggleDone(const QString &itemId) {
 
         // Update done flag in newly positioned row.
         const QModelIndex idx = index(newPos);
-        emit dataChanged(idx, idx, { DoneRole });
+        emit dataChanged(idx, idx, { DoneRole, DoneAtRole });
     }
+}
+
+void ItemModel::editItem(const QString &itemId, const QString &name,
+                         const QString &qty, const QString &note) {
+    if (!m_db) return;
+
+    const std::string id      = itemId.toStdString();
+    const std::string newName = name.trimmed().toStdString();
+    const std::string newQty  = qty.trimmed().toStdString();
+    const std::string newNote = note.trimmed().toStdString();
+
+    if (newName.empty()) return; // un article sans nom n'a rien à afficher
+
+    auto it = std::find_if(m_items.begin(), m_items.end(),
+                           [&](const core::Item &i){ return i.itemId == id; });
+    if (it == m_items.end()) return;
+
+    const bool nameChanged = (it->name != newName);
+    const bool qtyChanged  = (it->qty  != newQty);
+    const bool noteChanged = (it->note != newNote);
+    if (!nameChanged && !qtyChanged && !noteChanged) return;
+
+    const int64_t lamport = m_db->bumpLamport(m_listId);
+    const core::Ver ver{ lamport, m_deviceId };
+
+    if (nameChanged) { it->name = newName; it->nameVer = ver; }
+    if (qtyChanged)  { it->qty  = newQty;  it->qtyVer  = ver; }
+    if (noteChanged) { it->note = newNote; it->noteVer = ver; }
+    it->touched = QDateTime::currentMSecsSinceEpoch();
+
+    if (!m_db->upsertItem(*it)) return;
+
+    emit localChanged(m_listId);
+
+    // Aucun de ces champs n'entre dans le tri (done, created) : la ligne ne bouge
+    // pas, seul son contenu change.
+    const int pos = findRow(itemId);
+    if (pos >= 0) {
+        m_rows[static_cast<size_t>(pos)].item = *it;
+        const QModelIndex idx = index(pos);
+        emit dataChanged(idx, idx, { NameRole, QtyRole, NoteRole });
+    }
+}
+
+void ItemModel::removeItems(const QStringList &itemIds) {
+    for (const QString &id : itemIds)
+        removeItem(id);
 }
 
 void ItemModel::removeItem(const QString &itemId) {
