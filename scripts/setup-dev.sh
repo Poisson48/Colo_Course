@@ -5,7 +5,7 @@ set -euo pipefail
 
 PKGS=(
   # toolchain
-  build-essential cmake ninja-build gdb
+  build-essential cmake ninja-build gdb unzip
   # Qt 6 dev (aligné sur .github/workflows/ci.yml)
   qt6-base-dev qt6-declarative-dev qt6-websockets-dev libqt6sql6-sqlite
   # modules QML nécessaires à l'exécution de l'app

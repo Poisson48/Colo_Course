@@ -123,3 +123,16 @@ target_link_libraries(colocourse PRIVATE
     ${SODIUM_LIBRARIES}
     ${SECP256K1_LIBRARIES}
 )
+
+# Android n'embarque pas OpenSSL : sans ces .so, QSslSocket est muet et les
+# connexions wss:// aux relais échouent silencieusement.
+if(ANDROID)
+    include(FetchContent)
+    FetchContent_Declare(android_openssl
+        GIT_REPOSITORY https://github.com/KDAB/android_openssl.git
+        GIT_TAG master
+    )
+    FetchContent_MakeAvailable(android_openssl)
+    include(${android_openssl_SOURCE_DIR}/android_openssl.cmake)
+    add_android_openssl_libraries(colocourse)
+endif()
