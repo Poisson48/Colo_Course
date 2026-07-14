@@ -6,6 +6,11 @@ import QtQuick.Controls
 TextField {
     id: field
 
+    // Le style Material de Qt 6.8 fait flotter le placeholder au-dessus du champ,
+    // où notre bordure le traverse et le barre. On l'efface dès qu'il ne sert plus.
+    property string hint: ""
+    placeholderText: (activeFocus || length > 0) ? "" : hint
+
     implicitHeight: 52
     leftPadding: 14
     rightPadding: 14

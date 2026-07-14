@@ -151,7 +151,7 @@ Item {
                 Layout.preferredWidth: Theme.touchTarget
                 Layout.preferredHeight: Theme.touchTarget
                 contentItem: Label {
-                    text: "✕"
+                    text: "×"
                     color: "white"
                     font.pixelSize: 18
                     horizontalAlignment: Text.AlignHCenter
