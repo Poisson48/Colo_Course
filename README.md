@@ -4,7 +4,7 @@
 
 Une app minimaliste de gestion de liste de courses : créez une liste, partagez-la par QR code, collaborez en temps réel. Chaque participant garde une copie locale complète, chiffrée de bout en bout. Fonctionne hors ligne, gère les conflits d'édition simultanée. Plusieurs listes avec des participants différents. Open source, GPL v3.
 
-[![CI](https://github.com/Poisson48/Colo_Course/actions/workflows/CI.yml/badge.svg)](https://github.com/Poisson48/Colo_Course/actions/workflows/CI.yml)
+[![CI](https://github.com/Poisson48/Colo_Course/actions/workflows/ci.yml/badge.svg)](https://github.com/Poisson48/Colo_Course/actions/workflows/ci.yml)
 
 <!-- TODO capture: docs/img/screenshot.png -->
 
