@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import ColoCourse
 
 // Dialogue sombre commun à toute l'app : un titre, du contenu libre, deux boutons.
 // `destructive: true` colore l'action de validation en rouge (quitter une liste).

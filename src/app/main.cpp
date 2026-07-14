@@ -11,6 +11,7 @@
 #include "permissions.h"
 #include "platform.h"
 #include "qrimageprovider.h"
+#include "theme.h"
 #ifdef COLO_HAS_CAMERA
 #  include "qrscanner.h"
 #endif
@@ -56,9 +57,12 @@ int main(int argc, char *argv[])
     qmlRegisterType<app::QrScanner>("ColoCourse", 1, 0, "QrScanner");
 #endif
 
+    app::Theme theme;
+
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("qr"), new app::QrImageProvider());
     engine.rootContext()->setContextProperty(QStringLiteral("AppController"), &controller);
+    engine.rootContext()->setContextProperty(QStringLiteral("Theme"), &theme);
 
     const QUrl url(QStringLiteral("qrc:/ColoCourse/qml/Main.qml"));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,

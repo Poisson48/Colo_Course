@@ -74,6 +74,7 @@ set(APPLIB_SOURCES
     app/platform.cpp
     app/qrimageprovider.cpp
     app/syncengine.cpp
+    app/theme.cpp
 )
 if(COLO_HAS_CAMERA)
     list(APPEND APPLIB_SOURCES app/qrscanner.cpp)
@@ -111,10 +112,6 @@ qt_add_executable(colocourse
     app/main.cpp
 )
 
-# Sans ce marqueur, `pragma Singleton` ne suffit pas : le qmldir généré ne déclare
-# pas Theme comme singleton et toutes ses couleurs arrivent en `undefined`.
-set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
-
 set(COLO_QML_FILES
     qml/Main.qml
     qml/ListsPage.qml
@@ -122,7 +119,6 @@ set(COLO_QML_FILES
     qml/ShareSheet.qml
     qml/ColoDialog.qml
     qml/ColoTextField.qml
-    qml/Theme.qml
 )
 if(COLO_HAS_CAMERA)
     list(APPEND COLO_QML_FILES qml/ScanPage.qml)

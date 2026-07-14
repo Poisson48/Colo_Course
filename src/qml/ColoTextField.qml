@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import ColoCourse
 
 // Champ de saisie sombre : fond plein plutôt que soulignement, pour rester lisible
 // et offrir une cible tactile pleine hauteur.

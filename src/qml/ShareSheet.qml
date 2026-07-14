@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import ColoCourse
 
 // Feuille de partage : QR à scanner en face-à-face, ou lien à envoyer à distance.
 // Le lien contient la clé de chiffrement — d'où l'avertissement.
