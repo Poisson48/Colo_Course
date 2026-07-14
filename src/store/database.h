@@ -29,6 +29,12 @@ public:
     bool createList(const core::ListMeta& meta);
     std::vector<core::ListMeta> getLists();
     std::optional<core::ListMeta> getList(const std::string& listId);
+    // Persist an LWW-merged title (caller does the mergeTitle comparison).
+    bool updateListTitle(const std::string& listId,
+                         const std::string& title,
+                         const core::Ver& ver);
+    // Advance last_sync (ms epoch); only moves forward.
+    bool updateLastSync(const std::string& listId, int64_t ms);
 
     // --- Items ---
     // Insert or update an item. Transactional (updates lamport if needed).
@@ -46,6 +52,9 @@ public:
 
     // --- Outbox (FIFO queue of encrypted events) ---
     bool        outboxPush(const std::string& listId, const std::string& eventJson);
+    // Remove one specific entry (targeted ack) — acks may arrive out of order,
+    // so FIFO pop must never be used to acknowledge.
+    bool        outboxRemove(int64_t rowid);
     // Returns the oldest entry's (rowid, eventJson); removes it from the queue.
     std::optional<std::pair<int64_t, std::string>> outboxPop(const std::string& listId);
     // Peek all entries for a list in FIFO order (rowid, eventJson).

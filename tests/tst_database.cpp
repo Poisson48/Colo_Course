@@ -65,6 +65,65 @@ private slots:
         QCOMPARE(lists.size(), size_t(1));
     }
 
+    void testOutboxTargetedRemove()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(db.open(dir.filePath("test.db")));
+
+        QVERIFY(db.outboxPush("l1", "evA"));
+        QVERIFY(db.outboxPush("l1", "evB"));
+        QVERIFY(db.outboxPush("l1", "evC"));
+
+        // Remove the middle entry (out-of-order ack): neighbours must survive.
+        auto entries = db.outboxPeekAll("l1");
+        QCOMPARE(entries.size(), size_t(3));
+        QVERIFY(db.outboxRemove(entries[1].first));
+
+        entries = db.outboxPeekAll("l1");
+        QCOMPARE(entries.size(), size_t(2));
+        QCOMPARE(entries[0].second, std::string("evA"));
+        QCOMPARE(entries[1].second, std::string("evC"));
+    }
+
+    void testUpdateLastSync()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(db.open(dir.filePath("test.db")));
+
+        core::ListMeta meta = makeList();
+        QVERIFY(db.createList(meta));
+
+        QVERIFY(db.updateLastSync(meta.listId, 5000));
+        QCOMPARE(db.getList(meta.listId)->lastSync, int64_t(5000));
+        // Only moves forward.
+        QVERIFY(db.updateLastSync(meta.listId, 4000));
+        QCOMPARE(db.getList(meta.listId)->lastSync, int64_t(5000));
+    }
+
+    void testUpdateListTitle()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(db.open(dir.filePath("test.db")));
+
+        core::ListMeta meta = makeList();
+        QVERIFY(db.createList(meta));
+
+        core::Ver newVer{meta.titleVer.lamport + 5, "dev-remote"};
+        QVERIFY(db.updateListTitle(meta.listId, "Titre mergé", newVer));
+
+        auto got = db.getList(meta.listId);
+        QVERIFY(got.has_value());
+        QCOMPARE(got->title, std::string("Titre mergé"));
+        QCOMPARE(got->titleVer.lamport, newVer.lamport);
+        QCOMPARE(got->titleVer.deviceId, newVer.deviceId);
+    }
+
     // 2. Full round-trip: every field of an Item survives write→read.
     void testItemRoundTrip()
     {

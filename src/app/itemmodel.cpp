@@ -135,6 +135,8 @@ void ItemModel::addItem(const QString &name, const QString &qty) {
 
     if (!m_db->upsertItem(item)) return;
 
+    emit localChanged(m_listId);
+
     // Insert into m_items (full set).
     m_items.push_back(item);
 
@@ -168,6 +170,8 @@ void ItemModel::toggleDone(const QString &itemId) {
     it->touched = now;
 
     if (!m_db->upsertItem(*it)) return;
+
+    emit localChanged(m_listId);
 
     // Find current position in visible rows.
     const int oldPos = findRow(itemId);
@@ -223,6 +227,8 @@ void ItemModel::removeItem(const QString &itemId) {
     it->touched = now;
 
     if (!m_db->upsertItem(*it)) return;
+
+    emit localChanged(m_listId);
 
     // Remove from visible rows.
     const int pos = findRow(itemId);

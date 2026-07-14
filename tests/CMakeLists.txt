@@ -103,6 +103,31 @@ target_link_libraries(tst_crypto PRIVATE
 
 add_test(NAME crypto COMMAND tst_crypto)
 
+# --- Sync engine integration tests ---
+qt_add_executable(tst_sync
+    tst_sync.cpp
+)
+
+target_include_directories(tst_sync PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}
+)
+
+target_link_libraries(tst_sync PRIVATE
+    applib
+    cryptolayer
+    net
+    store
+    core
+    Qt6::Test
+    Qt6::Core
+    Qt6::WebSockets
+    Qt6::Sql
+)
+
+add_test(NAME sync COMMAND tst_sync)
+set_tests_properties(sync PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # --- Pairing URI tests (pure C++, no Qt) ---
 add_executable(tst_pairing
     tst_pairing.cpp

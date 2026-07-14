@@ -8,6 +8,8 @@
 #include "../store/database.h"
 #include "../core/types.h"
 #include "../core/pairing.h"
+#include "../net/relaypool.h"
+#include "syncengine.h"
 
 namespace app {
 
@@ -74,17 +76,26 @@ public slots:
     // Build pairing URI for an existing list
     QString joinUri(const QString &listId);
 
+    // Access SyncEngine (for ItemModel integration).
+    SyncEngine *syncEngine() { return &m_syncEngine; }
+
 signals:
     void onlineChanged();
     // Emitted when QML should push the item page.
     void listOpened(const QString &listId, const QString &title);
 
+private slots:
+    void onSyncOnlineChanged(bool online);
+    void onRemoteChanges(const QString& listId, int count, const QString& authorName);
+
 private:
-    store::Database m_db;
-    ListsModel     *m_listsModel;
-    bool            m_online = false;
-    QString         m_deviceId;
-    QString         m_displayName;
+    store::Database  m_db;
+    ListsModel      *m_listsModel;
+    net::RelayPool   m_relayPool;
+    SyncEngine       m_syncEngine;
+    bool             m_online = false;
+    QString          m_deviceId;
+    QString          m_displayName;
 };
 
 } // namespace app

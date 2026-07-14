@@ -68,11 +68,12 @@ target_link_libraries(cryptolayer PUBLIC
     ${SECP256K1_LIBRARIES}
 )
 
-# --- app library (AppController, ItemModel, QrImageProvider) ---
+# --- app library (AppController, ItemModel, QrImageProvider, SyncEngine) ---
 add_library(applib STATIC
     app/appcontroller.cpp
     app/itemmodel.cpp
     app/qrimageprovider.cpp
+    app/syncengine.cpp
 )
 
 target_include_directories(applib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -80,14 +81,20 @@ target_include_directories(applib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(applib PUBLIC
     core
     cryptolayer
+    net
     store
     qrcodegen
     Qt6::Core
     Qt6::Quick
     Qt6::Sql
+    Qt6::WebSockets
     ${SODIUM_LIBRARIES}
     ${SECP256K1_LIBRARIES}
 )
+
+if(TARGET Qt6::Widgets)
+    target_link_libraries(applib PUBLIC Qt6::Widgets)
+endif()
 
 # --- main application ---
 qt_add_executable(colocourse

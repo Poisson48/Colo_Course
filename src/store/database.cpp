@@ -152,6 +152,26 @@ bool Database::createList(const core::ListMeta& meta)
     return true;
 }
 
+bool Database::updateListTitle(const std::string& listId,
+                               const std::string& title,
+                               const core::Ver& ver)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "UPDATE lists SET title = ?, title_ver_l = ?, title_ver_d = ?"
+        " WHERE list_id = ?"));
+    q.addBindValue(qs(title));
+    q.addBindValue(ll(ver.lamport));
+    q.addBindValue(qs(ver.deviceId));
+    q.addBindValue(qs(listId));
+
+    if (!q.exec()) {
+        qWarning() << "updateListTitle error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
 std::vector<core::ListMeta> Database::getLists()
 {
     std::vector<core::ListMeta> result;
@@ -332,6 +352,33 @@ std::vector<std::pair<std::string, std::string>> Database::getMembers(const std:
 }
 
 // --- Outbox ---
+
+bool Database::outboxRemove(int64_t rowid)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("DELETE FROM outbox WHERE rowid = ?"));
+    q.addBindValue(ll(rowid));
+    if (!q.exec()) {
+        qWarning() << "outboxRemove error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool Database::updateLastSync(const std::string& listId, int64_t ms)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "UPDATE lists SET last_sync = ? WHERE list_id = ? AND last_sync < ?"));
+    q.addBindValue(ll(ms));
+    q.addBindValue(qs(listId));
+    q.addBindValue(ll(ms));
+    if (!q.exec()) {
+        qWarning() << "updateLastSync error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
 
 bool Database::outboxPush(const std::string& listId, const std::string& eventJson)
 {

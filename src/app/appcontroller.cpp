@@ -5,10 +5,12 @@
 #include <QSettings>
 #include <QUuid>
 #include <QDateTime>
+#include <QDebug>
 
 #include "../core/types.h"
 #include "../core/crdt.h"
 #include "../core/pairing.h"
+#include "../net/relaypool.h"
 
 namespace app {
 
@@ -80,6 +82,8 @@ void ListsModel::prepend(const core::ListMeta &meta, int uncheckedCount) {
 AppController::AppController(QObject *parent)
     : QObject(parent)
     , m_listsModel(new ListsModel(this))
+    , m_relayPool(this)
+    , m_syncEngine(this)
 {}
 
 AppController::~AppController() = default;
@@ -130,6 +134,35 @@ bool AppController::init() {
     // --- Load lists ---
     m_listsModel->reload(m_db);
 
+    // --- Setup relay pool ---
+    // Load relay URLs from settings (or use defaults).
+    auto relaysSetting = m_db.getSetting("relays");
+    QList<QUrl> relayUrls;
+    if (relaysSetting && !relaysSetting->empty()) {
+        const QString relaysStr = QString::fromStdString(*relaysSetting);
+        for (const QString& u : relaysStr.split(QLatin1Char(','), Qt::SkipEmptyParts))
+            relayUrls.append(QUrl(u.trimmed()));
+    }
+    if (relayUrls.isEmpty()) {
+        relayUrls = net::RelayPool::defaultRelays();
+        // Persist defaults for future modification.
+        QStringList parts;
+        for (const QUrl& u : relayUrls) parts.append(u.toString());
+        m_db.setSetting("relays", parts.join(',').toStdString());
+    }
+    m_relayPool.setRelays(relayUrls);
+
+    // --- Wire SyncEngine ---
+    m_syncEngine.init(&m_db, &m_relayPool, m_deviceId, m_displayName);
+    connect(&m_syncEngine, &SyncEngine::onlineChanged,
+            this,          &AppController::onSyncOnlineChanged);
+    connect(&m_syncEngine, &SyncEngine::remoteChanges,
+            this,          &AppController::onRemoteChanges);
+
+    // --- Connect and subscribe ---
+    m_relayPool.connectAll();
+    m_syncEngine.subscribeAllLists();
+
     return true;
 }
 
@@ -139,6 +172,17 @@ QAbstractListModel *AppController::lists() const {
 
 bool AppController::online() const {
     return m_online;
+}
+
+void AppController::onSyncOnlineChanged(bool online) {
+    if (m_online == online) return;
+    m_online = online;
+    emit onlineChanged();
+}
+
+void AppController::onRemoteChanges(const QString& /*listId*/, int /*count*/, const QString& /*authorName*/) {
+    // Refresh the lists model so counts update.
+    m_listsModel->reload(m_db);
 }
 
 QString AppController::deviceId() const {
@@ -188,6 +232,8 @@ bool AppController::joinList(const QString &uri)
     if (created) {
         m_listsModel->prepend(meta, 0);
     }
+    // Subscribe to catch up full history (SPEC §3.4).
+    m_syncEngine.onListJoined(info.listId);
     // Return true even if already exists (already member)
     return true;
 }

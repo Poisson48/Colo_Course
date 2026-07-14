@@ -43,6 +43,8 @@ public slots:
 
 signals:
     void countChanged();
+    // Emitted after any local write (addItem, toggleDone, removeItem).
+    void localChanged(const std::string& listId);
 
 private:
     // Sorted visible rows (del=false only, sorted as §7).
