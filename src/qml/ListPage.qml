@@ -477,7 +477,7 @@ Item {
         ColoTextField {
             id: editNote
             Layout.fillWidth: true
-            hint: "Précision (6 couches épaisses…)"
+            hint: "Description"
             onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
         }
 

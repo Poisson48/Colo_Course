@@ -26,16 +26,52 @@ Item {
             onClicked: joinDialog.open()
         }
 
-        ToolButton {
-            width: Theme.touchTarget
+        // Qui je suis, en clair. Un « ⋮ » n'apprend à personne que son nom se change
+        // là-dessous — et c'est ce nom que les autres voient sur chaque modification.
+        ItemDelegate {
+            id: profileButton
+            width: Math.min(120, 44 + nameLabel.implicitWidth)
             height: Theme.touchTarget
-            contentItem: Label {
-                text: "⋮"
-                color: Theme.text
-                font.pixelSize: 20
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
+            padding: 0
+
+            background: Rectangle {
+                radius: height / 2
+                color: profileButton.pressed ? Theme.surfaceHigh : "transparent"
+                border.color: Theme.outline
+                border.width: 1
             }
+
+            contentItem: Row {
+                spacing: 6
+                leftPadding: 6
+                rightPadding: 10
+
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 28; height: 28; radius: 14
+                    color: Theme.accent
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: AppController.displayName.length > 0
+                              ? AppController.displayName.charAt(0).toUpperCase() : "?"
+                        color: "#0C1F10"
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                    }
+                }
+
+                Label {
+                    id: nameLabel
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: AppController.displayName
+                    color: Theme.text
+                    font.pixelSize: 14
+                    elide: Text.ElideRight
+                    width: Math.min(implicitWidth, 74)
+                }
+            }
+
             onClicked: nameDialog.open()
         }
     }
