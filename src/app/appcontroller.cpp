@@ -1,15 +1,20 @@
 #include "appcontroller.h"
+#include "platform.h"
 
-#include <QStandardPaths>
-#include <QDir>
-#include <QSettings>
-#include <QUuid>
+#include <QClipboard>
 #include <QDateTime>
 #include <QDebug>
+#include <QDir>
+#include <QGuiApplication>
+#include <QSettings>
+#include <QStandardPaths>
+#include <QUuid>
+#include <algorithm>
 
 #include "../core/types.h"
 #include "../core/crdt.h"
 #include "../core/pairing.h"
+#include "../net/crypto.h"
 #include "../net/relaypool.h"
 
 namespace app {
@@ -35,6 +40,7 @@ QVariant ListsModel::data(const QModelIndex &index, int role) const {
     case ListIdRole: return row.listId;
     case NameRole:   return row.name;
     case CountRole:  return row.count;
+    case TotalRole:  return row.total;
     default:         return {};
     }
 }
@@ -44,6 +50,7 @@ QHash<int, QByteArray> ListsModel::roleNames() const {
         { ListIdRole, "listId" },
         { NameRole,   "name"   },
         { CountRole,  "count"  },
+        { TotalRole,  "total"  },
     };
 }
 
@@ -53,13 +60,17 @@ void ListsModel::reload(store::Database &db) {
     const auto lists = db.getLists();
     for (const auto &meta : lists) {
         int unchecked = 0;
+        int total     = 0;
         for (const auto &item : db.getItems(meta.listId)) {
-            if (!item.del && !item.done) ++unchecked;
+            if (item.del) continue;
+            ++total;
+            if (!item.done) ++unchecked;
         }
         m_rows.push_back({
             QString::fromStdString(meta.listId),
             QString::fromStdString(meta.title),
-            unchecked
+            unchecked,
+            total
         });
     }
     endResetModel();
@@ -70,9 +81,21 @@ void ListsModel::prepend(const core::ListMeta &meta, int uncheckedCount) {
     m_rows.insert(m_rows.begin(), {
         QString::fromStdString(meta.listId),
         QString::fromStdString(meta.title),
+        uncheckedCount,
         uncheckedCount
     });
     endInsertRows();
+}
+
+void ListsModel::remove(const QString &listId) {
+    const auto it = std::find_if(m_rows.begin(), m_rows.end(),
+                                 [&](const Row &r){ return r.listId == listId; });
+    if (it == m_rows.end()) return;
+
+    const int row = static_cast<int>(std::distance(m_rows.begin(), it));
+    beginRemoveRows({}, row, row);
+    m_rows.erase(it);
+    endRemoveRows();
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +182,11 @@ bool AppController::init() {
     connect(&m_syncEngine, &SyncEngine::remoteChanges,
             this,          &AppController::onRemoteChanges);
 
+    // Toute écriture locale (ajout, cochage, suppression) doit partir au relais.
+    // Sans cette connexion, l'app modifie sa base et ne synchronise jamais rien.
+    connect(&m_itemModel, &ItemModel::localChanged,
+            this,         &AppController::onLocalItemChange);
+
     // --- Connect and subscribe ---
     m_relayPool.connectAll();
     m_syncEngine.subscribeAllLists();
@@ -170,8 +198,18 @@ QAbstractListModel *AppController::lists() const {
     return m_listsModel;
 }
 
+ItemModel *AppController::items() {
+    return &m_itemModel;
+}
+
 bool AppController::online() const {
     return m_online;
+}
+
+void AppController::onLocalItemChange(const std::string& listId) {
+    m_syncEngine.onLocalChange(listId);
+    // Les compteurs de l'écran des listes ("2 sur 7") dépendent des items.
+    m_listsModel->reload(m_db);
 }
 
 void AppController::onSyncOnlineChanged(bool online) {
@@ -197,19 +235,86 @@ void AppController::createList(const QString &title) {
     core::ListMeta meta;
     // listId: 16 random bytes → base64url 22 chars  (§1)
     meta.listId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
-    meta.title  = title.toStdString();
+    // Clé E2E de la liste (§3.1). Sans elle : canal et chiffrement identiques pour
+    // tout le monde, et URI d'appairage rejetée par parseJoinUri (32 octets exigés).
+    meta.key      = net::generateListKey();
+    meta.title    = title.toStdString();
     meta.titleVer = core::Ver{ 1, m_deviceId.toStdString() };
     meta.lamport  = 1;
     meta.created  = QDateTime::currentMSecsSinceEpoch();
 
+    if (meta.key.size() != 32) {
+        emit toast(QStringLiteral("Échec de la génération de la clé de chiffrement"));
+        return;
+    }
+
     if (m_db.createList(meta)) {
         m_listsModel->prepend(meta, 0);
+        // Souscrire tout de suite : sans ça, la liste n'est écoutée qu'au prochain
+        // lancement et les modifications des autres n'arrivent jamais.
+        m_syncEngine.onListJoined(meta.listId);
     }
 }
 
+void AppController::leaveList(const QString &listId) {
+    const std::string id = listId.toStdString();
+    m_syncEngine.unregisterItemModel(id);
+    if (m_openListId == id)
+        m_openListId.clear();
+    if (m_db.deleteList(id)) {
+        m_listsModel->remove(listId);
+        emit toast(QStringLiteral("Liste supprimée de cet appareil"));
+    }
+}
+
+void AppController::handleJoinUrl(const QUrl &url) {
+    if (joinList(url.toString()))
+        emit toast(QStringLiteral("Liste rejointe — synchronisation en cours"));
+    else
+        emit toast(QStringLiteral("Lien d'invitation invalide"));
+}
+
+void AppController::setDisplayName(const QString &name) {
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty() || trimmed == m_displayName) return;
+
+    m_displayName = trimmed;
+    m_db.setSetting("displayName", m_displayName.toStdString());
+    QSettings().setValue(QStringLiteral("displayName"), m_displayName);
+    // Le SyncEngine embarque le nom dans les payloads : le lui repasser (surtout pas
+    // via init(), qui rebrancherait les signaux du pool une deuxième fois).
+    m_syncEngine.setDisplayName(m_displayName);
+    emit displayNameChanged();
+}
+
+void AppController::copyToClipboard(const QString &text) {
+    if (auto *cb = QGuiApplication::clipboard())
+        cb->setText(text);
+    emit toast(QStringLiteral("Lien copié"));
+}
+
+bool AppController::shareText(const QString &text) {
+    if (app::platformShare(text))
+        return true;
+    // Pas de feuille de partage (desktop) : le presse-papiers fait le travail.
+    copyToClipboard(text);
+    return false;
+}
+
 void AppController::openList(const QString &listId) {
-    auto metaOpt = m_db.getList(listId.toStdString());
+    const std::string id = listId.toStdString();
+    auto metaOpt = m_db.getList(id);
     if (!metaOpt) return;
+
+    // Un seul ItemModel pour toutes les listes : le rebrancher sur celle-ci, sinon
+    // les événements distants d'une autre liste rafraîchiraient le mauvais écran.
+    if (!m_openListId.empty() && m_openListId != id)
+        m_syncEngine.unregisterItemModel(m_openListId);
+
+    m_itemModel.load(m_db, id, m_deviceId.toStdString());
+    m_syncEngine.registerItemModel(id, &m_itemModel);
+    m_openListId = id;
+
     emit listOpened(listId, QString::fromStdString(metaOpt->title));
 }
 

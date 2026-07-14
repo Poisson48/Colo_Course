@@ -35,6 +35,10 @@ public:
                          const core::Ver& ver);
     // Advance last_sync (ms epoch); only moves forward.
     bool updateLastSync(const std::string& listId, int64_t ms);
+    // Quitter une liste : efface toute trace locale (liste, items, membres, outbox).
+    // Purement local — aucune opération CRDT n'est émise, les autres participants
+    // gardent la liste (§2.2 : pas de suppression de liste répliquée).
+    bool deleteList(const std::string& listId);
 
     // --- Items ---
     // Insert or update an item. Transactional (updates lamport if needed).

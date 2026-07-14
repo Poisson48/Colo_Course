@@ -10,10 +10,11 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 
-// Notification locale après un merge distant (SPEC §8). Appelée depuis C++ via JNI
-// (src/app/notifier.cpp). Aucune référence à la classe R générée : les ressources
-// sont résolues par nom, pour ne dépendre d'aucun namespace Gradle.
-public class Notifier {
+// Services natifs appelés depuis C++ via JNI (src/app/platform.cpp) : notification
+// locale après un merge distant (SPEC §8) et feuille de partage du lien d'appairage.
+// Aucune référence à la classe R générée : les ressources sont résolues par nom,
+// pour ne dépendre d'aucun namespace Gradle.
+public class Platform {
 
     private static final String CHANNEL_ID = "colocourse.sync";
     private static final int    NOTIFICATION_ID = 4545;
@@ -70,6 +71,24 @@ public class Notifier {
         }
 
         nm.notify(NOTIFICATION_ID, builder.build());
+    }
+
+    // Feuille de partage native : le lien d'appairage part dans WhatsApp, SMS, mail…
+    public static boolean shareText(Context ctx, String text) {
+        if (ctx == null)
+            return false;
+        try {
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_TEXT, text);
+            Intent chooser = Intent.createChooser(send, "Partager la liste");
+            // Hors d'une Activity, le chooser exige sa propre tâche.
+            chooser.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(chooser);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static int smallIcon(Context ctx) {

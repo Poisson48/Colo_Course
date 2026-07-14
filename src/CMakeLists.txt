@@ -70,7 +70,7 @@ target_link_libraries(cryptolayer PUBLIC
 add_library(applib STATIC
     app/appcontroller.cpp
     app/itemmodel.cpp
-    app/notifier.cpp
+    app/platform.cpp
     app/qrimageprovider.cpp
     app/syncengine.cpp
 )
@@ -100,6 +100,10 @@ qt_add_executable(colocourse
     app/main.cpp
 )
 
+# Sans ce marqueur, `pragma Singleton` ne suffit pas : le qmldir généré ne déclare
+# pas Theme comme singleton et toutes ses couleurs arrivent en `undefined`.
+set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
 qt_add_qml_module(colocourse
     URI ColoCourse
     VERSION 1.0
@@ -107,6 +111,10 @@ qt_add_qml_module(colocourse
         qml/Main.qml
         qml/ListsPage.qml
         qml/ListPage.qml
+        qml/ShareSheet.qml
+        qml/ColoDialog.qml
+        qml/ColoTextField.qml
+        qml/Theme.qml
 )
 
 target_link_libraries(colocourse PRIVATE
@@ -117,6 +125,7 @@ target_link_libraries(colocourse PRIVATE
     qrcodegen
     Qt6::Core
     Qt6::Quick
+    Qt6::QuickControls2
     Qt6::Sql
     Qt6::WebSockets
     PkgConfig::SODIUM
@@ -124,10 +133,13 @@ target_link_libraries(colocourse PRIVATE
 )
 
 # Paquet Android : manifest (permissions, label, icône), ressources et le Java
-# de la notification (android/src/org/colocourse/app/Notifier.java).
+# le Java du pont plateforme (android/src/org/colocourse/app/Platform.java).
 set_property(TARGET colocourse PROPERTY
     QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/android")
-set_property(TARGET colocourse PROPERTY QT_ANDROID_TARGET_SDK_VERSION 35)
+# targetSdk 34 volontairement, pas 35 : à partir d'Android 15, cibler 35 impose
+# l'edge-to-edge, et Qt 6.8 ne gère pas les insets — l'UI passerait sous la barre
+# de statut et sous la barre de navigation.
+set_property(TARGET colocourse PROPERTY QT_ANDROID_TARGET_SDK_VERSION 34)
 
 # Version de l'APK. scripts/build-android.sh passe ces valeurs et aligne le manifest
 # dessus ; le workflow de release les dérive du tag git.

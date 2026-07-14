@@ -6,9 +6,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(ANDROID)
-    find_package(Qt6 REQUIRED COMPONENTS Core Quick Sql WebSockets)
+    find_package(Qt6 REQUIRED COMPONENTS Core Quick QuickControls2 Sql WebSockets)
 else()
-    find_package(Qt6 REQUIRED COMPONENTS Core Quick Sql WebSockets Test)
+    find_package(Qt6 REQUIRED COMPONENTS Core Quick QuickControls2 Sql WebSockets Test)
     find_package(Qt6 OPTIONAL_COMPONENTS Widgets)
 endif()
 

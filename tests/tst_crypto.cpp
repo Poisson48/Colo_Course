@@ -16,6 +16,24 @@ class TstCrypto : public QObject {
 
 private slots:
 
+    // ── Clé de liste ────────────────────────────────────────────────────────
+
+    // Une clé vide rendrait le canal et le chiffrement identiques pour tous, et
+    // l'URI d'appairage invalide : la génération ne doit jamais faillir en silence.
+    void generatedKeyIs32RandomBytes()
+    {
+        const auto k1 = net::generateListKey();
+        const auto k2 = net::generateListKey();
+
+        QCOMPARE(k1.size(), size_t(32));
+        QCOMPARE(k2.size(), size_t(32));
+        QVERIFY(k1 != k2);
+        QVERIFY(k1 != std::vector<uint8_t>(32, 0));
+
+        // Une clé fraîche doit donner un canal distinct de celui d'une autre liste.
+        QVERIFY(net::deriveChannelTag(k1) != net::deriveChannelTag(k2));
+    }
+
     // ── Encryption ──────────────────────────────────────────────────────────
 
     void roundTripEncryptDecrypt()

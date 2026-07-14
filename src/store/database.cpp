@@ -380,6 +380,41 @@ bool Database::updateLastSync(const std::string& listId, int64_t ms)
     return true;
 }
 
+bool Database::deleteList(const std::string& listId)
+{
+    if (!m_db.transaction()) {
+        qWarning() << "deleteList: transaction failed:" << m_db.lastError().text();
+        return false;
+    }
+
+    // Une seule transaction : une liste à moitié effacée laisserait des items
+    // orphelins que getItems() ressusciterait à la prochaine ouverture.
+    const QStringList stmts = {
+        QStringLiteral("DELETE FROM items   WHERE list_id = ?"),
+        QStringLiteral("DELETE FROM members WHERE list_id = ?"),
+        QStringLiteral("DELETE FROM outbox  WHERE list_id = ?"),
+        QStringLiteral("DELETE FROM lists   WHERE list_id = ?"),
+    };
+
+    for (const QString& sql : stmts) {
+        QSqlQuery q(m_db);
+        q.prepare(sql);
+        q.addBindValue(qs(listId));
+        if (!q.exec()) {
+            qWarning() << "deleteList error:" << q.lastError().text();
+            m_db.rollback();
+            return false;
+        }
+    }
+
+    if (!m_db.commit()) {
+        qWarning() << "deleteList: commit failed:" << m_db.lastError().text();
+        m_db.rollback();
+        return false;
+    }
+    return true;
+}
+
 bool Database::outboxPush(const std::string& listId, const std::string& eventJson)
 {
     QSqlQuery q(m_db);

@@ -2,142 +2,239 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import ColoCourse
 
 Item {
     id: root
-    required property string listName
-    // listId is set before push (used to distinguish lists; ItemModel already loaded)
-    property string listId: ""
+
+    required property string listId
+    required property string listTitle
+
+    readonly property string pageTitle: listTitle
+
+    property Component actions: ToolButton {
+        width: 92
+        height: Theme.touchTarget
+        contentItem: Label {
+            text: "Partager"
+            color: Theme.accent
+            font.pixelSize: 14
+            font.weight: Font.DemiBold
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        onClicked: shareSheet.openFor(root.listId, root.listTitle)
+    }
+
+    ShareSheet { id: shareSheet }
 
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
 
-        // Liste des articles — branchée sur ItemModel (context property)
         ListView {
-            id: listView
+            id: items
             Layout.fillWidth: true
             Layout.fillHeight: true
-            model: ItemModel
-            spacing: 8
-            topMargin: 12
-            bottomMargin: 12
-            leftMargin: 12
-            rightMargin: 12
+            clip: true
+            model: AppController.items
+            topMargin: Theme.gap
+            bottomMargin: Theme.gap
+            spacing: 6
 
+            // Ce qui reste à acheter est en haut (tri du modèle) ; une fois coché,
+            // l'article descend et s'estompe au lieu de disparaître.
             delegate: SwipeDelegate {
-                id: delegate
-                width: listView.width - 24
-                implicitHeight: 60
+                id: row
+                width: items.width - 2 * Theme.gap
+                x: Theme.gap
+                height: 60
+                padding: 0
 
-                // Contenu principal
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 12
+                background: Rectangle {
+                    radius: 12
+                    color: row.pressed ? Theme.surfaceHigh : Theme.surface
+                    border.color: Theme.outline
+                    border.width: 1
+                }
 
-                    // Checkbox (tap pour cocher)
+                contentItem: RowLayout {
+                    spacing: 0
+
                     CheckBox {
+                        Layout.leftMargin: 6
+                        Layout.alignment: Qt.AlignVCenter
+                        implicitWidth: Theme.touchTarget
+                        implicitHeight: Theme.touchTarget
                         checked: model.done
-                        onToggled: {
-                            ItemModel.toggleDone(model.itemId)
+                        Material.accent: Theme.accent
+                        // onToggled et pas onCheckedChanged : ce dernier repart en
+                        // boucle quand le modèle se recharge après un merge distant.
+                        onToggled: AppController.items.toggleDone(model.itemId)
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.leftMargin: 4
+                        spacing: 1
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: model.name
+                            color: model.done ? Theme.textDim : Theme.text
+                            font.pixelSize: 16
+                            font.strikeout: model.done
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: model.qty && model.qty.length > 0
+                            text: model.qty
+                            color: Theme.textDim
+                            font.pixelSize: 13
+                            elide: Text.ElideRight
                         }
                     }
 
-                    // Texte de l'article
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        spacing: 2
-
-                        Text {
-                            text: model.name
-                            font.pixelSize: 14
-                            font.strikeout: model.done
-                            color: Material.foreground
-                            opacity: model.done ? 0.6 : 1.0
-                            Layout.fillWidth: true
+                    // Repli tactile pour qui ne devine pas le swipe.
+                    ToolButton {
+                        Layout.rightMargin: 4
+                        Layout.alignment: Qt.AlignVCenter
+                        width: Theme.touchTarget
+                        height: Theme.touchTarget
+                        contentItem: Label {
+                            text: "✕"
+                            color: Theme.textDim
+                            font.pixelSize: 15
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
-
-                        Text {
-                            text: model.qty
-                            font.pixelSize: 12
-                            color: Material.foreground
-                            opacity: 0.6
-                            visible: model.qty !== undefined && model.qty.length > 0
-                            Layout.fillWidth: true
-                        }
+                        onClicked: AppController.items.removeItem(model.itemId)
                     }
                 }
 
-                // Bouton de suppression (swipe)
+                // Glisser vers la gauche : suppression, avec un fond rouge explicite.
                 swipe.right: Rectangle {
                     width: parent.width
                     height: parent.height
-                    color: Material.backgroundColor
-                    anchors.right: parent.right
+                    radius: 12
+                    color: Theme.danger
 
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.rightMargin: 12
-                        spacing: 8
-
-                        Item { Layout.fillWidth: true }
-
-                        Button {
-                            text: "Supprimer"
-                            Material.foreground: Material.red
-                            onClicked: {
-                                ItemModel.removeItem(model.itemId)
-                                delegate.swipe.close()
-                            }
-                        }
+                    Label {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 20
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Supprimer"
+                        color: "white"
+                        font.pixelSize: 15
+                        font.weight: Font.DemiBold
                     }
+
+                    SwipeDelegate.onClicked: AppController.items.removeItem(model.itemId)
                 }
             }
         }
 
-        // Champ d'ajout rapide en bas
+        // État vide de la liste ouverte.
+        ColumnLayout {
+            visible: items.count === 0
+            Layout.alignment: Qt.AlignCenter
+            Layout.fillHeight: true
+            Layout.leftMargin: 40
+            Layout.rightMargin: 40
+            spacing: 6
+
+            Item { Layout.fillHeight: true }
+
+            Label {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                text: "Liste vide"
+                color: Theme.text
+                font.pixelSize: 18
+                font.weight: Font.DemiBold
+            }
+
+            Label {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                text: "Ajoutez un premier article ci-dessous."
+                color: Theme.textDim
+                font.pixelSize: 14
+            }
+
+            Item { Layout.fillHeight: true }
+        }
+
+        // Barre d'ajout : collée en bas, au-dessus du clavier (adjustResize).
         Rectangle {
             Layout.fillWidth: true
-            color: Material.backgroundColor
-            implicitHeight: contentRow.implicitHeight + 24
+            implicitHeight: 72
+            color: Theme.surface
+
+            Rectangle {
+                width: parent.width
+                height: 1
+                color: Theme.outline
+            }
 
             RowLayout {
-                id: contentRow
                 anchors.fill: parent
-                anchors.margins: 12
+                anchors.margins: 10
                 spacing: 8
 
-                TextField {
+                ColoTextField {
                     id: nameField
                     Layout.fillWidth: true
-                    placeholderText: "Nom de l'article"
-                    Material.accent: Material.primary
-                    onAccepted: addItemButton.clicked()
+                    placeholderText: "Ajouter un article"
+                    onAccepted: root.addItem()
                 }
 
-                TextField {
+                ColoTextField {
                     id: qtyField
-                    Layout.preferredWidth: 80
-                    placeholderText: "Qté (opt.)"
-                    Material.accent: Material.primary
-                    onAccepted: addItemButton.clicked()
+                    Layout.preferredWidth: 76
+                    placeholderText: "Qté"
+                    onAccepted: root.addItem()
                 }
 
-                Button {
-                    id: addItemButton
-                    text: "+"
-                    onClicked: {
-                        if (nameField.text.length > 0) {
-                            ItemModel.addItem(nameField.text, qtyField.text)
-                            nameField.text = ""
-                            qtyField.text = ""
-                            nameField.forceActiveFocus()
-                        }
+                RoundButton {
+                    id: addButton
+                    Layout.preferredWidth: 52
+                    Layout.preferredHeight: 52
+                    enabled: nameField.text.trim().length > 0
+
+                    // Fond explicite : le style Material ignore Material.background
+                    // sur un bouton désactivé, et le bouton devient invisible.
+                    background: Rectangle {
+                        radius: width / 2
+                        color: !addButton.enabled ? Theme.surfaceHigh
+                             : (addButton.pressed ? Theme.accentDim : Theme.accent)
                     }
+
+                    contentItem: Label {
+                        text: "+"
+                        color: addButton.enabled ? "#0C1F10" : Theme.textDim
+                        font.pixelSize: 24
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    onClicked: root.addItem()
                 }
             }
         }
+    }
+
+    function addItem() {
+        const name = nameField.text.trim()
+        if (name.length === 0)
+            return
+        AppController.items.addItem(name, qtyField.text.trim())
+        nameField.text = ""
+        qtyField.text = ""
+        nameField.forceActiveFocus()
     }
 }

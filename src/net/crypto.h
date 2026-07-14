@@ -6,6 +6,11 @@
 
 namespace net {
 
+// §3.1 — Fresh 32-byte list key (CSPRNG). Returns {} if libsodium fails to init.
+// Toute liste doit en avoir une : clé vide = canal et chiffrement partagés par
+// tous, et URI d'appairage invalide (parseJoinUri exige 32 octets).
+std::vector<uint8_t> generateListKey();
+
 // §3.2 — Derive a 32-hex-char channel tag from listKey.
 // channelTag = hex(SHA256("colo-course/v1/channel" || listKey))[0..31]
 std::string deriveChannelTag(const std::vector<uint8_t>& listKey);

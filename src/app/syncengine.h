@@ -55,6 +55,9 @@ public:
               const QString&   deviceId,
               const QString&   displayName);
 
+    // Nom affiché embarqué dans les payloads (members). Changeable à chaud.
+    void setDisplayName(const QString& displayName) { m_displayName = displayName; }
+
     // Register an ItemModel for a given listId so incoming events
     // can refresh it directly (weak reference: model must outlive usage).
     void registerItemModel(const std::string& listId, ItemModel* model);

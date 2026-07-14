@@ -1,4 +1,4 @@
-#include "notifier.h"
+#include "platform.h"
 
 #ifdef Q_OS_ANDROID
 #  include <QCoreApplication>
@@ -11,7 +11,7 @@ namespace app {
 
 namespace {
 
-constexpr const char* kNotifierClass = "org/colocourse/app/Notifier";
+constexpr const char* kPlatformClass = "org/colocourse/app/Platform";
 
 // context() renvoie l'Activity quand l'app tourne au premier plan. Son type de
 // retour a changé entre versions de Qt (QJniObject → jobject) : l'init par
@@ -30,11 +30,11 @@ void initNotifications()
         return;
 
     QJniObject::callStaticMethod<void>(
-        kNotifierClass, "createChannel",
+        kPlatformClass, "createChannel",
         "(Landroid/content/Context;)V", ctx.object());
 
     QJniObject::callStaticMethod<void>(
-        kNotifierClass, "requestPermission",
+        kPlatformClass, "requestPermission",
         "(Landroid/content/Context;)V", ctx.object());
 }
 
@@ -48,11 +48,24 @@ bool platformNotify(const QString& title, const QString& body)
     const QJniObject jBody  = QJniObject::fromString(body);
 
     QJniObject::callStaticMethod<void>(
-        kNotifierClass, "showNotification",
+        kPlatformClass, "showNotification",
         "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)V",
         ctx.object(), jTitle.object<jstring>(), jBody.object<jstring>());
 
     return true;
+}
+
+bool platformShare(const QString& text)
+{
+    const QJniObject ctx = androidContext();
+    if (!ctx.isValid())
+        return false;
+
+    const QJniObject jText = QJniObject::fromString(text);
+    return QJniObject::callStaticMethod<jboolean>(
+        kPlatformClass, "shareText",
+        "(Landroid/content/Context;Ljava/lang/String;)Z",
+        ctx.object(), jText.object<jstring>());
 }
 
 #else // !Q_OS_ANDROID
@@ -60,6 +73,8 @@ bool platformNotify(const QString& title, const QString& body)
 void initNotifications() {}
 
 bool platformNotify(const QString&, const QString&) { return false; }
+
+bool platformShare(const QString&) { return false; }
 
 #endif
 

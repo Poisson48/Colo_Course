@@ -70,6 +70,20 @@ static secp256k1_context* getSecp256k1Ctx()
 }
 
 // ---------------------------------------------------------------------------
+// §3.1 — Clé de liste
+// ---------------------------------------------------------------------------
+
+std::vector<uint8_t> generateListKey()
+{
+    // sodium_init() est idempotent ; il doit précéder tout appel à randombytes_buf.
+    if (sodium_init() < 0)
+        return {};
+    std::vector<uint8_t> key(32);
+    randombytes_buf(key.data(), key.size());
+    return key;
+}
+
+// ---------------------------------------------------------------------------
 // §3.2 — Channel tag
 // ---------------------------------------------------------------------------
 

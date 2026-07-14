@@ -366,6 +366,48 @@ private slots:
             if (did == "dev-A") { QCOMPARE(name, std::string("Leonard")); found = true; }
         QVERIFY(found);
     }
+
+    // 10. deleteList: efface la liste et tout ce qui lui est rattaché, et rien d'autre.
+    void testDeleteList()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(db.open(dir.filePath("test.db")));
+
+        QVERIFY(db.createList(makeList("list-A")));
+        QVERIFY(db.createList(makeList("list-B")));
+
+        Item a = makeItem();          // rattaché à list-A
+        QVERIFY(db.upsertItem(a));
+        Item b = makeItem();
+        b.listId = "list-B";
+        b.itemId = "item-B";
+        QVERIFY(db.upsertItem(b));
+
+        QVERIFY(db.upsertMember("list-A", "dev-A", "Leo", {1, "dev-A"}));
+        QVERIFY(db.upsertMember("list-B", "dev-A", "Leo", {1, "dev-A"}));
+        QVERIFY(db.outboxPush("list-A", "{\"ev\":\"a\"}"));
+        QVERIFY(db.outboxPush("list-B", "{\"ev\":\"b\"}"));
+
+        QVERIFY(db.deleteList("list-A"));
+
+        // list-A a disparu, items/membres/outbox compris.
+        QVERIFY(!db.getList("list-A").has_value());
+        QVERIFY(db.getItems("list-A").empty());
+        QVERIFY(db.getMembers("list-A").empty());
+        QVERIFY(db.outboxPeekAll("list-A").empty());
+
+        // list-B est intacte : la suppression ne doit pas déborder.
+        QVERIFY(db.getList("list-B").has_value());
+        QCOMPARE(db.getItems("list-B").size(), size_t(1));
+        QCOMPARE(db.getMembers("list-B").size(), size_t(1));
+        QCOMPARE(db.outboxPeekAll("list-B").size(), size_t(1));
+
+        // Une liste effacée puis recréée repart vierge (pas d'items ressuscités).
+        QVERIFY(db.createList(makeList("list-A")));
+        QVERIFY(db.getItems("list-A").empty());
+    }
 };
 
 QTEST_MAIN(DatabaseTest)

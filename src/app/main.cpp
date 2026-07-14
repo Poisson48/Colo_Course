@@ -1,11 +1,12 @@
+#include <QCoreApplication>
+#include <QDesktopServices>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include <QCoreApplication>
+#include <QQuickStyle>
 
 #include "appcontroller.h"
-#include "itemmodel.h"
-#include "notifier.h"
+#include "platform.h"
 #include "qrimageprovider.h"
 
 int main(int argc, char *argv[])
@@ -13,6 +14,10 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     app.setOrganizationName("ColoCourse");
     app.setApplicationName("ColoCourse");
+
+    // L'UI s'appuie sur les attachements Material (theme, elevation, accent) :
+    // ils sont ignorés si un autre style est actif.
+    QQuickStyle::setStyle(QStringLiteral("Material"));
 
     // Canal de notification + permission POST_NOTIFICATIONS (Android 13+).
     app::initNotifications();
@@ -23,6 +28,11 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    // Lien d'invitation ouvert depuis une autre app (WhatsApp, SMS…) : Android
+    // délivre l'intent VIEW ici, y compris quand l'app tournait déjà.
+    QDesktopServices::setUrlHandler(QStringLiteral("colocourse"),
+                                    &controller, "handleJoinUrl");
+
     // SPEC §8 : au retour au premier plan, rattrapage immédiat — Android a pu tuer
     // la socket pendant la mise en veille, et la souscription doit être rejouée.
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
@@ -32,22 +42,8 @@ int main(int argc, char *argv[])
     });
 
     QQmlApplicationEngine engine;
-
-    // Register QR image provider
     engine.addImageProvider(QStringLiteral("qr"), new app::QrImageProvider());
-
-    // Expose AppController and ItemModel factory to QML.
     engine.rootContext()->setContextProperty(QStringLiteral("AppController"), &controller);
-
-    // ItemModel: one instance, reloaded per list.
-    app::ItemModel itemModel;
-    engine.rootContext()->setContextProperty(QStringLiteral("ItemModel"), &itemModel);
-
-    // Connect AppController::listOpened to load the ItemModel for the chosen list.
-    QObject::connect(&controller, &app::AppController::listOpened,
-                     [&](const QString &listId, const QString & /*title*/) {
-        itemModel.load(controller.db(), listId.toStdString(), controller.deviceId().toStdString());
-    });
 
     const QUrl url(QStringLiteral("qrc:/ColoCourse/qml/Main.qml"));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,

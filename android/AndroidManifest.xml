@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <!-- Notification locale après un merge distant (SPEC §8). Runtime sur Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Scan du QR d'appairage. Runtime, et l'app reste utilisable sans (lien collé). -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
 
     <supports-screens
         android:anyDensity="true"
@@ -22,6 +25,7 @@
         android:name="org.qtproject.qt.android.bindings.QtApplication"
         android:label="Colo Course"
         android:icon="@mipmap/ic_launcher"
+        android:theme="@style/ColoTheme"
         android:hardwareAccelerated="true"
         android:allowBackup="true"
         android:fullBackupOnly="false"
@@ -33,11 +37,22 @@
             android:launchMode="singleTop"
             android:screenOrientation="unspecified"
             android:exported="true"
-            android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density">
+            android:theme="@style/ColoTheme"
+            android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
+            android:windowSoftInputMode="adjustResize">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+
+            <!-- Lien d'invitation : ouvrir colocourse://join/… depuis WhatsApp, SMS…
+                 Qt le remet à QDesktopServices::setUrlHandler (src/app/main.cpp). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="colocourse" android:host="join"/>
             </intent-filter>
 
             <!-- Remplacés par androiddeployqt : ne pas figer ces valeurs. -->

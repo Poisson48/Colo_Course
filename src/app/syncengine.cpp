@@ -1,6 +1,6 @@
 #include "syncengine.h"
 #include "itemmodel.h"
-#include "notifier.h"
+#include "platform.h"
 
 #include "../core/crdt.h"
 #include "../core/payload.h"

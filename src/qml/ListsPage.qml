@@ -2,245 +2,317 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
+import ColoCourse
 
 Item {
     id: root
 
-    // Signaux
-    signal listSelected(string listId, string listName)
-    signal createListRequested(string name)
-    signal joinListRequested(string key)
+    readonly property string pageTitle: "Mes listes"
 
-    ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: 12
-        spacing: 12
+    // Boutons affichés dans la barre supérieure par Main.qml.
+    property Component actions: Row {
+        spacing: 0
 
-        // Liste des listes (branchée sur AppController.lists)
-        ListView {
-            id: listView
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            model: AppController.lists
-            spacing: 8
-
-            delegate: ItemDelegate {
-                id: delegate
-                width: listView.width
-                implicitHeight: 64
-
-                RowLayout {
-                    anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 4
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 4
-
-                        Text {
-                            text: model.name
-                            font.pixelSize: 16
-                            font.weight: Font.Medium
-                            Layout.fillWidth: true
-                        }
-
-                        Text {
-                            text: model.count + " article" + (model.count !== 1 ? "s" : "")
-                            font.pixelSize: 13
-                            color: Material.foreground
-                            opacity: 0.7
-                        }
-                    }
-
-                    // Bouton Partager (QR)
-                    Button {
-                        text: "⬡"
-                        flat: true
-                        font.pixelSize: 18
-                        onClicked: {
-                            shareDialog.currentListId = model.listId
-                            shareDialog.currentUri = AppController.joinUri(model.listId)
-                            shareDialog.open()
-                        }
-                    }
-                }
-
-                onClicked: {
-                    root.listSelected(model.listId, model.name)
-                }
+        ToolButton {
+            width: 96
+            height: Theme.touchTarget
+            contentItem: Label {
+                text: "Rejoindre"
+                color: Theme.accent
+                font.pixelSize: 14
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
             }
-
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: 1
-                color: "transparent"
-                border.color: Material.foreground
-                border.width: 1
-                opacity: 0.1
-            }
-        }
-
-        // Bouton Rejoindre
-        Button {
-            Layout.fillWidth: true
-            text: "Rejoindre une liste"
             onClicked: joinDialog.open()
         }
-    }
 
-    // Bouton flottant +
-    RoundButton {
-        id: fabButton
-        anchors.right: parent.right
-        anchors.rightMargin: 16
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 16
-        width: 56
-        height: 56
-
-        text: "+"
-        font.pixelSize: 24
-        Material.accent: Material.primary
-        Material.foreground: "white"
-
-        onClicked: {
-            createDialog.open()
+        ToolButton {
+            width: Theme.touchTarget
+            height: Theme.touchTarget
+            contentItem: Label {
+                text: "⋮"
+                color: Theme.text
+                font.pixelSize: 20
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: nameDialog.open()
         }
     }
 
-    // Dialog de création de liste
-    Dialog {
-        id: createDialog
-        title: "Créer une nouvelle liste"
-        anchors.centerIn: parent
-        width: Math.min(parent.width - 32, 400)
+    ListView {
+        id: listView
+        anchors.fill: parent
+        anchors.margins: Theme.gap
+        topMargin: Theme.gap
+        bottomMargin: 96          // laisse respirer le bouton flottant
+        spacing: Theme.gap
+        clip: true
+        model: AppController.lists
 
-        ColumnLayout {
-            width: parent.width
-            spacing: 12
+        delegate: ItemDelegate {
+            id: card
+            width: listView.width - 2 * Theme.gap
+            height: 84
+            padding: 0
 
-            TextField {
-                id: newListName
-                Layout.fillWidth: true
-                placeholderText: "Nom de la liste"
-                Material.accent: Material.primary
-            }
-        }
-
-        standardButtons: Dialog.Ok | Dialog.Cancel
-
-        onAccepted: {
-            if (newListName.text.length > 0) {
-                AppController.createList(newListName.text)
-                newListName.text = ""
-            }
-        }
-
-        onRejected: {
-            newListName.text = ""
-        }
-    }
-
-    // Dialog Rejoindre une liste
-    Dialog {
-        id: joinDialog
-        title: "Rejoindre une liste"
-        anchors.centerIn: parent
-        width: Math.min(parent.width - 32, 400)
-
-        ColumnLayout {
-            width: parent.width
-            spacing: 12
-
-            Text {
-                text: "Collez l'URI de partage :"
-                font.pixelSize: 14
-                Layout.fillWidth: true
+            background: Rectangle {
+                radius: Theme.radius
+                color: card.pressed ? Theme.surfaceHigh : Theme.surface
+                border.color: Theme.outline
+                border.width: 1
             }
 
-            TextField {
-                id: joinUriField
-                Layout.fillWidth: true
-                placeholderText: "colocourse://join/1/..."
-                Material.accent: Material.primary
-            }
+            contentItem: RowLayout {
+                spacing: Theme.gap
+                anchors.margins: Theme.pad
 
-            Text {
-                id: joinErrorText
-                text: ""
-                color: "red"
-                font.pixelSize: 12
-                visible: text.length > 0
-                Layout.fillWidth: true
-            }
-        }
+                // Pastille du nombre d'articles restants.
+                Rectangle {
+                    Layout.leftMargin: Theme.pad
+                    Layout.alignment: Qt.AlignVCenter
+                    width: 44; height: 44
+                    radius: 22
+                    color: model.count > 0 ? Theme.accentDim : Theme.surfaceHigh
 
-        standardButtons: Dialog.Ok | Dialog.Cancel
+                    Label {
+                        anchors.centerIn: parent
+                        text: model.count > 0 ? model.count : "✓"
+                        color: model.count > 0 ? "#FFFFFF" : Theme.accent
+                        font.pixelSize: model.count > 0 ? 17 : 18
+                        font.weight: Font.DemiBold
+                    }
+                }
 
-        onAccepted: {
-            joinErrorText.text = ""
-            if (joinUriField.text.length > 0) {
-                var ok = AppController.joinList(joinUriField.text)
-                if (!ok) {
-                    joinErrorText.text = "URI invalide, veuillez réessayer."
-                    joinDialog.open()
-                } else {
-                    joinUriField.text = ""
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: 3
+
+                    Label {
+                        Layout.fillWidth: true
+                        text: model.name
+                        color: Theme.text
+                        font.pixelSize: 17
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        color: Theme.textDim
+                        font.pixelSize: 13
+                        elide: Text.ElideRight
+                        text: model.total === 0
+                              ? "Liste vide"
+                              : (model.count === 0
+                                 ? "Tout est dans le panier"
+                                 : model.count + " à acheter sur " + model.total)
+                    }
+                }
+
+                ToolButton {
+                    Layout.rightMargin: 4
+                    Layout.alignment: Qt.AlignVCenter
+                    width: Theme.touchTarget
+                    height: Theme.touchTarget
+                    contentItem: Label {
+                        text: "⋮"
+                        color: Theme.textDim
+                        font.pixelSize: 20
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        cardMenu.listId = model.listId
+                        cardMenu.listName = model.name
+                        cardMenu.popup()
+                    }
                 }
             }
-        }
 
-        onRejected: {
-            joinUriField.text = ""
-            joinErrorText.text = ""
+            onClicked: AppController.openList(model.listId)
         }
     }
 
-    // Dialog Partager (QR + URI)
-    Dialog {
-        id: shareDialog
-        title: "Partager la liste"
+    // État vide : c'est le premier écran d'un nouvel utilisateur, il doit dire quoi faire.
+    ColumnLayout {
         anchors.centerIn: parent
-        width: Math.min(parent.width - 32, 400)
-        modal: true
+        width: parent.width - 80
+        spacing: Theme.gap
+        visible: listView.count === 0
 
-        property string currentListId: ""
-        property string currentUri: ""
+        Rectangle {
+            Layout.alignment: Qt.AlignHCenter
+            width: 88; height: 88; radius: 44
+            color: Theme.surface
+            border.color: Theme.outline
+            border.width: 1
 
-        ColumnLayout {
-            width: parent.width
-            spacing: 12
-
-            Image {
-                id: qrImage
-                Layout.alignment: Qt.AlignHCenter
-                width: 240
-                height: 240
-                source: shareDialog.currentUri.length > 0
-                    ? "image://qr/" + shareDialog.currentUri
-                    : ""
-                fillMode: Image.PreserveAspectFit
-            }
-
-            Text {
-                text: "Lien de partage :"
-                font.pixelSize: 13
-                Layout.fillWidth: true
-            }
-
-            TextEdit {
-                id: uriText
-                text: shareDialog.currentUri
-                readOnly: true
-                wrapMode: TextEdit.WrapAnywhere
-                selectByMouse: true
-                font.pixelSize: 11
-                Layout.fillWidth: true
-                color: Material.foreground
+            Label {
+                anchors.centerIn: parent
+                text: "+"
+                color: Theme.accent
+                font.pixelSize: 40
             }
         }
 
-        standardButtons: Dialog.Close
+        Label {
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            text: "Aucune liste"
+            color: Theme.text
+            font.pixelSize: 19
+            font.weight: Font.DemiBold
+        }
+
+        Label {
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            text: "Créez une liste, puis partagez-la pour que vos courses restent synchronisées."
+            color: Theme.textDim
+            font.pixelSize: 14
+        }
+    }
+
+    // Bouton flottant : créer une liste.
+    RoundButton {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 20
+        width: 60; height: 60
+        Material.background: Theme.accent
+        Material.elevation: 6
+
+        contentItem: Label {
+            text: "+"
+            color: "#0C1F10"
+            font.pixelSize: 28
+            font.weight: Font.Medium
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+
+        onClicked: createDialog.open()
+    }
+
+    Menu {
+        id: cardMenu
+        property string listId: ""
+        property string listName: ""
+
+        MenuItem {
+            text: "Partager la liste"
+            onTriggered: shareSheet.openFor(cardMenu.listId, cardMenu.listName)
+        }
+        MenuItem {
+            text: "Quitter la liste"
+            onTriggered: {
+                leaveDialog.listId = cardMenu.listId
+                leaveDialog.listName = cardMenu.listName
+                leaveDialog.open()
+            }
+        }
+    }
+
+    ShareSheet { id: shareSheet }
+
+    // --- Dialogues ---
+
+    ColoDialog {
+        id: createDialog
+        title: "Nouvelle liste"
+        acceptText: "Créer"
+        acceptEnabled: nameField.text.trim().length > 0
+
+        ColoTextField {
+            id: nameField
+            Layout.fillWidth: true
+            placeholderText: "Courses de la semaine"
+            onAccepted: if (createDialog.acceptEnabled) createDialog.accept()
+        }
+
+        onOpened: { nameField.text = ""; nameField.forceActiveFocus() }
+        onAccepted: AppController.createList(nameField.text.trim())
+    }
+
+    ColoDialog {
+        id: joinDialog
+        title: "Rejoindre une liste"
+        acceptText: "Rejoindre"
+        acceptEnabled: uriField.text.trim().length > 0
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: "Collez le lien d'invitation reçu, ou scannez le QR code affiché sur l'autre appareil."
+            color: Theme.textDim
+            font.pixelSize: 13
+        }
+
+        ColoTextField {
+            id: uriField
+            Layout.fillWidth: true
+            placeholderText: "colocourse://join/1/…"
+            onAccepted: if (joinDialog.acceptEnabled) joinDialog.accept()
+        }
+
+        onOpened: { uriField.text = ""; uriField.forceActiveFocus() }
+        onAccepted: {
+            if (!AppController.joinList(uriField.text.trim()))
+                AppController.toast("Lien d'invitation invalide")
+        }
+    }
+
+    ColoDialog {
+        id: nameDialog
+        title: "Mon nom"
+        acceptText: "Enregistrer"
+        acceptEnabled: displayNameField.text.trim().length > 0
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: "Le nom que voient les autres participants : « 3 articles ajoutés par… »"
+            color: Theme.textDim
+            font.pixelSize: 13
+        }
+
+        ColoTextField {
+            id: displayNameField
+            Layout.fillWidth: true
+            placeholderText: "Votre prénom"
+            onAccepted: if (nameDialog.acceptEnabled) nameDialog.accept()
+        }
+
+        onOpened: {
+            displayNameField.text = AppController.displayName
+            displayNameField.forceActiveFocus()
+            displayNameField.selectAll()
+        }
+        onAccepted: AppController.displayName = displayNameField.text.trim()
+    }
+
+    ColoDialog {
+        id: leaveDialog
+        title: "Quitter la liste ?"
+        acceptText: "Quitter"
+        destructive: true
+
+        property string listId: ""
+        property string listName: ""
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 14
+            text: "« " + leaveDialog.listName + " » sera effacée de cet appareil. "
+                  + "Les autres participants la gardent, et vous pourrez la rejoindre à nouveau avec le lien."
+        }
+
+        onAccepted: AppController.leaveList(leaveDialog.listId)
     }
 }
