@@ -55,9 +55,11 @@ version reçues ; sinon ignorer. Item inconnu localement → l'insérer tel quel
 
 - Supprimer = poser `del=true` (LWW). Un `del=false` postérieur ressuscite l'item (undo).
 - GC local : purger de SQLite les items `del=true` dont le lamport de `del` est plus vieux
-  que le lamport courant local d'au moins `GC_AGE = 10000` ET dont la modification date de
-  plus de 30 jours (horloge murale locale, indicatif). Un pair très en retard peut
-  théoriquement ressusciter un item purgé — accepté en v1 (impact : un article réapparaît).
+  que le lamport courant local d'au moins `GC_AGE = 10000` ET dont la dernière écriture
+  locale (`touched`, voir §6) date de plus de 30 jours d'horloge murale. `touched` est une
+  métadonnée purement locale (ms epoch, mise à jour à chaque upsert de l'item) : elle ne
+  circule JAMAIS dans les payloads. Un pair très en retard peut théoriquement ressusciter
+  un item purgé — accepté en v1 (impact : un article réapparaît).
 
 ## 3. Transport : relais Nostr
 
@@ -144,6 +146,7 @@ items(list_id TEXT, item_id TEXT, created INT, by TEXT,
       qty  TEXT,  qty_l  INT,  qty_d  TEXT,
       done INT,   done_l INT,  done_d TEXT,
       del  INT,   del_l  INT,  del_d  TEXT,
+      touched INT,   -- ms epoch de la dernière écriture locale ; jamais synchronisé (§2.4)
       PRIMARY KEY(list_id, item_id));
 members(list_id TEXT, device_id TEXT, name TEXT, ver_l INT, ver_d TEXT,
         PRIMARY KEY(list_id, device_id));

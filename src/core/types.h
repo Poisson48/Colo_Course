@@ -41,6 +41,9 @@ struct Item {
 
     bool del = false;
     Ver  delVer;
+
+    // Local-only metadata (§2.4 / §6): ms epoch of last local write. Never synchronised.
+    int64_t touched = 0;
 };
 
 // §2.2 — List metadata.

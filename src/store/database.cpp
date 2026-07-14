@@ -86,6 +86,7 @@ bool Database::createSchema()
             "  qty  TEXT,  qty_l  INT,  qty_d  TEXT,"
             "  done INT,   done_l INT,  done_d TEXT,"
             "  del  INT,   del_l  INT,  del_d  TEXT,"
+            "  touched INT,"
             "  PRIMARY KEY(list_id, item_id)"
             ")"),
         QStringLiteral(
@@ -207,19 +208,22 @@ bool Database::upsertItem(const core::Item& item)
     }
 
     QSqlQuery q(m_db);
+    const int64_t nowMs = QDateTime::currentMSecsSinceEpoch();
     q.prepare(QStringLiteral(
         "INSERT INTO items"
         " (list_id, item_id, created, by,"
         "  name, name_l, name_d,"
         "  qty,  qty_l,  qty_d,"
         "  done, done_l, done_d,"
-        "  del,  del_l,  del_d)"
-        " VALUES (?,?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?)"
+        "  del,  del_l,  del_d,"
+        "  touched)"
+        " VALUES (?,?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?, ?)"
         " ON CONFLICT(list_id, item_id) DO UPDATE SET"
         "  name   = excluded.name,   name_l = excluded.name_l,   name_d = excluded.name_d,"
         "  qty    = excluded.qty,    qty_l  = excluded.qty_l,    qty_d  = excluded.qty_d,"
         "  done   = excluded.done,   done_l = excluded.done_l,   done_d = excluded.done_d,"
-        "  del    = excluded.del,    del_l  = excluded.del_l,    del_d  = excluded.del_d"));
+        "  del    = excluded.del,    del_l  = excluded.del_l,    del_d  = excluded.del_d,"
+        "  touched = excluded.touched"));
     q.addBindValue(qs(item.listId));
     q.addBindValue(qs(item.itemId));
     q.addBindValue(ll(item.created));
@@ -236,6 +240,7 @@ bool Database::upsertItem(const core::Item& item)
     q.addBindValue(item.del ? 1 : 0);
     q.addBindValue(ll(item.delVer.lamport));
     q.addBindValue(qs(item.delVer.deviceId));
+    q.addBindValue(ll(nowMs));
 
     if (!q.exec()) {
         qWarning() << "upsertItem error:" << q.lastError().text();
@@ -260,7 +265,8 @@ std::vector<core::Item> Database::getItems(const std::string& listId)
         "  name, name_l, name_d,"
         "  qty,  qty_l,  qty_d,"
         "  done, done_l, done_d,"
-        "  del,  del_l,  del_d"
+        "  del,  del_l,  del_d,"
+        "  touched"
         " FROM items WHERE list_id = ?"));
     q.addBindValue(qs(listId));
     if (!q.exec()) {
@@ -281,6 +287,7 @@ std::vector<core::Item> Database::getItems(const std::string& listId)
         it.doneVer     = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
         it.del         = q.value(12).toInt() != 0;
         it.delVer      = verFromCols(q.value(13).toLongLong(), q.value(14).toString());
+        it.touched     = q.value(15).toLongLong();
         result.push_back(std::move(it));
     }
     return result;

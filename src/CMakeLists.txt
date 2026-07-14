@@ -1,3 +1,16 @@
+# --- core static library (pure C++/STL, no Qt) ---
+add_library(core STATIC
+    core/crdt.cpp
+    core/payload.cpp
+)
+
+target_include_directories(core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/third_party
+)
+
+# core is pure STL: no Qt linkage.
+
 # --- store static library ---
 add_library(store STATIC
     store/database.cpp

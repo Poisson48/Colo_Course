@@ -246,7 +246,42 @@ private slots:
         }
     }
 
-    // 8. Members round-trip.
+    // 8. touched: set on insert, updated on subsequent upsert.
+    void testTouchedTimestamp()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(db.open(dir.filePath("test.db")));
+        QVERIFY(db.createList(makeList()));
+
+        int64_t before = QDateTime::currentMSecsSinceEpoch();
+        Item it = makeItem();
+        QVERIFY(db.upsertItem(it));
+        int64_t after = QDateTime::currentMSecsSinceEpoch();
+
+        auto items = db.getItems("list-A");
+        QCOMPARE(items.size(), size_t(1));
+        int64_t t1 = items[0].touched;
+        QVERIFY(t1 >= before);
+        QVERIFY(t1 <= after);
+
+        // Second upsert: touched must be >= t1 (wall clock advances or stays same).
+        it.name    = "Lait entier";
+        it.nameVer = {10, "dev-B"};
+        int64_t before2 = QDateTime::currentMSecsSinceEpoch();
+        QVERIFY(db.upsertItem(it));
+        int64_t after2 = QDateTime::currentMSecsSinceEpoch();
+
+        auto items2 = db.getItems("list-A");
+        QCOMPARE(items2.size(), size_t(1));
+        int64_t t2 = items2[0].touched;
+        QVERIFY(t2 >= before2);
+        QVERIFY(t2 <= after2);
+        QVERIFY(t2 >= t1);
+    }
+
+    // 9. Members round-trip.
     void testMembers()
     {
         QTemporaryDir dir;

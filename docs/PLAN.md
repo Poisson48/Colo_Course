@@ -50,8 +50,9 @@ minimal du problème uniquement.
 
 ## 4. Checklist du validateur
 
-1. `cmake --build build` sans erreur ni warning nouveau.
-2. `ctest` : 100 % des tests passent.
+1. Build et tests EN LOCAL d'abord (`cmake -S . -B build -G Ninja && cmake --build build`),
+   sans erreur ni warning nouveau. La CI GitHub Actions est le second filet, pas le premier.
+2. `ctest --test-dir build` : 100 % des tests passent en local, puis CI verte sur la branche.
 3. Le diff correspond au périmètre de la tâche (rien de hors-sujet).
 4. Nouvelle logique = nouveaux tests (obligatoire pour tout code CRDT/sync).
 5. Pas de secret, pas de dépendance ajoutée sans mention dans PLAN.md.
