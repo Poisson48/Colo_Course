@@ -1,5 +1,6 @@
 #include "syncengine.h"
 #include "itemmodel.h"
+#include "notifier.h"
 
 #include "../core/crdt.h"
 #include "../core/payload.h"
@@ -550,6 +551,10 @@ void SyncEngine::resetDeltaCounter(const std::string& listId)
 
 void SyncEngine::showNotification(const QString& title, const QString& body)
 {
+    // Android : notification système via JNI. Ailleurs : no-op, on retombe sur le tray.
+    if (platformNotify(title, body))
+        return;
+
 #if QT_FEATURE_systemtrayicon == 1 && defined(QT_WIDGETS_LIB)
     if (m_tray) {
         auto* tray = qobject_cast<QSystemTrayIcon*>(m_tray);

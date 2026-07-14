@@ -70,6 +70,7 @@ target_link_libraries(cryptolayer PUBLIC
 add_library(applib STATIC
     app/appcontroller.cpp
     app/itemmodel.cpp
+    app/notifier.cpp
     app/qrimageprovider.cpp
     app/syncengine.cpp
 )
@@ -121,6 +122,19 @@ target_link_libraries(colocourse PRIVATE
     PkgConfig::SODIUM
     PkgConfig::SECP256K1
 )
+
+# Paquet Android : manifest (permissions, label, icône), ressources et le Java
+# de la notification (android/src/org/colocourse/app/Notifier.java).
+set_property(TARGET colocourse PROPERTY
+    QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/android")
+set_property(TARGET colocourse PROPERTY QT_ANDROID_TARGET_SDK_VERSION 35)
+
+# Version de l'APK. scripts/build-android.sh passe ces valeurs et aligne le manifest
+# dessus ; le workflow de release les dérive du tag git.
+set(COLO_VERSION_NAME "0.1.0" CACHE STRING "android:versionName")
+set(COLO_VERSION_CODE "1"     CACHE STRING "android:versionCode")
+set_property(TARGET colocourse PROPERTY QT_ANDROID_VERSION_NAME "${COLO_VERSION_NAME}")
+set_property(TARGET colocourse PROPERTY QT_ANDROID_VERSION_CODE "${COLO_VERSION_CODE}")
 
 # Android n'embarque pas OpenSSL : sans ces .so, QSslSocket est muet et les
 # connexions wss:// aux relais échouent silencieusement.

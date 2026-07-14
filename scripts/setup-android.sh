@@ -14,7 +14,7 @@ PREFIX="$HOME/android-libs/arm64-v8a"
 API=24
 JOBS="$(nproc)"
 
-echo "== 1/5 Android cmdline-tools =="
+echo "== 1/4 Android cmdline-tools =="
 if [ ! -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
   mkdir -p "$SDK_ROOT/cmdline-tools"
   cd /tmp
@@ -27,7 +27,7 @@ if [ ! -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
 fi
 SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 
-echo "== 2/5 SDK + NDK =="
+echo "== 2/4 SDK + NDK =="
 yes | "$SDKMANAGER" --licenses >/dev/null || true
 "$SDKMANAGER" --install \
   "platform-tools" \
@@ -36,7 +36,7 @@ yes | "$SDKMANAGER" --licenses >/dev/null || true
   "ndk;$NDK_VER" >/dev/null
 NDK="$SDK_ROOT/ndk/$NDK_VER"
 
-echo "== 3/5 Qt $QT_VER (hôte + android_arm64_v8a) =="
+echo "== 3/4 Qt $QT_VER (hôte + android_arm64_v8a) =="
 # aqtinstall en install user (python3-venv absent d'Ubuntu par défaut)
 if ! python3 -m aqt version >/dev/null 2>&1; then
   if ! python3 -m pip --version >/dev/null 2>&1; then
@@ -51,34 +51,10 @@ HOST_ARCH="$($AQT list-qt linux desktop --arch $QT_VER | tr ' ' '\n' | grep -m1 
 [ -d "$QT_ROOT/$QT_VER/android_arm64_v8a" ] || \
   $AQT install-qt linux android "$QT_VER" android_arm64_v8a -m qtwebsockets -O "$QT_ROOT"
 
-TC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
-
-echo "== 4/5 libsodium (arm64) =="
-if [ ! -f "$PREFIX/lib/libsodium.a" ]; then
-  cd /tmp
-  curl -fLO https://download.libsodium.org/libsodium/releases/libsodium-1.0.20.tar.gz
-  tar xzf libsodium-1.0.20.tar.gz && cd libsodium-1.0.20
-  ./configure --host=aarch64-linux-android --prefix="$PREFIX" \
-    --disable-shared --enable-static --with-pic \
-    CC="$TC/aarch64-linux-android${API}-clang" >/dev/null
-  make -j"$JOBS" >/dev/null && make install >/dev/null
-fi
-
-echo "== 5/5 libsecp256k1 (arm64) =="
-if [ ! -f "$PREFIX/lib/libsecp256k1.a" ]; then
-  cd /tmp
-  curl -fL -o secp256k1-0.7.0.tar.gz https://github.com/bitcoin-core/secp256k1/archive/refs/tags/v0.7.0.tar.gz
-  tar xzf secp256k1-0.7.0.tar.gz && cd secp256k1-0.7.0
-  cmake -B build-android -G Ninja \
-    -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
-    -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=$API \
-    -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON \
-    -DSECP256K1_BUILD_TESTS=OFF -DSECP256K1_BUILD_EXHAUSTIVE_TESTS=OFF \
-    -DSECP256K1_BUILD_BENCHMARK=OFF -DSECP256K1_BUILD_CTIME_TESTS=OFF \
-    -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX="$PREFIX" >/dev/null
-  cmake --build build-android -j"$JOBS" >/dev/null
-  cmake --install build-android >/dev/null
-fi
+echo "== 4/4 libsodium + libsecp256k1 (arm64) =="
+# Même script qu'en CI : une seule source de vérité pour la cross-compilation.
+ANDROID_NDK_ROOT="$NDK" PREFIX="$PREFIX" API="$API" \
+  bash "$(dirname "$0")/build-android-deps.sh"
 
 echo
 echo "OK — kit Android prêt :"
