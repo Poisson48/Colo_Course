@@ -42,7 +42,7 @@ minimal du problème uniquement.
 ### Règles de branche et de commit
 
 - `main` est toujours vert (build + tests passent). Jamais de commit direct sur `main`
-  (sauf docs/).
+  (sauf docs/ et scripts/).
 - Branches : `feat/<slug>`, `fix/<slug>`. Une branche = une tâche du plan, petite.
 - Messages : conventional commits (`feat:`, `fix:`, `test:`, `docs:`, `chore:`), en anglais,
   une ligne + corps bref si nécessaire.
