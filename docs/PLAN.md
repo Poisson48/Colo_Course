@@ -72,7 +72,7 @@ Convention effort : **min** = Haiku sans réflexion étendue · **std** = Sonnet
 | 3.1 | Écrans QML : liste des listes, items (ajouter/cocher/supprimer), création de liste | Haiku (boilerplate) | min | ✅ |
 | 3.2 | Branchement UI ↔ C++ (QAbstractListModel), indicateur hors-ligne | Sonnet | std | ✅ |
 | 4.1 | Client relais : QWebSocket, publish/subscribe, reconnexion, file d'attente hors-ligne | Sonnet | std | ✅ |
-| 4.2 | Chiffrement E2E + génération/lecture du QR d'appairage (suivre SPEC.md à la lettre) | Sonnet | std | ☐ |
+| 4.2 | Chiffrement E2E + génération/lecture du QR d'appairage (suivre SPEC.md à la lettre) | Sonnet | std | ✅ |
 | 4.3 | Découverte LAN (mDNS) pour sync locale instantanée — **reporté v2** (bonus : la sync relais couvre le besoin) | Haiku (boilerplate) | min | ⏸ |
 | 5.1 | Intégration bout-en-bout : modif → op CRDT → chiffré → relais → merge distant ; tests d'intégration multi-instances | Sonnet | std | ☐ |
 | 6.1 | Déploiement Android : manifest, permissions, icônes, notifications à l'ouverture | Haiku/Sonnet | min/std | ☐ |
