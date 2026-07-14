@@ -35,10 +35,14 @@ jobs:
           sudo apt-get install -y ninja-build cmake
 
       - name: Android NDK + build-tools
+        # Le SDK est préinstallé sur le runner, mais sdkmanager n'est pas dans le PATH.
         run: |
-          sdkmanager --install "platforms;android-35" \
-                               "build-tools;${BUILD_TOOLS_VER}" \
-                               "ndk;${NDK_VER}"
+          SDKMANAGER="$(find "$ANDROID_SDK_ROOT/cmdline-tools" -name sdkmanager -type f | head -1)"
+          [ -n "$SDKMANAGER" ] || { echo "sdkmanager introuvable dans $ANDROID_SDK_ROOT" >&2; exit 1; }
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platforms;android-35" \
+                                  "build-tools;${BUILD_TOOLS_VER}" \
+                                  "ndk;${NDK_VER}"
 
       # Qt hôte (androiddeployqt, qmlimportscanner) + Qt Android, même version.
       - name: Cache Qt
