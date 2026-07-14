@@ -77,6 +77,10 @@ Publication sur TOUS les relais joignables ; réception dédupliquée par id d'�
   `nostrSeed = SHA256("colo-course/v1/nostrkey" || listKey)` → clé privée. Tous les membres
   signent avec la même clé : anonymat des membres entre eux vis-à-vis des relais, et
   filtrage possible par auteur.
+- Implémentation : id d'événement = SHA256 du tableau canonique NIP-01
+  (`crypto_hash_sha256` de libsodium) ; signature Schnorr BIP340 via **libsecp256k1**
+  (modules extrakeys + schnorrsig, paquet `libsecp256k1-dev`) — libsodium ne couvre pas
+  secp256k1. Si `nostrSeed` n'est pas une clé privée valide (probabilité ~2^-128), re-hasher.
 - Événement Nostr : `kind = 4545` (kind régulier, stocké par les relais), tags
   `[["t", channelTag]]`, `content` = base64(nonce ‖ ciphertext).
 - Souscription : `{"kinds":[4545], "#t":[channelTag], "since": <lastSync - 3600>}`
@@ -129,6 +133,11 @@ Publication sur TOUS les relais joignables ; réception dédupliquée par id d'�
 
 - URI : `colocourse://join/1/<listId>/<base64url(listKey)>/<urlencode(titre)>`
   affichée en QR code (et copiable en texte pour partage hors QR).
+- Génération du QR : bibliothèque `qrcodegen` de Nayuki (MIT), vendored dans
+  `third_party/qrcodegen/` (un .hpp + un .cpp), rendue en QML via un QQuickPaintedItem
+  ou une Image fournie par un QQuickImageProvider.
+- Lecture : sur desktop v1, PAS de scan caméra — on colle l'URI texte dans le dialogue
+  « Rejoindre une liste ». Le scan caméra arrive avec Android (phase 6).
 - Le récepteur scanne (ou colle), crée la liste localement, dérive canal + clé Nostr,
   souscrit sans `since` (§3.4), publie son entrée `members` et un delta vide de présence.
 - Révocation non supportée en v1 : quiconque a la clé est membre à vie de cette liste.

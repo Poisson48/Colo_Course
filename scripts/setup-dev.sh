@@ -13,7 +13,7 @@ PKGS=(
   qml6-module-qtquick-window qml6-module-qtquick-templates
   qml6-module-qtqml-workerscript
   # crypto
-  libsodium-dev
+  libsodium-dev libsecp256k1-dev
 )
 
 echo "== Installation des paquets (sudo requis) =="
