@@ -13,14 +13,24 @@ Item {
     property var selectedIds: []
     readonly property bool selectionMode: selectedIds.length > 0
 
+    // Mode Courses : on est dans le magasin, une main sur le caddie. Plus rien à
+    // faire que cocher ce qu'on prend — pas d'ajout, pas de suppression, pas
+    // d'édition ouverte par mégarde, et toute la ligne devient la case à cocher.
+    property bool shoppingMode: false
+
     readonly property string pageTitle: selectionMode
         ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
         : listTitle
 
-    // Retour (bouton Android ou flèche) : sortir de la sélection avant de quitter la page.
+    // Retour (bouton Android ou flèche) : défaire l'état courant avant de quitter la
+    // page — la sélection d'abord, puis le mode Courses.
     function handleBack() {
         if (selectionMode) {
             selectedIds = []
+            return true
+        }
+        if (shoppingMode) {
+            shoppingMode = false
             return true
         }
         return false
@@ -68,10 +78,26 @@ Item {
             onClicked: deleteDialog.openFor(root.selectedIds)
         }
 
+        // En mode Courses, une seule sortie possible, bien visible.
+        ToolButton {
+            width: 92
+            height: Theme.touchTarget
+            visible: root.shoppingMode && !root.selectionMode
+            contentItem: Label {
+                text: "Terminer"
+                color: Theme.accent
+                font.pixelSize: 14
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: root.shoppingMode = false
+        }
+
         ToolButton {
             width: 88
             height: Theme.touchTarget
-            visible: !root.selectionMode
+            visible: !root.selectionMode && !root.shoppingMode
             contentItem: Label {
                 text: "Partager"
                 color: Theme.accent
@@ -86,7 +112,7 @@ Item {
         ToolButton {
             width: Theme.touchTarget
             height: Theme.touchTarget
-            visible: !root.selectionMode
+            visible: !root.selectionMode && !root.shoppingMode
             contentItem: Label {
                 text: "⋮"
                 color: Theme.text
@@ -102,6 +128,10 @@ Item {
         id: pageMenu
 
         MenuItem {
+            text: "Mode courses"
+            onTriggered: root.shoppingMode = true
+        }
+        MenuItem {
             text: "Renommer la liste"
             onTriggered: renameDialog.open()
         }
@@ -116,6 +146,63 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+
+        // Mode Courses : où en est le caddie, sans avoir à compter les lignes.
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.shoppingMode ? 52 : 0
+            visible: Layout.preferredHeight > 0
+            clip: true
+            color: Theme.surface
+            Behavior on Layout.preferredHeight { NumberAnimation { duration: 140 } }
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.pad
+                anchors.rightMargin: Theme.pad
+                anchors.topMargin: 8
+                anchors.bottomMargin: 10
+                spacing: 6
+
+                Label {
+                    Layout.fillWidth: true
+                    text: AppController.items.count === 0
+                          ? "Liste vide"
+                          : (AppController.items.doneCount === AppController.items.count
+                             ? "Tout est dans le panier 🎉"
+                             : AppController.items.doneCount + " sur "
+                               + AppController.items.count + " dans le panier")
+                    color: Theme.text
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 4
+                    radius: 2
+                    color: Theme.surfaceHigh
+
+                    Rectangle {
+                        height: parent.height
+                        radius: 2
+                        color: Theme.accent
+                        width: AppController.items.count > 0
+                               ? parent.width * (AppController.items.doneCount
+                                                 / AppController.items.count)
+                               : 0
+                        Behavior on width { NumberAnimation { duration: 180 } }
+                    }
+                }
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: Theme.outline
+            }
+        }
 
         ListView {
             id: items
@@ -133,14 +220,16 @@ Item {
                 id: row
                 width: items.width - 2 * Theme.gap
                 x: Theme.gap
-                height: 60
+                // Plus haute en mode Courses : on la vise d'une main, en marchant.
+                height: root.shoppingMode ? 68 : 60
                 padding: 0
 
                 readonly property bool selected: root.isSelected(model.itemId)
 
-                // Le swipe supprime : en mode sélection il entrerait en conflit avec
-                // le geste de sélection, on le désactive.
-                swipe.enabled: !root.selectionMode
+                // Le swipe supprime : en sélection il entrerait en conflit avec le
+                // geste de sélection, et en mode Courses on ne supprime rien du tout —
+                // un geste de travers dans le magasin effacerait l'article des autres.
+                swipe.enabled: !root.selectionMode && !root.shoppingMode
 
                 background: Rectangle {
                     radius: 12
@@ -205,11 +294,24 @@ Item {
                         }
                     }
 
-                    // Repli tactile pour qui ne devine pas le swipe.
+                    // Quand l'article a été ajouté, ou coché s'il l'est : l'info était
+                    // enterrée dans le dialogue d'édition, elle se lit ici.
+                    Label {
+                        Layout.rightMargin: root.shoppingMode || root.selectionMode ? 14 : 0
+                        Layout.alignment: Qt.AlignVCenter
+                        text: model.done ? root.formatShort(model.doneAt)
+                                         : root.formatShort(model.created)
+                        color: Theme.textDim
+                        font.pixelSize: 11
+                        horizontalAlignment: Text.AlignRight
+                    }
+
+                    // Repli tactile pour qui ne devine pas le swipe. Absent en mode
+                    // Courses : rien ne doit pouvoir être supprimé d'un doigt distrait.
                     ToolButton {
                         Layout.rightMargin: 4
                         Layout.alignment: Qt.AlignVCenter
-                        visible: !root.selectionMode
+                        visible: !root.selectionMode && !root.shoppingMode
                         width: Theme.touchTarget
                         height: Theme.touchTarget
                         contentItem: Label {
@@ -223,12 +325,19 @@ Item {
                     }
                 }
 
-                // Appui long : entrer en sélection multiple. Appui simple : éditer,
+                // Appui long : entrer en sélection multiple — sauf en mode Courses, où
+                // la seule action possible est de cocher.
+                onPressAndHold: {
+                    if (!root.shoppingMode)
+                        root.toggleSelection(model.itemId)
+                }
+                // Mode Courses : toute la ligne est la case à cocher. Sinon, éditer —
                 // ou étendre la sélection si elle est déjà commencée.
-                onPressAndHold: root.toggleSelection(model.itemId)
                 onClicked: {
                     if (root.selectionMode)
                         root.toggleSelection(model.itemId)
+                    else if (root.shoppingMode)
+                        AppController.items.toggleDone(model.itemId)
                     else
                         editDialog.openFor(model)
                 }
@@ -293,11 +402,12 @@ Item {
         }
 
         // Barre d'ajout : collée en bas, au-dessus du clavier (adjustResize).
-        // Masquée en sélection : on supprime, on n'ajoute pas.
+        // Masquée en sélection (on supprime, on n'ajoute pas) et en mode Courses
+        // (le clavier n'a rien à faire là, et la liste doit rester entièrement visible).
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 72
-            visible: !root.selectionMode
+            visible: !root.selectionMode && !root.shoppingMode
             color: Theme.surface
 
             Rectangle {
@@ -417,6 +527,20 @@ Item {
         nameField.text = ""
         qtyField.text = ""
         nameField.forceActiveFocus()
+    }
+
+    // Date courte, pour la coller au bout d'une ligne sans l'encombrer : « 14:20 »
+    // aujourd'hui, « hier », puis « 3 juil. ».
+    function formatShort(ms) {
+        if (!ms || ms <= 0)
+            return ""
+        const d = new Date(ms)
+        const now = new Date()
+        if (d.toDateString() === now.toDateString())
+            return Qt.formatDateTime(d, "HH:mm")
+        if (new Date(now.getTime() - 86400000).toDateString() === d.toDateString())
+            return "hier"
+        return Qt.formatDateTime(d, "d MMM")
     }
 
     // Une date lisible : « aujourd'hui à 18:32 », « hier à 09:05 », sinon « 3 juil. à 14:20 ».

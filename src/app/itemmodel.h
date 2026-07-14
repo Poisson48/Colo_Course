@@ -14,6 +14,8 @@ namespace app {
 class ItemModel : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int count READ count NOTIFY countChanged)
+    // Articles déjà dans le panier : c'est la progression qu'affiche le mode Courses.
+    Q_PROPERTY(int doneCount READ doneCount NOTIFY doneCountChanged)
 
 public:
     enum Roles {
@@ -37,6 +39,7 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     int count() const;
+    int doneCount() const;
 
 public slots:
     void addItem(const QString &name, const QString &qty, const QString &note = {});
@@ -52,6 +55,7 @@ public slots:
 
 signals:
     void countChanged();
+    void doneCountChanged();
     // Emitted after any local write (addItem, toggleDone, removeItem, editItem).
     void localChanged(const std::string& listId);
 

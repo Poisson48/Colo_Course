@@ -64,6 +64,7 @@ void ItemModel::rebuildRows() {
     std::stable_sort(m_rows.begin(), m_rows.end(), rowLessThan);
     endResetModel();
     emit countChanged();
+    emit doneCountChanged();
 }
 
 int ItemModel::rowCount(const QModelIndex &parent) const {
@@ -101,6 +102,11 @@ QHash<int, QByteArray> ItemModel::roleNames() const {
 
 int ItemModel::count() const {
     return static_cast<int>(m_rows.size());
+}
+
+int ItemModel::doneCount() const {
+    return static_cast<int>(std::count_if(m_rows.begin(), m_rows.end(),
+                                          [](const Row &r){ return r.item.done; }));
 }
 
 int ItemModel::findRow(const QString &itemId) const {
@@ -156,6 +162,7 @@ void ItemModel::addItem(const QString &name, const QString &qty, const QString &
     m_rows.insert(it, newRow);
     endInsertRows();
     emit countChanged();
+    emit doneCountChanged();
 }
 
 void ItemModel::toggleDone(const QString &itemId) {
@@ -214,6 +221,10 @@ void ItemModel::toggleDone(const QString &itemId) {
         const QModelIndex idx = index(newPos);
         emit dataChanged(idx, idx, { DoneRole, DoneAtRole });
     }
+
+    // Le nombre de lignes n'a pas bougé, mais la progression du mode Courses si :
+    // c'est le seul moment où elle avance.
+    emit doneCountChanged();
 }
 
 void ItemModel::editItem(const QString &itemId, const QString &name,
@@ -292,6 +303,7 @@ void ItemModel::removeItem(const QString &itemId) {
         m_rows.erase(m_rows.begin() + static_cast<size_t>(pos));
         endRemoveRows();
         emit countChanged();
+        emit doneCountChanged();
     }
 }
 

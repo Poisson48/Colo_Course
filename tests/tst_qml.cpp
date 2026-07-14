@@ -138,6 +138,20 @@ private slots:
         QMetaObject::invokeMethod(page, "handleBack", Q_RETURN_ARG(QVariant, handled));
         QCOMPARE(handled.toBool(), false);
 
+        // Mode Courses : le retour en sort au lieu de quitter la liste.
+        page->setProperty("shoppingMode", true);
+        QMetaObject::invokeMethod(page, "handleBack", Q_RETURN_ARG(QVariant, handled));
+        QCOMPARE(handled.toBool(), true);
+        QCOMPARE(page->property("shoppingMode").toBool(), false);
+
+        // La sélection passe avant le mode Courses : on défait le plus récent d'abord.
+        page->setProperty("shoppingMode", true);
+        QMetaObject::invokeMethod(page, "toggleSelection", Q_ARG(QVariant, "item-a"));
+        QMetaObject::invokeMethod(page, "handleBack", Q_RETURN_ARG(QVariant, handled));
+        QCOMPARE(handled.toBool(), true);
+        QCOMPARE(page->property("selectionMode").toBool(), false);
+        QCOMPARE(page->property("shoppingMode").toBool(), true);  // toujours en courses
+
         delete page;
     }
 };
