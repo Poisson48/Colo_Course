@@ -267,7 +267,7 @@ std::vector<core::Item> Database::getItems(const std::string& listId)
         "  done, done_l, done_d,"
         "  del,  del_l,  del_d,"
         "  touched"
-        " FROM items WHERE list_id = ?"));
+        " FROM items WHERE list_id = ? ORDER BY created ASC"));
     q.addBindValue(qs(listId));
     if (!q.exec()) {
         qWarning() << "getItems error:" << q.lastError().text();

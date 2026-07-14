@@ -12,8 +12,17 @@ ApplicationWindow {
     Material.primary: "#2196F3"
     Material.accent: "#1976D2"
 
-    // stub — remplacé en 3.2
-    property bool isOffline: false
+    // Branchement: AppController.online (false = hors ligne, bandeau visible)
+    property bool isOffline: !AppController.online
+
+    // Quand l'utilisateur clique sur une liste, AppController émet listOpened.
+    Connections {
+        target: AppController
+        function onListOpened(listId, title) {
+            pageTitle.text = title
+            stack.push(listPageComponent, { listId: listId, listName: title })
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -84,43 +93,22 @@ ApplicationWindow {
 
             Component {
                 id: listsPageComponent
-                Loader {
-                    source: "qrc:/ColoCourse/qml/ListsPage.qml"
-
-                    onLoaded: {
-                        item.onListSelected.connect((listName) => {
-                            pageTitle.text = listName
-                            stack.push(listPageComponent, { listName: listName })
-                        })
-                        item.onCreateListRequested.connect((name) => {
-                            item.listsModel.append({ name: name, count: 0 })
-                        })
-                        item.onJoinListRequested.connect((key) => {
-                            // stub — remplacé en 3.2
-                        })
+                ListsPage {
+                    onListSelected: function(listId, listName) {
+                        AppController.openList(listId)
+                    }
+                    onCreateListRequested: function(name) {
+                        AppController.createList(name)
+                    }
+                    onJoinListRequested: function(key) {
+                        // stub — implémenté en tâche 4.2 (QR / appairage)
                     }
                 }
             }
 
             Component {
                 id: listPageComponent
-                Loader {
-                    property string listName
-                    source: "qrc:/ColoCourse/qml/ListPage.qml"
-
-                    onLoaded: {
-                        item.listName = listName
-                        item.onItemToggleRequested.connect((index) => {
-                            // stub — remplacé en 3.2
-                        })
-                        item.onItemDeleteRequested.connect((index) => {
-                            // stub — remplacé en 3.2
-                        })
-                        item.onItemAddRequested.connect((name, qty) => {
-                            // stub — remplacé en 3.2
-                        })
-                    }
-                }
+                ListPage {}
             }
 
             pushEnter: Transition {

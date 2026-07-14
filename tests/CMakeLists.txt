@@ -65,3 +65,21 @@ target_link_libraries(tst_relay PRIVATE
 )
 
 add_test(NAME relay COMMAND tst_relay)
+
+# --- ItemModel tests (QAbstractListModel + CRDT-aware slots) ---
+qt_add_executable(tst_itemmodel
+    tst_itemmodel.cpp
+)
+
+target_include_directories(tst_itemmodel PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(tst_itemmodel PRIVATE
+    applib
+    store
+    Qt6::Test
+    Qt6::Sql
+)
+
+add_test(NAME itemmodel COMMAND tst_itemmodel)

@@ -37,6 +37,22 @@ target_link_libraries(store PUBLIC
     Qt6::Sql
 )
 
+# --- app library (AppController, ItemModel) ---
+add_library(applib STATIC
+    app/appcontroller.cpp
+    app/itemmodel.cpp
+)
+
+target_include_directories(applib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(applib PUBLIC
+    core
+    store
+    Qt6::Core
+    Qt6::Quick
+    Qt6::Sql
+)
+
 # --- main application ---
 qt_add_executable(colocourse
     app/main.cpp
@@ -52,6 +68,7 @@ qt_add_qml_module(colocourse
 )
 
 target_link_libraries(colocourse PRIVATE
+    applib
     net
     store
     Qt6::Core

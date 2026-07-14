@@ -6,24 +6,22 @@ import QtQuick.Layouts
 Item {
     id: root
 
-    // stub — remplacé en 3.2
-    property ListModel listsModel: ListModel {
-        ListElement { name: "Courses maison"; count: 3 }
-        ListElement { name: "Pique-nique"; count: 1 }
-        ListElement { name: "Restaurant"; count: 0 }
-    }
+    // Signaux
+    signal listSelected(string listId, string listName)
+    signal createListRequested(string name)
+    signal joinListRequested(string key)
 
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 12
         spacing: 12
 
-        // Liste des listes
+        // Liste des listes (branchée sur AppController.lists)
         ListView {
             id: listView
             Layout.fillWidth: true
             Layout.fillHeight: true
-            model: root.listsModel
+            model: AppController.lists
             spacing: 8
 
             delegate: ItemDelegate {
@@ -52,7 +50,7 @@ Item {
                 }
 
                 onClicked: {
-                    root.listSelected(model.name)
+                    root.listSelected(model.listId, model.name)
                 }
             }
 
@@ -125,7 +123,7 @@ Item {
 
         onAccepted: {
             if (newListName.text.length > 0) {
-                root.createListRequested(newListName.text)
+                AppController.createList(newListName.text)
                 newListName.text = ""
             }
         }
@@ -134,9 +132,4 @@ Item {
             newListName.text = ""
         }
     }
-
-    // Signaux (stubs)
-    signal listSelected(string listName)
-    signal createListRequested(string name)
-    signal joinListRequested(string key)
 }
