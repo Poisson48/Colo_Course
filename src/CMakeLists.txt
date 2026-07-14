@@ -80,6 +80,7 @@ set(APPLIB_SOURCES
     app/qrimageprovider.cpp
     app/syncengine.cpp
     app/theme.cpp
+    app/updater.cpp
 )
 if(COLO_HAS_CAMERA)
     list(APPEND APPLIB_SOURCES app/qrscanner.cpp)
@@ -97,6 +98,7 @@ target_link_libraries(applib PUBLIC
     qrcodegen
     qrdecode
     Qt6::Core
+    Qt6::Network      # Updater : API GitHub + téléchargement de l'APK
     Qt6::Quick
     Qt6::Sql
     Qt6::WebSockets
@@ -166,6 +168,10 @@ set(COLO_VERSION_NAME "0.1.0" CACHE STRING "android:versionName")
 set(COLO_VERSION_CODE "1"     CACHE STRING "android:versionCode")
 set_property(TARGET colocourse PROPERTY QT_ANDROID_VERSION_NAME "${COLO_VERSION_NAME}")
 set_property(TARGET colocourse PROPERTY QT_ANDROID_VERSION_CODE "${COLO_VERSION_CODE}")
+
+# La même version dans le binaire : l'Updater compare ce qu'on exécute à la dernière
+# release publiée. Sans ça, il ne saurait pas de quelle version il part.
+target_compile_definitions(applib PUBLIC COLO_APP_VERSION="${COLO_VERSION_NAME}")
 
 # Android n'embarque pas OpenSSL : sans ces .so, QSslSocket est muet et les
 # connexions wss:// aux relais échouent silencieusement.

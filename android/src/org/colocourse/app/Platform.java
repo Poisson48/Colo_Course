@@ -5,10 +5,17 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.os.Build;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 // Services natifs appelés depuis C++ via JNI (src/app/platform.cpp) : notification
 // locale après un merge distant (SPEC §8) et feuille de partage du lien d'appairage.
@@ -88,6 +95,83 @@ public class Platform {
             return true;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    // --- Mise à jour depuis l'app ---
+    //
+    // PackageInstaller plutôt qu'un Intent ACTION_VIEW sur un content:// : celui-ci
+    // imposerait un FileProvider (donc une dépendance androidx et une autorité
+    // déclarée). Ici on écrit l'APK dans une session d'installation, et Android
+    // affiche lui-même sa demande de confirmation — rien ne s'installe en douce.
+    public static boolean installApk(Context ctx, String apkPath) {
+        if (ctx == null || apkPath == null)
+            return false;
+
+        File apk = new File(apkPath);
+        if (!apk.isFile() || apk.length() == 0)
+            return false;
+
+        PackageInstaller.Session session = null;
+        try {
+            PackageInstaller installer = ctx.getPackageManager().getPackageInstaller();
+            PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
+                    PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+
+            int sessionId = installer.createSession(params);
+            session = installer.openSession(sessionId);
+
+            try (InputStream in = new FileInputStream(apk);
+                 OutputStream out = session.openWrite("colocourse", 0, apk.length())) {
+                byte[] buffer = new byte[65536];
+                int read;
+                while ((read = in.read(buffer)) > 0)
+                    out.write(buffer, 0, read);
+                session.fsync(out);
+            }
+
+            // Android répond de façon asynchrone : pour une app hors Play Store, la
+            // première réponse est STATUS_PENDING_USER_ACTION, qui porte l'écran de
+            // confirmation à afficher. Sans ce receveur, l'installation resterait
+            // silencieusement en attente.
+            Intent status = new Intent(ACTION_INSTALL_STATUS).setPackage(ctx.getPackageName());
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+                flags |= PendingIntent.FLAG_MUTABLE;   // Android remplit l'Intent de réponse
+
+            PendingIntent pending = PendingIntent.getBroadcast(ctx, sessionId, status, flags);
+            session.commit(pending.getIntentSender());
+            return true;
+
+        } catch (Exception e) {
+            if (session != null)
+                session.abandon();
+            return false;
+        } finally {
+            if (session != null)
+                session.close();
+        }
+    }
+
+    public static final String ACTION_INSTALL_STATUS = "org.colocourse.app.INSTALL_STATUS";
+
+    // Déclaré dans AndroidManifest.xml. Reçoit l'avancement de la session et ouvre
+    // l'écran de confirmation système quand Android le demande.
+    public static class InstallReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context ctx, Intent intent) {
+            int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS,
+                                            PackageInstaller.STATUS_FAILURE);
+            if (status != PackageInstaller.STATUS_PENDING_USER_ACTION)
+                return;   // succès, échec ou annulation : Android a déjà informé l'utilisateur
+
+            Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+            if (confirm == null)
+                return;
+            // Le receveur n'est pas une Activity : l'écran de confirmation a besoin
+            // de sa propre tâche.
+            confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(confirm);
         }
     }
 

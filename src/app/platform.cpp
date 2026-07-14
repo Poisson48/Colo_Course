@@ -68,6 +68,19 @@ bool platformShare(const QString& text)
         ctx.object(), jText.object<jstring>());
 }
 
+bool platformInstallApk(const QString& apkPath)
+{
+    const QJniObject ctx = androidContext();
+    if (!ctx.isValid())
+        return false;
+
+    const QJniObject jPath = QJniObject::fromString(apkPath);
+    return QJniObject::callStaticMethod<jboolean>(
+        kPlatformClass, "installApk",
+        "(Landroid/content/Context;Ljava/lang/String;)Z",
+        ctx.object(), jPath.object<jstring>());
+}
+
 #else // !Q_OS_ANDROID
 
 void initNotifications() {}
@@ -75,6 +88,8 @@ void initNotifications() {}
 bool platformNotify(const QString&, const QString&) { return false; }
 
 bool platformShare(const QString&) { return false; }
+
+bool platformInstallApk(const QString&) { return false; }
 
 #endif
 

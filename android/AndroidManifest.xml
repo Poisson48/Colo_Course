@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Scan du QR d'appairage. Runtime, et l'app reste utilisable sans (lien collé). -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- L'app se distribue hors Play Store : personne ne la met à jour à notre place,
+         elle télécharge donc la dernière release et la propose à l'installation.
+         Android demande sa propre confirmation avant d'installer quoi que ce soit. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
 
     <supports-screens
@@ -60,5 +64,15 @@
             <meta-data android:name="android.app.arguments" android:value="-- %%INSERT_APP_ARGUMENTS%% --"/>
             <meta-data android:name="android.app.extract_android_style" android:value="minimal"/>
         </activity>
+
+        <!-- Mise à jour depuis l'app : PackageInstaller répond ici. Non exporté, et
+             restreint à notre propre action : personne d'autre ne peut le déclencher. -->
+        <receiver
+            android:name="org.colocourse.app.Platform$InstallReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.colocourse.app.INSTALL_STATUS"/>
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

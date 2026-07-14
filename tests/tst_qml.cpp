@@ -15,6 +15,7 @@
 #include "app/appcontroller.h"
 #include "app/qrimageprovider.h"
 #include "app/theme.h"
+#include "app/updater.h"
 
 // Les avertissements QML (binding cassé, appel sur undefined) ne remontent pas dans
 // QQmlComponent::errors : ils passent par le gestionnaire de messages. On les capture.
@@ -35,6 +36,9 @@ private:
     QQmlEngine        *m_engine = nullptr;
     app::AppController m_ctrl;
     app::Theme         m_theme;
+    // check() n'est pas appelé : le test ne doit pas dépendre du réseau. L'Updater
+    // reste à l'état Idle, la bannière de mise à jour reste donc masquée.
+    app::Updater       m_updater;
 
     // Instancie une page avec les propriétés de contexte de l'app réelle.
     QObject *load(const QString &file, const QVariantMap &props = {}) {
@@ -56,6 +60,27 @@ private slots:
         m_engine->addImageProvider(QStringLiteral("qr"), new app::QrImageProvider());
         m_engine->rootContext()->setContextProperty(QStringLiteral("AppController"), &m_ctrl);
         m_engine->rootContext()->setContextProperty(QStringLiteral("Theme"), &m_theme);
+        m_engine->rootContext()->setContextProperty(QStringLiteral("Updater"), &m_updater);
+    }
+
+    // La comparaison de versions décide si l'app propose une mise à jour : une erreur
+    // ici, et soit personne n'est prévenu, soit tout le monde est harcelé.
+    void test_isNewer() {
+        QVERIFY(app::Updater::isNewer("v0.5.0", "0.4.0"));
+        QVERIFY(app::Updater::isNewer("0.4.1",  "0.4.0"));
+        QVERIFY(app::Updater::isNewer("1.0.0",  "0.9.9"));
+        // Le piège d'une comparaison de chaînes : "0.10.0" < "0.9.1" lexicographiquement.
+        QVERIFY(app::Updater::isNewer("0.10.0", "0.9.1"));
+
+        QVERIFY(!app::Updater::isNewer("0.4.0", "0.4.0"));
+        QVERIFY(!app::Updater::isNewer("v0.4.0", "0.4.0"));   // même version, tag préfixé
+        QVERIFY(!app::Updater::isNewer("0.3.9", "0.4.0"));
+        QVERIFY(!app::Updater::isNewer("0.9.1", "0.10.0"));
+        QVERIFY(!app::Updater::isNewer("",      "0.4.0"));    // release sans tag
+
+        // Composants absents = 0 : "0.4" n'est pas plus récent que "0.4.0".
+        QVERIFY(!app::Updater::isNewer("0.4",   "0.4.0"));
+        QVERIFY(app::Updater::isNewer("0.4.1",  "0.4"));
     }
 
     void init() {

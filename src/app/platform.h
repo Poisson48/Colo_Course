@@ -18,4 +18,9 @@ bool platformNotify(const QString& title, const QString& body);
 // Feuille de partage native (ACTION_SEND). false → l'appelant copie le texte.
 bool platformShare(const QString& text);
 
+// Installe un APK déjà téléchargé (PackageInstaller). Android affiche sa propre
+// demande de confirmation ; l'app n'installe rien dans le dos de l'utilisateur.
+// false hors Android, ou si la session d'installation n'a pas pu s'ouvrir.
+bool platformInstallApk(const QString& apkPath);
+
 } // namespace app

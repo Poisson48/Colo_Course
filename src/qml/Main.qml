@@ -139,6 +139,115 @@ ApplicationWindow {
             }
         }
 
+        // Mise à jour disponible. L'app se distribue hors Play Store : sans cette
+        // bannière, personne n'apprend qu'une version est sortie.
+        Rectangle {
+            id: updateBanner
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? 56 : 0
+            visible: Updater.updateAvailable || Updater.downloading
+                     || Updater.readyToInstall
+            color: Theme.surfaceHigh
+            clip: true
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: Theme.outline
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 6
+                spacing: 8
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 3
+
+                    Label {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        color: Theme.text
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                        text: {
+                            if (Updater.downloading)
+                                return "Téléchargement…"
+                            if (Updater.readyToInstall)
+                                return "Version " + Updater.latestVersion + " prête"
+                            return "Version " + Updater.latestVersion + " disponible"
+                        }
+                    }
+
+                    // Pendant le téléchargement, la barre remplace le texte d'appoint :
+                    // un pourcentage qui n'avance pas est plus inquiétant qu'utile.
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 3
+                        radius: 2
+                        visible: Updater.downloading
+                        color: Theme.outline
+
+                        Rectangle {
+                            height: parent.height
+                            radius: 2
+                            color: Theme.accent
+                            width: parent.width * Updater.progress
+                            Behavior on width { NumberAnimation { duration: 120 } }
+                        }
+                    }
+
+                    Label {
+                        Layout.fillWidth: true
+                        visible: !Updater.downloading
+                        elide: Text.ElideRight
+                        color: Theme.textDim
+                        font.pixelSize: 12
+                        text: Updater.readyToInstall
+                              ? "Android vous demandera confirmation"
+                              : "Vous avez la " + Updater.currentVersion
+                    }
+                }
+
+                Button {
+                    flat: true
+                    visible: !Updater.downloading
+                    implicitHeight: Theme.touchTarget
+                    contentItem: Label {
+                        text: Updater.readyToInstall ? "Installer" : "Mettre à jour"
+                        color: Theme.accent
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        if (Updater.readyToInstall)
+                            Updater.install()
+                        else
+                            Updater.download()
+                    }
+                }
+
+                ToolButton {
+                    visible: !Updater.downloading
+                    implicitWidth: 36
+                    implicitHeight: Theme.touchTarget
+                    contentItem: Label {
+                        text: "×"
+                        color: Theme.textDim
+                        font.pixelSize: 18
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: Updater.dismiss()
+                }
+            }
+        }
+
         StackView {
             id: stack
             Layout.fillWidth: true

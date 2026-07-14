@@ -12,6 +12,7 @@
 #include "platform.h"
 #include "qrimageprovider.h"
 #include "theme.h"
+#include "updater.h"
 #ifdef COLO_HAS_CAMERA
 #  include "qrscanner.h"
 #endif
@@ -59,10 +60,15 @@ int main(int argc, char *argv[])
 
     app::Theme theme;
 
+    // Distribution hors Play Store : l'app va chercher elle-même la dernière release.
+    app::Updater updater;
+    updater.check();
+
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("qr"), new app::QrImageProvider());
     engine.rootContext()->setContextProperty(QStringLiteral("AppController"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("Theme"), &theme);
+    engine.rootContext()->setContextProperty(QStringLiteral("Updater"), &updater);
 
     const QUrl url(QStringLiteral("qrc:/ColoCourse/qml/Main.qml"));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
