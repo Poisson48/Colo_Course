@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
-import ColoCourse
 
 Item {
     id: root
@@ -105,7 +104,7 @@ Item {
                         width: Theme.touchTarget
                         height: Theme.touchTarget
                         contentItem: Label {
-                            text: "✕"
+                            text: "×"
                             color: Theme.textDim
                             font.pixelSize: 15
                             horizontalAlignment: Text.AlignHCenter
@@ -189,14 +188,14 @@ Item {
                 ColoTextField {
                     id: nameField
                     Layout.fillWidth: true
-                    placeholderText: "Ajouter un article"
+                    hint: "Ajouter un article"
                     onAccepted: root.addItem()
                 }
 
                 ColoTextField {
                     id: qtyField
                     Layout.preferredWidth: 76
-                    placeholderText: "Qté"
+                    hint: "Qté"
                     onAccepted: root.addItem()
                 }
 

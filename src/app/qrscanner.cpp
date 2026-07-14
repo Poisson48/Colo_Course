@@ -1,15 +1,8 @@
 #include "qrscanner.h"
+#include "qrdecode.h"
 
 #include <QImage>
 #include <QVideoFrame>
-
-// zxing-cpp récupéré par FetchContent expose ses en-têtes à plat (core/src) ;
-// une installation système les range sous ZXing/. Les deux doivent marcher.
-#if __has_include(<ZXing/ReadBarcode.h>)
-#  include <ZXing/ReadBarcode.h>
-#else
-#  include <ReadBarcode.h>
-#endif
 
 namespace app {
 
@@ -17,10 +10,6 @@ namespace {
 
 // Intervalle minimal entre deux décodages (ms).
 constexpr qint64 kThrottleMs = 150;
-
-// Au-delà, l'image est réduite : un QR reste lisible bien en dessous de la
-// résolution d'une caméra moderne, et le décodage coûte en O(pixels).
-constexpr int kMaxWidth = 720;
 
 } // namespace
 
@@ -63,37 +52,13 @@ void QrScanner::onFrame(const QVideoFrame& frame)
     if (!m_active || m_found || !frame.isValid())
         return;
 
+    // Décoder chaque trame d'un flux 30 fps saturerait le thread UI pour rien :
+    // un QR reste dans le champ bien plus longtemps que 150 ms.
     if (m_since.elapsed() < kThrottleMs)
         return;
     m_since.restart();
 
-    QImage image = frame.toImage();
-    if (image.isNull())
-        return;
-
-    if (image.width() > kMaxWidth)
-        image = image.scaledToWidth(kMaxWidth, Qt::FastTransformation);
-
-    // ZXing travaille en luminance : la conversion explicite évite qu'il redécode
-    // le format à chaque appel, et rend le résultat indépendant de la caméra.
-    image = image.convertToFormat(QImage::Format_Grayscale8);
-
-    const ZXing::ImageView view(image.constBits(),
-                                image.width(),
-                                image.height(),
-                                ZXing::ImageFormat::Lum,
-                                static_cast<int>(image.bytesPerLine()));
-
-    ZXing::ReaderOptions options;
-    options.setFormats(ZXing::BarcodeFormat::QRCode);
-    options.setTryHarder(true);
-    options.setTryRotate(true);
-
-    const auto result = ZXing::ReadBarcode(view, options);
-    if (!result.isValid())
-        return;
-
-    const QString text = QString::fromStdString(result.text());
+    const QString text = decodeQr(frame.toImage());
     if (text.isEmpty())
         return;
 

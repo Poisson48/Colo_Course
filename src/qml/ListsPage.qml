@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
-import ColoCourse
 
 Item {
     id: root
@@ -230,7 +229,7 @@ Item {
         ColoTextField {
             id: nameField
             Layout.fillWidth: true
-            placeholderText: "Courses de la semaine"
+            hint: "Courses de la semaine"
             onAccepted: if (createDialog.acceptEnabled) createDialog.accept()
         }
 
@@ -308,7 +307,7 @@ Item {
         ColoTextField {
             id: uriField
             Layout.fillWidth: true
-            placeholderText: "colocourse://join/1/…"
+            hint: "colocourse://join/1/…"
             onAccepted: if (joinDialog.acceptEnabled) joinDialog.accept()
         }
 
@@ -336,7 +335,7 @@ Item {
         ColoTextField {
             id: displayNameField
             Layout.fillWidth: true
-            placeholderText: "Votre prénom"
+            hint: "Votre prénom"
             onAccepted: if (nameDialog.acceptEnabled) nameDialog.accept()
         }
 
