@@ -76,7 +76,7 @@ Convention effort : **min** = Haiku sans réflexion étendue · **std** = Sonnet
 | 4.3 | Découverte LAN (mDNS) pour sync locale instantanée — **reporté v2** (bonus : la sync relais couvre le besoin) | Haiku (boilerplate) | min | ⏸ |
 | 5.1 | Intégration bout-en-bout : modif → op CRDT → chiffré → relais → merge distant ; tests d'intégration multi-instances | Sonnet | std | ✅ |
 | 6.1 | Déploiement Android : manifest, permissions, icônes, notifications à l'ouverture | Haiku/Sonnet | min/std | ☐ |
-| 6.2 | README public, captures, instructions de build | Haiku | min | ☐ |
+| 6.2 | README public, captures, instructions de build | Haiku | min | ✅ (captures à ajouter) |
 
 Ordre strict : 0 → 1 → 2 (tests CRDT blindés **avant** tout réseau) → 3/4 en parallèle → 5 → 6.
 
