@@ -69,7 +69,7 @@ Convention effort : **min** = Haiku sans réflexion étendue · **std** = Sonnet
 | 1.2 | Modèle de données + persistance SQLite selon SPEC.md | Sonnet | std | ✅ |
 | 2.1 | Implémentation CRDT + tests unitaires exhaustifs (conflits concurrents, tombstones, N participants, fuzzing léger de séquences d'ops) | Sonnet | std | ✅ |
 | 2.2 | Revue dédiée des cas limites du merge CRDT | Opus | haut | ✅ |
-| 3.1 | Écrans QML : liste des listes, items (ajouter/cocher/supprimer), création de liste | Haiku (boilerplate) | min | ☐ |
+| 3.1 | Écrans QML : liste des listes, items (ajouter/cocher/supprimer), création de liste | Haiku (boilerplate) | min | ✅ |
 | 3.2 | Branchement UI ↔ C++ (QAbstractListModel), indicateur hors-ligne | Sonnet | std | ☐ |
 | 4.1 | Client relais : QWebSocket, publish/subscribe, reconnexion, file d'attente hors-ligne | Sonnet | std | ✅ |
 | 4.2 | Chiffrement E2E + génération/lecture du QR d'appairage (suivre SPEC.md à la lettre) | Sonnet | std | ☐ |
