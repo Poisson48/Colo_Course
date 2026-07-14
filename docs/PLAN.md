@@ -75,7 +75,7 @@ Convention effort : **min** = Haiku sans réflexion étendue · **std** = Sonnet
 | 4.2 | Chiffrement E2E + génération/lecture du QR d'appairage (suivre SPEC.md à la lettre) | Sonnet | std | ✅ |
 | 4.3 | Découverte LAN (mDNS) pour sync locale instantanée — **reporté v2** (bonus : la sync relais couvre le besoin) | Haiku (boilerplate) | min | ⏸ |
 | 5.1 | Intégration bout-en-bout : modif → op CRDT → chiffré → relais → merge distant ; tests d'intégration multi-instances | Sonnet | std | ✅ |
-| 6.1 | Déploiement Android : manifest, permissions, icônes, notifications à l'ouverture | Haiku/Sonnet | min/std | ☐ |
+| 6.1 | Déploiement Android : manifest, permissions, icônes, notifications à l'ouverture | Haiku/Sonnet | min/std | ✅ (smoke test téléphone à faire) |
 | 6.2 | README public, captures, instructions de build | Haiku | min | ✅ (captures à ajouter) |
 
 Ordre strict : 0 → 1 → 2 (tests CRDT blindés **avant** tout réseau) → 3/4 en parallèle → 5 → 6.
@@ -88,18 +88,22 @@ Ordre strict : 0 → 1 → 2 (tests CRDT blindés **avant** tout réseau) → 3/
 - Pas de refactoring opportuniste hors du périmètre de la tâche.
 - Toute décision nouvelle se consigne dans SPEC.md ou PLAN.md (une fois), jamais re-débattue.
 
-## 7. REPRISE (état au 14/07/2026, fin de session)
+## 7. REPRISE (état au 14/07/2026)
 
-Branche `feat/android` : APK arm64 **construit avec succès** →
-`build-android/src/android-build/build/outputs/apk/release/android-build-release-unsigned.apk`.
+**L'APK est construit par la CI, plus besoin du kit Android en local.** Le job `android` de
+`.github/workflows/ci.yml` produit `colocourse-arm64.apk` **signé** (clé de debug) à chaque push :
+onglet *Actions* → artefacts du run. Le build local reste possible :
+`scripts/setup-android.sh` (~7 Go, une fois) puis `scripts/build-android.sh`.
 
-Reste pour finir 6.1 :
-1. L'APK est **non signé** → builder en debug (signature auto) : dans scripts/build-android.sh
-   remplacer `-DCMAKE_BUILD_TYPE=Release` par `Debug`, ou signer avec apksigner + keystore debug.
-2. Installer sur téléphone (adb via usbipd sous WSL, ou copie manuelle de l'APK).
-3. Vérifier au premier lancement : connexion relais, création liste, appairage QR entre desktop et mobile.
-4. Merger feat/android dans main (squash), cocher 6.1.
+**Releases** : un tag `v*` (`git tag -a v0.1.0 -m "…" && git push origin v0.1.0`) déclenche
+`.github/workflows/release.yml`, qui publie l'APK dans les Releases GitHub. `versionName` = le
+tag, `versionCode` = nombre de commits (entier croissant, exigé par Android).
 
-Environnement de la machine actuelle (à réinstaller ailleurs via scripts/) :
-`scripts/setup-dev.sh` (desktop) puis `scripts/setup-android.sh` (kit Android complet, sans sudo
-sauf openjdk-17 et libsecp256k1-dev/libsodium-dev). Le build APK : `scripts/build-android.sh`.
+Reste à faire (hors code) :
+1. **Smoke test sur téléphone** : `adb install -r colocourse-arm64.apk`, puis vérifier au premier
+   lancement la connexion relais, la création de liste, l'appairage QR desktop ↔ mobile, et
+   l'arrivée d'une notification quand l'autre appareil modifie une liste.
+2. Captures d'écran pour le README (reste de 6.2).
+
+Limite v1 assumée (SPEC §8) : app fermée = pas de réception. Le rattrapage se fait au lancement
+et au retour au premier plan.

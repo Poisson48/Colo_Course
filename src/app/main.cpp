@@ -5,6 +5,7 @@
 
 #include "appcontroller.h"
 #include "itemmodel.h"
+#include "notifier.h"
 #include "qrimageprovider.h"
 
 int main(int argc, char *argv[])
@@ -13,11 +14,22 @@ int main(int argc, char *argv[])
     app.setOrganizationName("ColoCourse");
     app.setApplicationName("ColoCourse");
 
+    // Canal de notification + permission POST_NOTIFICATIONS (Android 13+).
+    app::initNotifications();
+
     app::AppController controller;
     if (!controller.init()) {
         qCritical("AppController::init() failed");
         return 1;
     }
+
+    // SPEC §8 : au retour au premier plan, rattrapage immédiat — Android a pu tuer
+    // la socket pendant la mise en veille, et la souscription doit être rejouée.
+    QObject::connect(&app, &QGuiApplication::applicationStateChanged,
+                     &controller, [&controller](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive)
+            controller.syncEngine()->subscribeAllLists();
+    });
 
     QQmlApplicationEngine engine;
 

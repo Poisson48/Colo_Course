@@ -30,3 +30,5 @@ android-build/
 *.local
 .env
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+aqtinstall.log

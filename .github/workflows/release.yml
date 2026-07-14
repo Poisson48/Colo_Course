@@ -1,0 +1,68 @@
+name: Release
+
+# Tag v* (ex. v0.2.0) → APK arm64 signé, publié dans les Releases GitHub.
+#   git tag -a v0.2.0 -m "…" && git push origin v0.2.0
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      name: ${{ steps.v.outputs.name }}
+      code: ${{ steps.v.outputs.code }}
+    steps:
+      # versionName = tag sans le "v". versionCode = entier croissant : on prend le
+      # nombre de commits, monotone par construction (Android exige un entier qui monte).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        run: |
+          echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "code=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+  apk:
+    needs: version
+    uses: ./.github/workflows/android.yml
+    with:
+      version_name: ${{ needs.version.outputs.name }}
+      version_code: ${{ needs.version.outputs.code }}
+
+  publish:
+    needs: [version, apk]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: colocourse-arm64-apk
+
+      - name: Renommer l'APK avec la version
+        run: mv colocourse-arm64.apk "colocourse-${GITHUB_REF_NAME}-arm64.apk"
+
+      - name: Publier la Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "colocourse-${GITHUB_REF_NAME}-arm64.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Colo Course $GITHUB_REF_NAME" \
+            --notes-file - <<'EOF'
+          ## Installation (Android, arm64)
+
+          Téléchargez l'APK ci-dessous, puis autorisez l'installation depuis cette source.
+          En ligne de commande : `adb install -r colocourse-*-arm64.apk`
+
+          APK signé avec une **clé de debug** : il s'installe sur votre téléphone mais ne
+          passe pas par le Play Store. Pour mettre à jour, gardez la même provenance
+          (une signature différente impose de désinstaller d'abord).
+
+          **Limite connue (v1)** : app fermée = pas de réception. Les changements sont
+          récupérés à l'ouverture ou au retour au premier plan.
+          EOF

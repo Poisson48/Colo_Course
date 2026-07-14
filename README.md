@@ -40,13 +40,37 @@ ctest --test-dir build
 
 Binaire exécutable : `build/src/colocourse`
 
-### Build Android
-En cours d'implémentation (phase 6.1). Voir [docs/PLAN.md](docs/PLAN.md).
+### Android (arm64)
+
+**Sans rien installer** : chaque push construit un APK signé. Récupérez-le dans les artefacts
+du dernier run de la CI (onglet *Actions*), ou dans les [Releases](../../releases) pour une
+version taguée. Puis :
+
+```bash
+adb install -r colocourse-arm64.apk
+```
+(ou copiez l'APK sur le téléphone et ouvrez-le, en autorisant l'installation depuis cette source).
+
+L'APK est signé avec une **clé de debug** : il s'installe sans souci mais ne passe pas par le
+Play Store. Une mise à jour exige la même provenance — sinon, désinstallez d'abord.
+
+**Build local** (~7 Go de téléchargements : SDK, NDK, Qt pour Android) :
+```bash
+bash scripts/setup-android.sh   # une fois
+bash scripts/build-android.sh   # → colocourse-arm64.apk, signé
+```
+
+### Publier une version
+
+```bash
+git tag -a v0.2.0 -m "…" && git push origin v0.2.0
+```
+Le workflow *Release* construit l'APK et le publie dans les Releases GitHub.
 
 ## État du projet
 
 - **Desktop Linux (bêta)** : squelette + app fonctionnelle, tests CRDT complets, sync relais opérationnelle, chiffrement E2E, appairage par QR. Prêt pour expérimentation.
-- **Android** : prévu phase 6.1.
+- **Android (bêta)** : APK arm64 construit par la CI, notifications système à la réception d'un changement.
 
 Plan détaillé et workflow : [docs/PLAN.md](docs/PLAN.md)  
 Spécification technique (CRDT, protocole relais, format données) : [docs/SPEC.md](docs/SPEC.md)

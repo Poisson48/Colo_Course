@@ -24,3 +24,7 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  # APK arm64 signé, récupérable dans les artefacts du run.
+  android:
+    uses: ./.github/workflows/android.yml
