@@ -119,7 +119,7 @@ Popup {
                 }
                 contentItem: Label {
                     text: parent.text
-                    color: "#0C1F10"
+                    color: Theme.onAccent
                     font.pixelSize: 15
                     font.weight: Font.DemiBold
                     horizontalAlignment: Text.AlignHCenter

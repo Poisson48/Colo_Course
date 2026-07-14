@@ -340,6 +340,162 @@ private slots:
         QCOMPARE(undone.doneAt, int64_t(0));
     }
 
+    // Fin de course : tout remettre à acheter. Les articles remontent, rien n'est perdu.
+    void test_uncheckAll() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Lait", "");
+        model.addItem("Pain", "");
+
+        model.toggleDone(model.data(model.index(0), ItemModel::ItemIdRole).toString());
+        model.toggleDone(model.data(model.index(0), ItemModel::ItemIdRole).toString());
+        QCOMPARE(model.doneCount(), 2);
+
+        QSignalSpy localSpy(&model, &ItemModel::localChanged);
+        model.uncheckAll();
+
+        QCOMPARE(localSpy.count(), 1);   // une seule intention → un seul delta publié
+        QCOMPARE(model.doneCount(), 0);
+        QCOMPARE(model.count(), 2);      // rien n'a été supprimé
+
+        for (const auto &it : db.getItems(listId)) {
+            QVERIFY(!it.done);
+            QCOMPARE(it.doneAt, int64_t(0));   // la date de cochage disparaît avec le cochage
+            QVERIFY(!it.del);
+        }
+
+        // Plus rien à décocher : ne rien réécrire, sinon on publierait dans le vide.
+        model.uncheckAll();
+        QCOMPARE(localSpy.count(), 1);
+    }
+
+    // Fin de course : retirer ce qui a été pris, garder ce qui reste à acheter.
+    void test_removeDone() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Lait", "");
+        model.addItem("Pain", "");
+        model.addItem("Œufs", "");
+
+        // Cocher « Lait » : il passe en bas du tri, mais reste le même article.
+        const QString lait = model.data(model.index(0), ItemModel::ItemIdRole).toString();
+        model.toggleDone(lait);
+        QCOMPARE(model.doneCount(), 1);
+
+        model.removeDone();
+
+        QCOMPARE(model.count(), 2);
+        QCOMPARE(model.doneCount(), 0);
+
+        // Tombstone (del=true), pas ligne effacée : les autres appareils doivent
+        // apprendre la suppression, sinon leur copie ferait réapparaître l'article.
+        int tombstones = 0;
+        for (const auto &it : db.getItems(listId))
+            if (it.del) ++tombstones;
+        QCOMPARE(tombstones, 1);
+    }
+
+    // Recherche : un filtre d'affichage, qui ne touche ni la base ni la synchro.
+    void test_filter() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Lait", "1L");
+        model.addItem("Papier toilette", "2", "6 couches épaisses");
+        model.addItem("Pain", "");
+
+        model.setFilter("pa");                    // « Papier », « Pain »
+        QCOMPARE(model.count(), 2);
+
+        model.setFilter("LAIT");                  // insensible à la casse
+        QCOMPARE(model.count(), 1);
+
+        model.setFilter("couches");               // cherche aussi dans la description
+        QCOMPARE(model.count(), 1);
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Papier toilette"));
+
+        model.setFilter("saumon");
+        QCOMPARE(model.count(), 0);
+        // Filtre d'affichage : rien n'a disparu de la base.
+        QCOMPARE(db.getItems(listId).size(), size_t(3));
+
+        model.setFilter("");
+        QCOMPARE(model.count(), 3);
+    }
+
+    // Doublon : « Lait » ajouté deux fois dans une liste partagée, c'est le classique.
+    void test_existingName() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Lait", "1L");
+
+        QCOMPARE(model.existingName("lait"),  QStringLiteral("Lait")); // casse ignorée
+        QCOMPARE(model.existingName(" Lait "), QStringLiteral("Lait")); // espaces ignorés
+        QVERIFY(model.existingName("Pain").isEmpty());
+        QVERIFY(model.existingName("").isEmpty());
+
+        // Un article supprimé n'est plus un doublon.
+        model.removeItem(model.data(model.index(0), ItemModel::ItemIdRole).toString());
+        QVERIFY(model.existingName("Lait").isEmpty());
+    }
+
+    // Qui a ajouté quoi : « vous » pour soi, le nom du participant sinon.
+    void test_byName() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        // Un article venu d'un autre appareil, dont on connaît le nom.
+        db.upsertMember(listId, "dev-B", "Marie", { 2, "dev-B" });
+        Item remote;
+        remote.listId  = listId;
+        remote.itemId  = "item-remote";
+        remote.created = 2000;
+        remote.by      = "dev-B";
+        remote.name    = "Harissa";
+        remote.nameVer = { 2, "dev-B" };
+        QVERIFY(db.upsertItem(remote));
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Lait", "");   // le nôtre
+
+        QHash<QString, QString> authorByItem;
+        for (int i = 0; i < model.count(); ++i) {
+            authorByItem[model.data(model.index(i), ItemModel::NameRole).toString()] =
+                model.data(model.index(i), ItemModel::ByNameRole).toString();
+        }
+
+        QCOMPARE(authorByItem["Lait"],    QStringLiteral("vous"));
+        QCOMPARE(authorByItem["Harissa"], QStringLiteral("Marie"));
+    }
+
     // Suppression groupée : tout disparaît de la vue, tout est marqué supprimé en base.
     void test_removeItems_bulk() {
         QTemporaryDir dir;

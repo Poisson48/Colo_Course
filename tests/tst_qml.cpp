@@ -163,6 +163,12 @@ private slots:
         QMetaObject::invokeMethod(page, "handleBack", Q_RETURN_ARG(QVariant, handled));
         QCOMPARE(handled.toBool(), false);
 
+        // Recherche ouverte : le retour la referme au lieu de quitter la liste.
+        page->setProperty("searchOpen", true);
+        QMetaObject::invokeMethod(page, "handleBack", Q_RETURN_ARG(QVariant, handled));
+        QCOMPARE(handled.toBool(), true);
+        QCOMPARE(page->property("searchOpen").toBool(), false);
+
         // Mode Courses : le retour en sort au lieu de quitter la liste.
         page->setProperty("shoppingMode", true);
         QMetaObject::invokeMethod(page, "handleBack", Q_RETURN_ARG(QVariant, handled));

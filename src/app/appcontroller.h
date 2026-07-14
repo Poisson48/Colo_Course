@@ -62,6 +62,10 @@ class AppController : public QObject {
     // Articles de la liste ouverte. Chargé par openList(), branché au SyncEngine.
     Q_PROPERTY(app::ItemModel* items READ items CONSTANT)
     Q_PROPERTY(bool online READ online NOTIFY onlineChanged)
+    // Modifications écrites localement mais pas encore accusées par un relais. Zéro =
+    // tout le monde a reçu. Sans ça, rien ne dit à l'utilisateur si ses ajouts sont
+    // partis, et il n'a aucun moyen de le savoir avant de croiser l'autre personne.
+    Q_PROPERTY(int pendingChanges READ pendingChanges NOTIFY pendingChangesChanged)
     // Nom affiché aux autres participants ("3 articles ajoutés par Marie").
     Q_PROPERTY(QString displayName READ displayName WRITE setDisplayName NOTIFY displayNameChanged)
     // false tant que l'utilisateur n'a pas choisi son nom : l'écran d'accueil le
@@ -79,6 +83,7 @@ public:
     QAbstractListModel *lists() const;
     ItemModel *items();
     bool online() const;
+    int  pendingChanges() const;
 
     QString deviceId() const;
     QString displayName() const;
@@ -113,11 +118,17 @@ public slots:
     void copyToClipboard(const QString &text);
     bool shareText(const QString &text);
 
+    // Confort natif, sans effet hors Android : vibration courte au cochage, et écran
+    // maintenu allumé pendant le mode Courses.
+    void vibrate(int ms = 18);
+    void setKeepScreenOn(bool on);
+
     // Access SyncEngine (for ItemModel integration).
     SyncEngine *syncEngine() { return &m_syncEngine; }
 
 signals:
     void onlineChanged();
+    void pendingChangesChanged();
     void displayNameChanged();
     // Emitted when QML should push the item page.
     void listOpened(const QString &listId, const QString &title);
@@ -130,6 +141,7 @@ private slots:
     void onSyncOnlineChanged(bool online);
     void onRemoteChanges(const QString& listId, int count, const QString& authorName);
     void onRemoteTitleChanged(const QString& listId, const QString& title);
+    void onOutboxChanged();
     // Écriture locale dans la liste ouverte → publier + rafraîchir les compteurs.
     void onLocalItemChange(const std::string& listId);
 
@@ -140,6 +152,7 @@ private:
     net::RelayPool   m_relayPool;
     SyncEngine       m_syncEngine;
     bool             m_online = false;
+    int              m_pendingChanges = 0;
     QString          m_deviceId;
     QString          m_displayName;
     bool             m_hasDisplayName = false;

@@ -11,12 +11,31 @@ ApplicationWindow {
     height: 780
     color: Theme.background
 
-    Material.theme: Material.Dark
+    // Suit la préférence du système (Theme.dark), au lieu d'imposer le sombre.
+    Material.theme: Theme.dark ? Material.Dark : Material.Light
     Material.background: Theme.background
     Material.foreground: Theme.text
     Material.accent: Theme.accent
 
     readonly property bool offline: !AppController.online
+
+    // « Mes ajouts sont-ils partis ? » — sans réponse, on ne peut que croiser les
+    // doigts jusqu'à croiser l'autre personne. En attente tant qu'un relais n'a pas
+    // accusé réception ; puis « à jour », brièvement, pour confirmer.
+    readonly property bool pending: AppController.pendingChanges > 0
+
+    onPendingChanged: {
+        if (!pending && !offline)
+            syncedTimer.restart()
+    }
+
+    property bool showSynced: false
+    Timer {
+        id: syncedTimer
+        interval: 2200
+        onTriggered: window.showSynced = false
+        onRunningChanged: if (running) window.showSynced = true
+    }
 
     // Bouton retour Android : Qt le délivre ici comme une demande de fermeture de
     // fenêtre. Sans ce handler, il quittait l'app — depuis une liste ouverte comme
@@ -136,6 +155,28 @@ ApplicationWindow {
                 text: "Hors ligne — les modifications partiront au retour du réseau"
                 color: "#1A1400"
                 font.pixelSize: 12
+            }
+        }
+
+        // État de synchronisation. Silencieux quand tout va bien : un bandeau permanent
+        // « à jour » ne serait qu'un bruit de fond qu'on cesserait de lire.
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: visible ? 26 : 0
+            visible: !window.offline && (window.pending || window.showSynced)
+            clip: true
+            color: window.pending ? Theme.surfaceHigh : Theme.accentSoft
+
+            Label {
+                anchors.centerIn: parent
+                width: parent.width - 16
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                color: window.pending ? Theme.textDim : Theme.accent
+                font.pixelSize: 12
+                text: window.pending
+                      ? "Envoi de " + AppController.pendingChanges + " modification(s)…"
+                      : "À jour ✓"
             }
         }
 

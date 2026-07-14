@@ -514,6 +514,16 @@ std::vector<std::pair<int64_t, std::string>> Database::outboxPeekAll(const std::
     return result;
 }
 
+int Database::outboxCount()
+{
+    QSqlQuery q(m_db);
+    if (!q.exec(QStringLiteral("SELECT COUNT(*) FROM outbox")) || !q.next()) {
+        qWarning() << "outboxCount error:" << q.lastError().text();
+        return 0;
+    }
+    return q.value(0).toInt();
+}
+
 // --- Seen events ---
 
 bool Database::markEventSeen(const std::string& eventId)

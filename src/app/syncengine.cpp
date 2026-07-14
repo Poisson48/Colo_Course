@@ -253,6 +253,7 @@ std::string SyncEngine::buildAndPublish(const std::string& listId,
     const QJsonDocument doc(ev.toJson());
     const std::string eventJson = doc.toJson(QJsonDocument::Compact).toStdString();
     m_db->outboxPush(listId, eventJson);
+    emit outboxChanged();
 
     // Mark as seen so we don't re-process our own event when the relay reflects it.
     if (!eventId.empty())
@@ -495,11 +496,13 @@ void SyncEngine::flushOutboxForList(const std::string& listId)
             QByteArray::fromStdString(eventJson));
         if (!doc.isObject()) {
             m_db->outboxRemove(rowid); // malformed, never publishable
+            emit outboxChanged();
             continue;
         }
         auto evOpt = net::NostrEvent::fromJson(doc.object());
         if (!evOpt) {
             m_db->outboxRemove(rowid);
+            emit outboxChanged();
             continue;
         }
         m_pool->publishToAll(*evOpt);
@@ -531,6 +534,9 @@ void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QStri
         auto evOpt = net::NostrEvent::fromJson(doc.object());
         if (evOpt && evOpt->id == eventId) {
             m_db->outboxRemove(rowid);
+            // Le relais a accusé réception : c'est ici, et nulle part ailleurs, que
+            // « en attente » devient « à jour ».
+            emit outboxChanged();
             break;
         }
     }

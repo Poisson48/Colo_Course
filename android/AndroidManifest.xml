@@ -17,6 +17,8 @@
          elle télécharge donc la dernière release et la propose à l'installation.
          Android demande sa propre confirmation avant d'installer quoi que ce soit. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- Retour haptique au cochage en mode Courses. Pas de permission runtime. -->
+    <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
 
     <supports-screens

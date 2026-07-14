@@ -55,7 +55,7 @@ Item {
                         anchors.centerIn: parent
                         text: AppController.displayName.length > 0
                               ? AppController.displayName.charAt(0).toUpperCase() : "?"
-                        color: "#0C1F10"
+                        color: Theme.onAccent
                         font.pixelSize: 14
                         font.weight: Font.DemiBold
                     }
@@ -121,7 +121,7 @@ Item {
                     Label {
                         anchors.centerIn: parent
                         text: model.count > 0 ? model.count : "✓"
-                        color: model.count > 0 ? "#FFFFFF" : Theme.accent
+                        color: model.count > 0 ? "#FFFFFF" : Theme.accent   // accentDim est foncé dans les deux thèmes
                         font.pixelSize: model.count > 0 ? 17 : 18
                         font.weight: Font.DemiBold
                     }
@@ -230,7 +230,7 @@ Item {
 
         contentItem: Label {
             text: "+"
-            color: "#0C1F10"
+            color: Theme.onAccent
             font.pixelSize: 28
             font.weight: Font.Medium
             horizontalAlignment: Text.AlignHCenter
@@ -338,7 +338,7 @@ Item {
             }
             contentItem: Label {
                 text: parent.text
-                color: "#0C1F10"
+                color: Theme.onAccent
                 font.pixelSize: 15
                 font.weight: Font.DemiBold
                 horizontalAlignment: Text.AlignHCenter

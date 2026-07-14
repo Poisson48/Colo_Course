@@ -23,4 +23,11 @@ bool platformShare(const QString& text);
 // false hors Android, ou si la session d'installation n'a pas pu s'ouvrir.
 bool platformInstallApk(const QString& apkPath);
 
+// Vibration courte : confirmer un cochage sans avoir à regarder l'écran.
+void platformVibrate(int ms);
+
+// Empêche l'écran de s'éteindre (mode Courses : on tient le téléphone d'une main,
+// dans un rayon, sans le toucher pendant des minutes).
+void platformKeepScreenOn(bool on);
+
 } // namespace app

@@ -196,6 +196,12 @@ bool AppController::init() {
             this,          &AppController::onRemoteChanges);
     connect(&m_syncEngine, &SyncEngine::listTitleChanged,
             this,          &AppController::onRemoteTitleChanged);
+    connect(&m_syncEngine, &SyncEngine::outboxChanged,
+            this,          &AppController::onOutboxChanged);
+
+    // Des modifications peuvent dormir dans l'outbox depuis la session précédente
+    // (app fermée hors ligne) : l'état de départ n'est pas forcément « à jour ».
+    m_pendingChanges = m_db.outboxCount();
 
     // Toute écriture locale (ajout, cochage, suppression) doit partir au relais.
     // Sans cette connexion, l'app modifie sa base et ne synchronise jamais rien.
@@ -219,6 +225,17 @@ ItemModel *AppController::items() {
 
 bool AppController::online() const {
     return m_online;
+}
+
+int AppController::pendingChanges() const {
+    return m_pendingChanges;
+}
+
+void AppController::onOutboxChanged() {
+    const int pending = m_db.outboxCount();
+    if (pending == m_pendingChanges) return;
+    m_pendingChanges = pending;
+    emit pendingChangesChanged();
 }
 
 void AppController::onLocalItemChange(const std::string& listId) {
@@ -412,6 +429,14 @@ void AppController::copyToClipboard(const QString &text) {
     if (auto *cb = QGuiApplication::clipboard())
         cb->setText(text);
     emit toast(QStringLiteral("Lien copié"));
+}
+
+void AppController::vibrate(int ms) {
+    app::platformVibrate(ms);
+}
+
+void AppController::setKeepScreenOn(bool on) {
+    app::platformKeepScreenOn(on);
 }
 
 bool AppController::shareText(const QString &text) {

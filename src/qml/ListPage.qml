@@ -18,15 +18,36 @@ Item {
     // d'édition ouverte par mégarde, et toute la ligne devient la case à cocher.
     property bool shoppingMode: false
 
+    // Barre de recherche ouverte. Le filtre vit dans le modèle (C++) : il ne masque
+    // que l'affichage, il ne supprime ni ne désynchronise rien.
+    property bool searchOpen: false
+
     readonly property string pageTitle: selectionMode
         ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
         : listTitle
 
+    // Dans un rayon, on tient le téléphone sans le toucher pendant des minutes :
+    // l'écran ne doit pas s'éteindre au milieu de la liste.
+    onShoppingModeChanged: AppController.setKeepScreenOn(shoppingMode)
+    // Quitter la page en mode Courses laisserait le drapeau posé, et l'écran allumé
+    // pour toujours.
+    Component.onDestruction: AppController.setKeepScreenOn(false)
+
+    function closeSearch() {
+        searchOpen = false
+        searchField.text = ""
+        AppController.items.filter = ""
+    }
+
     // Retour (bouton Android ou flèche) : défaire l'état courant avant de quitter la
-    // page — la sélection d'abord, puis le mode Courses.
+    // page — la sélection, puis la recherche, puis le mode Courses.
     function handleBack() {
         if (selectionMode) {
             selectedIds = []
+            return true
+        }
+        if (searchOpen) {
+            closeSearch()
             return true
         }
         if (shoppingMode) {
@@ -94,19 +115,21 @@ Item {
             onClicked: root.shoppingMode = false
         }
 
+        // Le mode du magasin est celui qu'on ouvre le plus souvent : il mérite un
+        // bouton, pas une ligne de menu.
         ToolButton {
-            width: 88
+            width: 90
             height: Theme.touchTarget
             visible: !root.selectionMode && !root.shoppingMode
             contentItem: Label {
-                text: "Partager"
+                text: "Courses"
                 color: Theme.accent
                 font.pixelSize: 14
                 font.weight: Font.DemiBold
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
             }
-            onClicked: shareSheet.openFor(root.listId, root.listTitle)
+            onClicked: root.shoppingMode = true
         }
 
         ToolButton {
@@ -128,8 +151,25 @@ Item {
         id: pageMenu
 
         MenuItem {
-            text: "Mode courses"
-            onTriggered: root.shoppingMode = true
+            text: "Rechercher"
+            onTriggered: root.searchOpen = true
+        }
+        // Fin de course : sans ces deux-là, les articles cochés restent barrés à
+        // l'écran pour toujours, et il faut les traiter un par un.
+        MenuItem {
+            text: "Tout remettre à acheter"
+            enabled: AppController.items.doneCount > 0
+            onTriggered: uncheckDialog.open()
+        }
+        MenuItem {
+            text: "Retirer les articles pris"
+            enabled: AppController.items.doneCount > 0
+            onTriggered: clearDoneDialog.open()
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: "Partager la liste"
+            onTriggered: shareSheet.openFor(root.listId, root.listTitle)
         }
         MenuItem {
             text: "Renommer la liste"
@@ -204,6 +244,55 @@ Item {
             }
         }
 
+        // Recherche : au-delà d'une vingtaine d'articles, retrouver « harissa » à l'œil
+        // devient pénible.
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.searchOpen ? 60 : 0
+            visible: Layout.preferredHeight > 0
+            clip: true
+            color: Theme.surface
+            Behavior on Layout.preferredHeight { NumberAnimation { duration: 140 } }
+
+            onVisibleChanged: {
+                if (visible)
+                    searchField.forceActiveFocus()
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 6
+
+                ColoTextField {
+                    id: searchField
+                    Layout.fillWidth: true
+                    hint: "Rechercher un article"
+                    onTextChanged: AppController.items.filter = text
+                }
+
+                ToolButton {
+                    Layout.preferredWidth: Theme.touchTarget
+                    Layout.preferredHeight: Theme.touchTarget
+                    contentItem: Label {
+                        text: "×"
+                        color: Theme.textDim
+                        font.pixelSize: 20
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: root.closeSearch()
+                }
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: Theme.outline
+            }
+        }
+
         ListView {
             id: items
             Layout.fillWidth: true
@@ -233,7 +322,7 @@ Item {
 
                 background: Rectangle {
                     radius: 12
-                    color: row.selected ? Theme.accentDim
+                    color: row.selected ? Theme.accentSoft
                          : (row.pressed ? Theme.surfaceHigh : Theme.surface)
                     border.color: row.selected ? Theme.accent : Theme.outline
                     border.width: 1
@@ -334,12 +423,16 @@ Item {
                 // Mode Courses : toute la ligne est la case à cocher. Sinon, éditer —
                 // ou étendre la sélection si elle est déjà commencée.
                 onClicked: {
-                    if (root.selectionMode)
+                    if (root.selectionMode) {
                         root.toggleSelection(model.itemId)
-                    else if (root.shoppingMode)
+                    } else if (root.shoppingMode) {
                         AppController.items.toggleDone(model.itemId)
-                    else
+                        // On coche sans quitter le rayon des yeux : la vibration
+                        // confirme le geste à la place du regard.
+                        AppController.vibrate()
+                    } else {
                         editDialog.openFor(model)
+                    }
                 }
 
                 // Glisser vers la gauche : suppression, avec un fond rouge explicite.
@@ -369,7 +462,8 @@ Item {
             }
         }
 
-        // État vide de la liste ouverte.
+        // État vide. Une liste vide et une recherche sans résultat ne se disent pas
+        // pareil : « ajoutez un article » quand on cherche « harissa » serait absurde.
         ColumnLayout {
             visible: items.count === 0
             Layout.alignment: Qt.AlignCenter
@@ -378,12 +472,14 @@ Item {
             Layout.rightMargin: 40
             spacing: 6
 
+            readonly property bool filtering: AppController.items.filter.length > 0
+
             Item { Layout.fillHeight: true }
 
             Label {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
-                text: "Liste vide"
+                text: parent.filtering ? "Aucun résultat" : "Liste vide"
                 color: Theme.text
                 font.pixelSize: 18
                 font.weight: Font.DemiBold
@@ -393,7 +489,9 @@ Item {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
-                text: "Ajoutez un premier article ci-dessous."
+                text: parent.filtering
+                      ? "Aucun article ne correspond à « " + AppController.items.filter + " »."
+                      : "Ajoutez un premier article ci-dessous."
                 color: Theme.textDim
                 font.pixelSize: 14
             }
@@ -406,9 +504,14 @@ Item {
         // (le clavier n'a rien à faire là, et la liste doit rester entièrement visible).
         Rectangle {
             Layout.fillWidth: true
-            implicitHeight: 72
+            // La description n'apparaît qu'une fois le nom commencé : c'est à ce
+            // moment-là qu'on sait ce qu'on veut (« pq » → « 6 couches épaisses »),
+            // et la barre reste sur une ligne le reste du temps.
+            implicitHeight: root.composing ? 118 : 72
             visible: !root.selectionMode && !root.shoppingMode
             color: Theme.surface
+            clip: true
+            Behavior on implicitHeight { NumberAnimation { duration: 120 } }
 
             Rectangle {
                 width: parent.width
@@ -416,48 +519,62 @@ Item {
                 color: Theme.outline
             }
 
-            RowLayout {
+            ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 10
                 spacing: 8
 
-                ColoTextField {
-                    id: nameField
+                RowLayout {
                     Layout.fillWidth: true
-                    hint: "Ajouter un article"
-                    onAccepted: root.addItem()
+                    spacing: 8
+
+                    ColoTextField {
+                        id: nameField
+                        Layout.fillWidth: true
+                        hint: "Ajouter un article"
+                        onAccepted: root.addItem()
+                    }
+
+                    ColoTextField {
+                        id: qtyField
+                        Layout.preferredWidth: 76
+                        hint: "Qté"
+                        onAccepted: root.addItem()
+                    }
+
+                    RoundButton {
+                        id: addButton
+                        Layout.preferredWidth: 52
+                        Layout.preferredHeight: 52
+                        enabled: nameField.text.trim().length > 0
+
+                        // Fond explicite : le style Material ignore Material.background
+                        // sur un bouton désactivé, et le bouton devient invisible.
+                        background: Rectangle {
+                            radius: width / 2
+                            color: !addButton.enabled ? Theme.surfaceHigh
+                                 : (addButton.pressed ? Theme.accentDim : Theme.accent)
+                        }
+
+                        contentItem: Label {
+                            text: "+"
+                            color: addButton.enabled ? Theme.onAccent : Theme.textDim
+                            font.pixelSize: 24
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        onClicked: root.addItem()
+                    }
                 }
 
                 ColoTextField {
-                    id: qtyField
-                    Layout.preferredWidth: 76
-                    hint: "Qté"
+                    id: addNoteField
+                    Layout.fillWidth: true
+                    Layout.rightMargin: 60
+                    visible: root.composing
+                    hint: "Description (facultatif)"
                     onAccepted: root.addItem()
-                }
-
-                RoundButton {
-                    id: addButton
-                    Layout.preferredWidth: 52
-                    Layout.preferredHeight: 52
-                    enabled: nameField.text.trim().length > 0
-
-                    // Fond explicite : le style Material ignore Material.background
-                    // sur un bouton désactivé, et le bouton devient invisible.
-                    background: Rectangle {
-                        radius: width / 2
-                        color: !addButton.enabled ? Theme.surfaceHigh
-                             : (addButton.pressed ? Theme.accentDim : Theme.accent)
-                    }
-
-                    contentItem: Label {
-                        text: "+"
-                        color: addButton.enabled ? "#0C1F10" : Theme.textDim
-                        font.pixelSize: 24
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-
-                    onClicked: root.addItem()
                 }
             }
         }
@@ -519,13 +636,36 @@ Item {
         }
     }
 
+    // Un article en cours de saisie : la ligne de description se déplie.
+    readonly property bool composing: nameField.activeFocus || qtyField.activeFocus
+                                      || addNoteField.activeFocus
+                                      || nameField.text.length > 0
+
     function addItem() {
         const name = nameField.text.trim()
         if (name.length === 0)
             return
-        AppController.items.addItem(name, qtyField.text.trim())
+
+        // Deux « Lait » dans une liste partagée, c'est le doublon classique : chacun
+        // l'ajoute de son côté. On prévient, on n'interdit pas — deux paquets de
+        // pâtes, ça existe.
+        const existing = AppController.items.existingName(name)
+        if (existing.length > 0) {
+            duplicateItemDialog.existingName = existing
+            duplicateItemDialog.open()
+            return
+        }
+
+        commitItem()
+    }
+
+    function commitItem() {
+        AppController.items.addItem(nameField.text.trim(),
+                                    qtyField.text.trim(),
+                                    addNoteField.text.trim())
         nameField.text = ""
         qtyField.text = ""
+        addNoteField.text = ""
         nameField.forceActiveFocus()
     }
 
@@ -571,11 +711,13 @@ Item {
         // real et pas int : un timestamp en millisecondes déborde l'int 32 bits de QML.
         property real   createdMs: 0
         property real   doneAtMs: 0
+        property string author: ""
 
         function openFor(item) {
             itemId    = item.itemId
             createdMs = item.created
             doneAtMs  = item.doneAt
+            author    = item.byName
             editName.text = item.name
             editQty.text  = item.qty
             editNote.text = item.note
@@ -614,8 +756,13 @@ Item {
             text: {
                 const lines = []
                 const added = root.formatStamp(editDialog.createdMs)
-                if (added.length > 0)
-                    lines.push("Ajouté " + added)
+                if (added.length > 0) {
+                    // L'app sait qui a ajouté quoi (chaque article porte son auteur) :
+                    // autant le dire, c'est une liste partagée.
+                    lines.push(editDialog.author.length > 0
+                               ? "Ajouté par " + editDialog.author + " " + added
+                               : "Ajouté " + added)
+                }
                 if (editDialog.doneAtMs > 0)
                     lines.push("Coché " + root.formatStamp(editDialog.doneAtMs))
                 return lines.join("\n")
@@ -626,6 +773,62 @@ Item {
                                                  editName.text.trim(),
                                                  editQty.text.trim(),
                                                  editNote.text.trim())
+    }
+
+    ColoDialog {
+        id: duplicateItemDialog
+        title: "Déjà dans la liste"
+        acceptText: "Ajouter quand même"
+
+        property string existingName: ""
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 14
+            text: "« " + duplicateItemDialog.existingName + " » est déjà sur la liste. "
+                  + "L'ajouter une seconde fois ?"
+        }
+
+        onAccepted: root.commitItem()
+    }
+
+    ColoDialog {
+        id: uncheckDialog
+        title: "Tout remettre à acheter ?"
+        acceptText: "Tout décocher"
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 14
+            text: "Les " + AppController.items.doneCount
+                  + " articles pris repassent à acheter, pour tout le monde. "
+                  + "Pratique pour refaire la même liste."
+        }
+
+        onAccepted: AppController.items.uncheckAll()
+    }
+
+    ColoDialog {
+        id: clearDoneDialog
+        title: "Retirer les articles pris ?"
+        acceptText: "Retirer"
+        destructive: true
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 14
+            text: AppController.items.doneCount
+                  + " article(s) coché(s) seront retirés de la liste, pour tout le monde. "
+                  + "Ceux qui restent à acheter ne bougent pas."
+        }
+
+        onAccepted: AppController.items.removeDone()
     }
 
     ColoDialog {

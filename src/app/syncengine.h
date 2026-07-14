@@ -80,6 +80,9 @@ signals:
     // Le titre de listId a été renommé par un autre appareil (merge LWW gagné).
     void listTitleChanged(const QString& listId, const QString& title);
 
+    // La file d'attente d'envoi a bougé (ajout, ou accusé de réception d'un relais).
+    void outboxChanged();
+
     // Forwarded online state (so AppController can bind its property).
     void onlineChanged(bool online);
 

@@ -49,7 +49,31 @@ void ItemModel::load(store::Database &db, const std::string &listId, const std::
     m_listId   = listId;
     m_deviceId = deviceId;
 
+    m_memberNames.clear();
+    for (const auto &[devId, name] : db.getMembers(listId))
+        m_memberNames[devId] = QString::fromStdString(name);
+
     m_items = db.getItems(listId);
+    rebuildRows();
+}
+
+// Filtre d'affichage : nom, quantité ou description. Insensible à la casse — on tape
+// « lait », pas « Lait ».
+bool ItemModel::matchesFilter(const core::Item &item) const {
+    if (m_filter.isEmpty())
+        return true;
+
+    const auto has = [&](const std::string &field) {
+        return QString::fromStdString(field).contains(m_filter, Qt::CaseInsensitive);
+    };
+    return has(item.name) || has(item.qty) || has(item.note);
+}
+
+void ItemModel::setFilter(const QString &filter) {
+    if (m_filter == filter)
+        return;
+    m_filter = filter;
+    emit filterChanged();
     rebuildRows();
 }
 
@@ -57,7 +81,7 @@ void ItemModel::rebuildRows() {
     beginResetModel();
     m_rows.clear();
     for (const auto &item : m_items) {
-        if (!item.del) {
+        if (!item.del && matchesFilter(item)) {
             m_rows.push_back(Row{ item });
         }
     }
@@ -84,6 +108,16 @@ QVariant ItemModel::data(const QModelIndex &index, int role) const {
     case DoneRole:    return row.item.done;
     case DoneAtRole:  return static_cast<qlonglong>(row.item.doneAt);
     case CreatedRole: return static_cast<qlonglong>(row.item.created);
+    case ByNameRole: {
+        if (row.item.by.empty())
+            return QString{};
+        if (row.item.by == m_deviceId)
+            return QStringLiteral("vous");
+        const auto it = m_memberNames.find(row.item.by);
+        // Participant jamais vu passer d'événement : mieux vaut ne rien dire que
+        // d'afficher un identifiant d'appareil.
+        return it != m_memberNames.end() ? it->second : QString{};
+    }
     default:          return {};
     }
 }
@@ -97,7 +131,25 @@ QHash<int, QByteArray> ItemModel::roleNames() const {
         { DoneRole,    "done"    },
         { DoneAtRole,  "doneAt"  },
         { CreatedRole, "created" },
+        { ByNameRole,  "byName"  },
     };
+}
+
+QString ItemModel::existingName(const QString &name) const {
+    const QString needle = name.trimmed();
+    if (needle.isEmpty())
+        return {};
+
+    // On cherche dans m_items et pas dans m_rows : un doublon reste un doublon même
+    // si un filtre de recherche le cache à l'écran.
+    for (const auto &item : m_items) {
+        if (item.del)
+            continue;
+        const QString existing = QString::fromStdString(item.name).trimmed();
+        if (existing.compare(needle, Qt::CaseInsensitive) == 0)
+            return existing;
+    }
+    return {};
 }
 
 int ItemModel::count() const {
@@ -152,6 +204,11 @@ void ItemModel::addItem(const QString &name, const QString &qty, const QString &
 
     // Insert into m_items (full set).
     m_items.push_back(item);
+
+    // Un filtre de recherche est actif et le nouvel article n'y répond pas : il existe,
+    // mais n'a rien à faire dans la vue courante.
+    if (!matchesFilter(item))
+        return;
 
     // Find sorted insertion position (upper_bound to append after equals).
     Row newRow{ item };
@@ -259,6 +316,13 @@ void ItemModel::editItem(const QString &itemId, const QString &name,
 
     emit localChanged(m_listId);
 
+    // Sous filtre, l'édition peut faire sortir la ligne de la recherche (ou l'y faire
+    // entrer) : seule une reconstruction donne le bon résultat.
+    if (!m_filter.isEmpty()) {
+        rebuildRows();
+        return;
+    }
+
     // Aucun de ces champs n'entre dans le tri (done, created) : la ligne ne bouge
     // pas, seul son contenu change.
     const int pos = findRow(itemId);
@@ -272,6 +336,61 @@ void ItemModel::editItem(const QString &itemId, const QString &name,
 void ItemModel::removeItems(const QStringList &itemIds) {
     for (const QString &id : itemIds)
         removeItem(id);
+}
+
+void ItemModel::uncheckAll() {
+    if (!m_db) return;
+
+    // Un seul tick de Lamport pour tout le lot : c'est une seule intention (« on
+    // recommence la liste »), et le SyncEngine n'en publiera qu'un delta.
+    const int64_t lamport = m_db->bumpLamport(m_listId);
+    const core::Ver ver{ lamport, m_deviceId };
+    const int64_t now = QDateTime::currentMSecsSinceEpoch();
+
+    bool any = false;
+    for (auto &item : m_items) {
+        if (item.del || !item.done)
+            continue;
+        item.done    = false;
+        item.doneVer = ver;
+        item.doneAt  = 0;
+        item.touched = now;
+        if (m_db->upsertItem(item))
+            any = true;
+    }
+
+    if (!any) return;
+
+    emit localChanged(m_listId);
+    // Tout a changé de camp et donc de place dans le tri : reconstruire est plus
+    // simple, et plus sûr, que d'orchestrer N déplacements de lignes.
+    rebuildRows();
+}
+
+void ItemModel::removeDone() {
+    if (!m_db) return;
+
+    const int64_t lamport = m_db->bumpLamport(m_listId);
+    const core::Ver ver{ lamport, m_deviceId };
+    const int64_t now = QDateTime::currentMSecsSinceEpoch();
+
+    bool any = false;
+    for (auto &item : m_items) {
+        if (item.del || !item.done)
+            continue;
+        // Tombstone, pas effacement : les autres appareils doivent apprendre la
+        // suppression, sinon leur copie ferait réapparaître l'article au prochain merge.
+        item.del     = true;
+        item.delVer  = ver;
+        item.touched = now;
+        if (m_db->upsertItem(item))
+            any = true;
+    }
+
+    if (!any) return;
+
+    emit localChanged(m_listId);
+    rebuildRows();
 }
 
 void ItemModel::removeItem(const QString &itemId) {

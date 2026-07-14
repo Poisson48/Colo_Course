@@ -81,6 +81,28 @@ bool platformInstallApk(const QString& apkPath)
         ctx.object(), jPath.object<jstring>());
 }
 
+void platformVibrate(int ms)
+{
+    const QJniObject ctx = androidContext();
+    if (!ctx.isValid())
+        return;
+
+    QJniObject::callStaticMethod<void>(
+        kPlatformClass, "vibrate",
+        "(Landroid/content/Context;I)V", ctx.object(), static_cast<jint>(ms));
+}
+
+void platformKeepScreenOn(bool on)
+{
+    const QJniObject ctx = androidContext();
+    if (!ctx.isValid())
+        return;
+
+    QJniObject::callStaticMethod<void>(
+        kPlatformClass, "keepScreenOn",
+        "(Landroid/content/Context;Z)V", ctx.object(), static_cast<jboolean>(on));
+}
+
 #else // !Q_OS_ANDROID
 
 void initNotifications() {}
@@ -90,6 +112,10 @@ bool platformNotify(const QString&, const QString&) { return false; }
 bool platformShare(const QString&) { return false; }
 
 bool platformInstallApk(const QString&) { return false; }
+
+void platformVibrate(int) {}
+
+void platformKeepScreenOn(bool) {}
 
 #endif
 

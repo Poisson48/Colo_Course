@@ -11,6 +11,10 @@ import android.content.Intent;
 import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.os.VibratorManager;
+import android.view.WindowManager;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -173,6 +177,47 @@ public class Platform {
             confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(confirm);
         }
+    }
+
+    // Vibration courte : en mode Courses, on coche sans quitter le rayon des yeux.
+    public static void vibrate(Context ctx, int ms) {
+        if (ctx == null)
+            return;
+        try {
+            Vibrator vibrator;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                VibratorManager manager = ctx.getSystemService(VibratorManager.class);
+                vibrator = (manager != null) ? manager.getDefaultVibrator() : null;
+            } else {
+                vibrator = (Vibrator) ctx.getSystemService(Context.VIBRATOR_SERVICE);
+            }
+            if (vibrator == null || !vibrator.hasVibrator())
+                return;
+            vibrator.vibrate(VibrationEffect.createOneShot(
+                    ms, VibrationEffect.DEFAULT_AMPLITUDE));
+        } catch (Exception e) {
+            // Pas de vibreur, permission refusée : ce n'est qu'un confort.
+        }
+    }
+
+    // Mode Courses : l'écran doit rester allumé, on tient le téléphone sans le toucher
+    // pendant des minutes. Les drapeaux de fenêtre ne se posent que sur le thread UI —
+    // les toucher depuis le thread Qt lève une exception.
+    public static void keepScreenOn(Context ctx, final boolean on) {
+        if (!(ctx instanceof Activity))
+            return;
+        final Activity activity = (Activity) ctx;
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (on)
+                    activity.getWindow().addFlags(
+                            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                else
+                    activity.getWindow().clearFlags(
+                            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+        });
     }
 
     private static int smallIcon(Context ctx) {
