@@ -59,8 +59,22 @@ fetch linuxdeploy-plugin-qt "$BASE/linuxdeploy-plugin-qt/releases/download/conti
 
 # Sur les runners CI, FUSE est absent : exécuter les AppImages en les extrayant.
 export APPIMAGE_EXTRACT_AND_RUN=1
-# Le plugin Qt lit les imports QML pour n'embarquer que les modules réellement utilisés.
-export QML_SOURCES_PATHS="$ROOT/src/qml"
+
+# Le plugin Qt lit les imports QML pour n'embarquer que les modules utilisés. Il scanne
+# les SOURCES : or ScanPage.qml (scanner de QR) importe QtMultimedia et le module de
+# l'app — modules absents du build desktop (COLO_HAS_CAMERA=OFF, scanner désactivé),
+# donc introuvables et fatals pour le scan. On scanne une copie sans ce fichier.
+QML_SCAN="$ROOT/build/qml-scan"
+rm -rf "$QML_SCAN"
+cp -r "$ROOT/src/qml" "$QML_SCAN"
+rm -f "$QML_SCAN/ScanPage.qml"
+export QML_SOURCES_PATHS="$QML_SCAN"
+
+# Qt embarque un driver SQL Mimer qui dépend de libmimerapi.so (base propriétaire,
+# absente) : linuxdeploy s'y casse les dents. On n'utilise que SQLite — retirer ce
+# driver du kit (idempotent ; le kit CI est jetable).
+rm -f "$QT_ROOT/plugins/sqldrivers/libqsqlmimer.so"
+
 export QMAKE="$QT_ROOT/bin/qmake"
 export PATH="$QT_ROOT/bin:$TOOLS:$PATH"
 
