@@ -35,6 +35,19 @@ target_link_libraries(tst_crdt PRIVATE core)
 
 add_test(NAME crdt COMMAND tst_crdt)
 
+# --- CSV / ZIP export-import (pure C++, no Qt) ---
+add_executable(tst_dataexchange
+    tst_dataexchange.cpp
+)
+
+target_include_directories(tst_dataexchange PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(tst_dataexchange PRIVATE core)
+
+add_test(NAME dataexchange COMMAND tst_dataexchange)
+
 # --- Payload codec tests (pure C++, no Qt) ---
 add_executable(tst_payload
     tst_payload.cpp

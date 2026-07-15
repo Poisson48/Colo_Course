@@ -4,7 +4,9 @@
 #include <QAbstractListModel>
 #include <QString>
 #include <QVariant>
+#include <QUrl>
 #include <vector>
+#include <string>
 #include "../store/database.h"
 #include "../core/types.h"
 #include "../core/pairing.h"
@@ -127,6 +129,19 @@ public slots:
     // Groupes existants, pour le menu « Ranger dans… » : [{ id, name }, …].
     QVariantList groups();
 
+    // --- Export / import (CSV, et ZIP pour tout d'un coup) ---
+    // CSV d'une liste, en texte : pour le partage direct et le presse-papiers.
+    QString listCsv(const QString &listId);
+    // Écrit le CSV d'une liste dans le fichier choisi (fileUrl). false si l'écriture échoue.
+    bool exportListCsv(const QUrl &fileUrl, const QString &listId);
+    // Écrit toutes les listes dans un ZIP (un CSV par liste).
+    bool exportAllZip(const QUrl &fileUrl);
+    // Importe un fichier .csv (une liste) ou .zip (plusieurs). Crée de nouvelles listes,
+    // sans toucher aux existantes. Retourne un message prêt pour le snackbar.
+    QString importFile(const QUrl &fileUrl);
+    // Nom de fichier suggéré pour l'export d'une liste (titre nettoyé + .csv).
+    QString suggestedFileName(const QString &listId);
+
     // Deep link colocourse://join/... (lien tapé dans WhatsApp, ou QR scanné).
     void handleJoinUrl(const QUrl &url);
 
@@ -165,6 +180,11 @@ private slots:
     void onLocalItemChange(const std::string& listId);
 
 private:
+    // Crée une liste locale et y importe les articles décrits par `rows`. Retourne le
+    // nombre d'articles ajoutés. Ne recharge pas le modèle (l'appelant groupe l'import).
+    int importRowsAsList(const QString &title,
+                         const std::vector<std::vector<std::string>> &rows);
+
     store::Database  m_db;
     ListsModel      *m_listsModel;
     ItemModel        m_itemModel;

@@ -93,6 +93,32 @@ Item {
 
             onClicked: nameDialog.open()
         }
+
+        ToolButton {
+            width: Theme.touchTarget
+            height: Theme.touchTarget
+            contentItem: Icon {
+                name: "menu"
+                color: Theme.text
+                size: 18
+            }
+            onClicked: overflowMenu.popup()
+        }
+    }
+
+    // Menu global : import / export de toutes les listes.
+    Menu {
+        id: overflowMenu
+
+        MenuItem {
+            text: "Importer une liste…"
+            onTriggered: { const p = root.usePickers(); if (p) p.openImport() }
+        }
+        MenuItem {
+            text: "Tout exporter (ZIP)"
+            enabled: listView.count > 0
+            onTriggered: { const p = root.usePickers(); if (p) p.openExportZip() }
+        }
     }
 
     // Pas encore de nom choisi (installation neuve, ou mise à jour depuis une version
@@ -362,6 +388,10 @@ Item {
             onTriggered: groupPicker.openFor(cardMenu.listId)
         }
         MenuItem {
+            text: "Exporter en CSV"
+            onTriggered: { const p = root.usePickers(); if (p) p.openExportCsv(cardMenu.listId) }
+        }
+        MenuItem {
             text: "Quitter la liste"
             onTriggered: {
                 leaveDialog.listId = cardMenu.listId
@@ -388,6 +418,23 @@ Item {
     }
 
     ShareSheet { id: shareSheet }
+
+    // Sélecteurs de fichiers natifs, isolés dans leur propre fichier : ils dépendent de
+    // QtQuick.Dialogs, absent de certains kits Qt de bureau. Chargés seulement à la
+    // demande (active au premier usage), l'écran des listes reste affichable sans ce
+    // module. item null = module indisponible → on le dit plutôt que de planter.
+    Loader {
+        id: pickers
+        active: false
+        source: "FilePickers.qml"
+    }
+
+    function usePickers() {
+        pickers.active = true
+        if (!pickers.item)
+            AppController.toast("Sélecteur de fichiers indisponible sur cet appareil")
+        return pickers.item
+    }
 
     // --- Dialogues ---
 

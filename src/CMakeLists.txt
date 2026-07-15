@@ -30,6 +30,8 @@ add_library(core STATIC
     core/crdt.cpp
     core/payload.cpp
     core/pairing.cpp
+    core/csv.cpp
+    core/zip.cpp
 )
 
 target_include_directories(core PUBLIC
@@ -129,6 +131,7 @@ set(COLO_QML_FILES
     qml/ColoTextField.qml
     qml/AisleBox.qml
     qml/Icon.qml
+    qml/FilePickers.qml
 )
 if(COLO_HAS_CAMERA)
     list(APPEND COLO_QML_FILES qml/ScanPage.qml)

@@ -178,7 +178,10 @@ Base unique `colocourse.db`, une seule connexion, WAL activé.
 
 ```sql
 lists(list_id TEXT PK, key BLOB, title TEXT, title_ver_l INT, title_ver_d TEXT,
-      lamport INT, last_sync INT, created INT);
+      lamport INT, last_sync INT, created INT,
+      group_id TEXT);   -- groupe local, '' = non rangé ; jamais synchronisé
+-- Groupes locaux (organisation propre à l'appareil, hors protocole) :
+groups(group_id TEXT PK, name TEXT, sort_order INT, created INT);
 items(list_id TEXT, item_id TEXT, created INT, by TEXT,
       name TEXT,  name_l INT,  name_d TEXT,
       qty  TEXT,  qty_l  INT,  qty_d  TEXT,

@@ -2,6 +2,7 @@
 #include <QAbstractItemModelTester>
 #include <QTemporaryDir>
 #include <QSignalSpy>
+#include <QUrl>
 
 #include "../src/store/database.h"
 #include "../src/core/types.h"
@@ -583,6 +584,98 @@ private slots:
         model.removeItem(vin);
         QVERIFY(!model.aisleNames().contains(QStringLiteral("Cave")));
         QVERIFY(model.aisleNames().contains(QStringLiteral("Animalerie")));
+    }
+
+    // Export CSV puis réimport : les articles reviennent, sans toucher à l'original.
+    void test_exportImportCsv() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        AppController ctrl;
+        QVERIFY(ctrl.db().open(dir.filePath("c.db")));
+
+        // Liste source avec deux articles (dont un rangé et coché).
+        ListMeta m;
+        m.listId = "src"; m.key = std::vector<uint8_t>(32, 1); m.title = "Courses";
+        m.titleVer = {1, "dev-A"}; m.lamport = 1; m.created = 1000;
+        QVERIFY(ctrl.db().createList(m));
+
+        Item a; a.listId = "src"; a.itemId = "a"; a.created = 1000; a.name = "Lait, entier";
+        a.qty = "1 L"; a.note = "demi-écrémé"; a.aisle = "Crèmerie"; a.nameVer = {1,"dev-A"};
+        QVERIFY(ctrl.db().upsertItem(a));
+        Item b; b.listId = "src"; b.itemId = "b"; b.created = 1001; b.name = "Pain";
+        b.done = true; b.nameVer = {1,"dev-A"};
+        QVERIFY(ctrl.db().upsertItem(b));
+
+        // Le CSV porte l'en-tête et les valeurs, virgule du nom échappée.
+        const QString csv = ctrl.listCsv("src");
+        QVERIFY(csv.contains("Article"));
+        QVERIFY(csv.contains("\"Lait, entier\""));   // virgule → champ entre guillemets
+        QVERIFY(csv.contains("Crèmerie"));
+
+        const QUrl file = QUrl::fromLocalFile(dir.filePath("courses.csv"));
+        QVERIFY(ctrl.exportListCsv(file, "src"));
+
+        ctrl.importFile(file);
+
+        // Une nouvelle liste (titre = nom de fichier), l'original intact → 2 listes.
+        const auto lists = ctrl.db().getLists();
+        QCOMPARE(lists.size(), size_t(2));
+
+        std::string importedId;
+        for (const auto &l : lists)
+            if (l.listId != "src") { importedId = l.listId;
+                QCOMPARE(QString::fromStdString(l.title), QStringLiteral("courses")); }
+        QVERIFY(!importedId.empty());
+
+        // Les articles ont été recréés à l'identique (rayon et coché compris).
+        auto items = ctrl.db().getItems(importedId);
+        QCOMPARE(items.size(), size_t(2));
+        bool sawLait = false, sawPain = false;
+        for (const auto &it : items) {
+            if (it.name == "Lait, entier") {
+                sawLait = true;
+                QCOMPARE(it.qty, std::string("1 L"));
+                QCOMPARE(it.note, std::string("demi-écrémé"));
+                QCOMPARE(it.aisle, std::string("Crèmerie"));
+                QVERIFY(!it.done);
+            }
+            if (it.name == "Pain") { sawPain = true; QVERIFY(it.done); }
+        }
+        QVERIFY(sawLait && sawPain);
+    }
+
+    // Export ZIP de toutes les listes, puis réimport : chaque CSV redevient une liste.
+    void test_exportImportZip() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        AppController ctrl;
+        QVERIFY(ctrl.db().open(dir.filePath("c.db")));
+
+        for (const char *title : { "Maison", "Boulot" }) {
+            ListMeta m;
+            m.listId = title; m.key = std::vector<uint8_t>(32, 2);
+            m.title = title; m.titleVer = {1,"dev-A"}; m.lamport = 1; m.created = 1000;
+            QVERIFY(ctrl.db().createList(m));
+            Item it; it.listId = title; it.itemId = std::string("i-") + title;
+            it.created = 1000; it.name = std::string("Article ") + title;
+            it.nameVer = {1,"dev-A"};
+            QVERIFY(ctrl.db().upsertItem(it));
+        }
+
+        const QUrl zip = QUrl::fromLocalFile(dir.filePath("tout.zip"));
+        QVERIFY(ctrl.exportAllZip(zip));
+
+        ctrl.importFile(zip);
+
+        // 2 listes d'origine + 2 réimportées.
+        QCOMPARE(ctrl.db().getLists().size(), size_t(4));
+
+        int maisonCopies = 0;
+        for (const auto &l : ctrl.db().getLists())
+            if (QString::fromStdString(l.title) == "Maison") ++maisonCopies;
+        QCOMPARE(maisonCopies, 2);   // l'originale + celle issue du ZIP
     }
 
     // ListsModel : groupes (sections triées) et « partagée avec » (membres, soi exclu).

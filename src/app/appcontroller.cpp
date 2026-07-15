@@ -9,6 +9,10 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QUuid>
+#include <QFile>
+#include <QFileInfo>
+#include <QUrl>
+#include <optional>
 #include <algorithm>
 #include <map>
 #include <limits>
@@ -16,6 +20,8 @@
 #include "../core/types.h"
 #include "../core/crdt.h"
 #include "../core/pairing.h"
+#include "../core/csv.h"
+#include "../core/zip.h"
 #include "../net/crypto.h"
 #include "../net/relaypool.h"
 
@@ -269,8 +275,16 @@ int AppController::pendingChanges() const {
 void AppController::onOutboxChanged() {
     const int pending = m_db.outboxCount();
     if (pending == m_pendingChanges) return;
+
+    const int previous = m_pendingChanges;
     m_pendingChanges = pending;
     emit pendingChangesChanged();
+
+    // On avait des modifications en attente, et un relais vient d'accuser réception de
+    // la dernière : le confirmer explicitement. C'est le « synchro réussie » demandé —
+    // le bandeau discret ne suffit pas à rassurer sur un envoi ponctuel.
+    if (previous > 0 && pending == 0 && m_online)
+        emit toast(QStringLiteral("Modifications synchronisées"));
 }
 
 void AppController::onLocalItemChange(const std::string& listId) {
@@ -421,6 +435,228 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
     emit toast(copied > 0
         ? QStringLiteral("Liste dupliquée — %1 article(s) à acheter").arg(copied)
         : QStringLiteral("Liste dupliquée"));
+}
+
+// ---------------------------------------------------------------------------
+// Export / import
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// En-tête CSV. L'import reconnaît une ligne d'en-tête à sa première cellule, et se
+// passe d'en-tête si le fichier n'en a pas (une simple colonne de noms marche).
+const std::vector<std::string> kCsvHeader =
+    { "Article", "Quantite", "Description", "Rayon", "Pris" };
+
+bool looksLikeHeader(const std::vector<std::string>& row) {
+    if (row.empty()) return false;
+    QString first = QString::fromStdString(row[0]).trimmed().toLower();
+    return first == "article" || first == "nom" || first == "name" || first == "item";
+}
+
+bool truthy(const std::string& s) {
+    const QString v = QString::fromStdString(s).trimmed().toLower();
+    return v == "oui" || v == "1" || v == "true" || v == "x" || v == "vrai";
+}
+
+// Nom de fichier sûr : pas de séparateur de chemin ni de caractère interdit.
+QString sanitizeFileName(const QString& title) {
+    QString out;
+    for (QChar c : title) {
+        if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' ||
+            c == '"' || c == '<' || c == '>' || c == '|' || c < ' ')
+            out += ' ';
+        else
+            out += c;
+    }
+    out = out.trimmed();
+    return out.isEmpty() ? QStringLiteral("liste") : out;
+}
+
+} // namespace
+
+QString AppController::listCsv(const QString &listId) {
+    auto metaOpt = m_db.getList(listId.toStdString());
+    if (!metaOpt) return {};
+
+    std::vector<std::vector<std::string>> rows;
+    rows.push_back(kCsvHeader);
+    for (const auto &it : m_db.getItems(listId.toStdString())) {
+        if (it.del) continue;
+        rows.push_back({ it.name, it.qty, it.note, it.aisle,
+                         it.done ? "oui" : "" });
+    }
+    return QString::fromStdString(core::csvWrite(rows));
+}
+
+QString AppController::suggestedFileName(const QString &listId) {
+    auto metaOpt = m_db.getList(listId.toStdString());
+    const QString title = metaOpt ? QString::fromStdString(metaOpt->title)
+                                  : QStringLiteral("liste");
+    return sanitizeFileName(title) + QStringLiteral(".csv");
+}
+
+// Écrit des octets dans l'URL choisie. Sur Android, le sélecteur renvoie une URI
+// content:// que QFile sait ouvrir ; ailleurs, un chemin fichier classique.
+static bool writeUrl(const QUrl &url, const QByteArray &bytes) {
+    const QString target = url.isLocalFile() ? url.toLocalFile() : url.toString();
+    QFile f(target);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        qWarning() << "writeUrl: open failed" << target << f.errorString();
+        return false;
+    }
+    const bool ok = f.write(bytes) == bytes.size();
+    f.close();
+    return ok;
+}
+
+static std::optional<QByteArray> readUrl(const QUrl &url) {
+    const QString target = url.isLocalFile() ? url.toLocalFile() : url.toString();
+    QFile f(target);
+    if (!f.open(QIODevice::ReadOnly)) {
+        qWarning() << "readUrl: open failed" << target << f.errorString();
+        return std::nullopt;
+    }
+    return f.readAll();
+}
+
+bool AppController::exportListCsv(const QUrl &fileUrl, const QString &listId) {
+    const QString csv = listCsv(listId);
+    if (csv.isEmpty() && !m_db.getList(listId.toStdString())) {
+        emit toast(QStringLiteral("Liste introuvable"));
+        return false;
+    }
+    if (!writeUrl(fileUrl, csv.toUtf8())) {
+        emit toast(QStringLiteral("Échec de l'enregistrement"));
+        return false;
+    }
+    emit toast(QStringLiteral("Liste exportée"));
+    return true;
+}
+
+bool AppController::exportAllZip(const QUrl &fileUrl) {
+    std::vector<core::ZipEntry> entries;
+    QStringList usedNames;
+
+    for (const auto &meta : m_db.getLists()) {
+        const QString listId = QString::fromStdString(meta.listId);
+        // Nom de fichier = titre nettoyé, rendu unique (deux listes peuvent partager
+        // un titre) pour ne pas écraser une entrée par une autre dans l'archive.
+        QString base = sanitizeFileName(QString::fromStdString(meta.title));
+        QString name = base + QStringLiteral(".csv");
+        int n = 2;
+        while (usedNames.contains(name))
+            name = base + QStringLiteral(" (%1).csv").arg(n++);
+        usedNames << name;
+
+        entries.push_back({ name.toStdString(), listCsv(listId).toStdString() });
+    }
+
+    if (entries.empty()) {
+        emit toast(QStringLiteral("Aucune liste à exporter"));
+        return false;
+    }
+    if (!writeUrl(fileUrl, QByteArray::fromStdString(core::zipWrite(entries)))) {
+        emit toast(QStringLiteral("Échec de l'enregistrement"));
+        return false;
+    }
+    emit toast(QStringLiteral("%1 liste(s) exportée(s)").arg(entries.size()));
+    return true;
+}
+
+// Crée une liste locale (clé neuve, non partagée tant qu'on n'a pas diffusé le lien),
+// importe les articles décrits par `rows`, et retourne le nombre d'articles ajoutés.
+int AppController::importRowsAsList(const QString &title,
+                                    const std::vector<std::vector<std::string>> &rows) {
+    core::ListMeta meta;
+    meta.listId   = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    meta.key      = net::generateListKey();
+    meta.title    = title.trimmed().isEmpty() ? std::string("Liste importée")
+                                              : title.trimmed().toStdString();
+    meta.titleVer = core::Ver{ 1, m_deviceId.toStdString() };
+    meta.lamport  = 1;
+    meta.created  = QDateTime::currentMSecsSinceEpoch();
+    if (meta.key.size() != 32 || !m_db.createList(meta))
+        return 0;
+
+    int added = 0;
+    for (const auto &row : rows) {
+        if (looksLikeHeader(row)) continue;
+        if (row.empty()) continue;
+        const std::string name = QString::fromStdString(row[0]).trimmed().toStdString();
+        if (name.empty()) continue;
+
+        const int64_t lamport = m_db.bumpLamport(meta.listId);
+        const core::Ver ver{ lamport, m_deviceId.toStdString() };
+
+        core::Item item;
+        item.listId  = meta.listId;
+        item.itemId  = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+        item.created = meta.created + added;
+        item.by      = m_deviceId.toStdString();
+        item.name    = name;                                     item.nameVer  = ver;
+        item.qty     = row.size() > 1 ? row[1] : std::string();  item.qtyVer   = ver;
+        item.note    = row.size() > 2 ? row[2] : std::string();  item.noteVer  = ver;
+        item.aisle   = row.size() > 3 ? row[3] : std::string();  item.aisleVer = ver;
+        item.order   = item.created;                             item.orderVer = ver;
+        item.done    = row.size() > 4 && truthy(row[4]);         item.doneVer  = ver;
+        item.doneAt  = item.done ? meta.created : 0;
+        item.delVer  = ver;
+        item.touched = meta.created;
+
+        if (m_db.upsertItem(item)) ++added;
+    }
+
+    m_syncEngine.onListJoined(meta.listId);
+    m_syncEngine.onLocalChange(meta.listId);   // publier le contenu importé
+    return added;
+}
+
+QString AppController::importFile(const QUrl &fileUrl) {
+    auto bytes = readUrl(fileUrl);
+    if (!bytes) {
+        const QString msg = QStringLiteral("Fichier illisible");
+        emit toast(msg);
+        return msg;
+    }
+
+    const QString path = fileUrl.isLocalFile() ? fileUrl.toLocalFile() : fileUrl.toString();
+    const std::string raw = bytes->toStdString();
+
+    int lists = 0, items = 0;
+
+    // ZIP (plusieurs listes) reconnu à sa signature, quel que soit le nom du fichier.
+    const bool isZip = raw.size() > 4 && raw.compare(0, 4, "PK\x03\x04", 4) == 0;
+    if (isZip || path.endsWith(QStringLiteral(".zip"), Qt::CaseInsensitive)) {
+        auto archive = core::zipRead(raw);
+        if (!archive) {
+            const QString msg = QStringLiteral("Archive illisible");
+            emit toast(msg);
+            return msg;
+        }
+        for (const auto &entry : *archive) {
+            QString title = QString::fromStdString(entry.name);
+            if (title.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive))
+                title.chop(4);
+            const int n = importRowsAsList(title, core::csvParse(entry.data));
+            if (n >= 0) { ++lists; items += n; }
+        }
+    } else {
+        // CSV : une seule liste. Le titre vient du nom de fichier.
+        QFileInfo info(path);
+        QString title = info.completeBaseName();
+        if (title.isEmpty()) title = QStringLiteral("Liste importée");
+        const int n = importRowsAsList(title, core::csvParse(raw));
+        lists = 1; items = n;
+    }
+
+    m_listsModel->reload(m_db, m_deviceId.toStdString());
+
+    const QString msg = (lists > 1)
+        ? QStringLiteral("%1 listes importées (%2 articles)").arg(lists).arg(items)
+        : QStringLiteral("Liste importée — %1 article(s)").arg(items);
+    emit toast(msg);
+    return msg;
 }
 
 QString AppController::createGroup(const QString &name) {
