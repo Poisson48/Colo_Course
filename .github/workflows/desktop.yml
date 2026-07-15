@@ -66,9 +66,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/Qt
-          # Suffixe « nomm » : le cache précédent contenait qtmultimedia (qu'on ne veut
-          # plus). Changer la clé force une réinstallation propre.
-          key: qt-desktop-${{ env.QT_VER }}-linux-gcc64-nomm
+          # Clé versionnée : repart d'un kit Qt intact. (nomm = sans qtmultimedia ;
+          # v2 = un run précédent avait supprimé un plugin SQL du kit, corrompant sa
+          # config CMake mise en cache — on n'y touche plus, cf. build-appimage.sh.)
+          key: qt-desktop-${{ env.QT_VER }}-linux-gcc64-nomm-v2
 
       - name: Qt ${{ env.QT_VER }} (desktop)
         if: steps.cache-qt.outputs.cache-hit != 'true'

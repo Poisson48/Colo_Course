@@ -70,10 +70,17 @@ cp -r "$ROOT/src/qml" "$QML_SCAN"
 rm -f "$QML_SCAN/ScanPage.qml"
 export QML_SOURCES_PATHS="$QML_SCAN"
 
-# Qt embarque un driver SQL Mimer qui dépend de libmimerapi.so (base propriétaire,
-# absente) : linuxdeploy s'y casse les dents. On n'utilise que SQLite — retirer ce
-# driver du kit (idempotent ; le kit CI est jetable).
-rm -f "$QT_ROOT/plugins/sqldrivers/libqsqlmimer.so"
+# Qt embarque un driver SQL Mimer (base propriétaire) qui dépend de libmimerapi.so,
+# absente du système : linuxdeploy échoue à résoudre cette dépendance. On ne touche PAS
+# au kit Qt (le supprimer casse la config CMake de Qt6Sql, et le kit est mis en cache) —
+# on fournit un stub libmimerapi.so que linuxdeploy embarquera (inutilisé, on n'utilise
+# que SQLite).
+STUBDIR="$ROOT/build/stublibs"
+mkdir -p "$STUBDIR"
+if [ ! -f "$STUBDIR/libmimerapi.so" ]; then
+    echo 'void colo_mimer_stub(void){}' | cc -x c -shared -fPIC -o "$STUBDIR/libmimerapi.so" -
+fi
+export LD_LIBRARY_PATH="$STUBDIR:${LD_LIBRARY_PATH:-}"
 
 export QMAKE="$QT_ROOT/bin/qmake"
 export PATH="$QT_ROOT/bin:$TOOLS:$PATH"
