@@ -79,6 +79,9 @@ class AppController : public QObject {
     // Articles fréquents, appris à l'usage : proposés en un tap sous la barre d'ajout.
     // [{ name, qty, aisle, pinned }, …], les plus utiles d'abord.
     Q_PROPERTY(QVariantList favorites READ favorites NOTIFY favoritesChanged)
+    // Rayons personnalisés (créés par l'utilisateur, hors rayons d'origine), pour l'écran
+    // de gestion. Triés. Un rayon d'origine ne peut être ni renommé ni supprimé.
+    Q_PROPERTY(QStringList customAisles READ customAisles NOTIFY customAislesChanged)
     // Nom affiché aux autres participants ("3 articles ajoutés par Marie").
     Q_PROPERTY(QString displayName READ displayName WRITE setDisplayName NOTIFY displayNameChanged)
     // false tant que l'utilisateur n'a pas choisi son nom : l'écran d'accueil le
@@ -136,6 +139,16 @@ public slots:
     // inconnu. Sert UNIQUEMENT à pré-remplir le sélecteur : rien n'est assigné en douce.
     QString suggestAisle(const QString &name);
 
+    // --- Gestion des rayons personnalisés (écran « Mes listes ») ---
+    QStringList customAisles();
+    // Nombre d'articles (toutes listes) rangés dans ce rayon — pour le message de confirmation.
+    int countItemsInAisle(const QString &aisle);
+    // Renommer un rayon partout : articles de toutes les listes + mémoire des suggestions.
+    // C'est une modification synchronisée (le rayon d'un article est un champ répliqué).
+    void renameAisle(const QString &oldAisle, const QString &newAisle);
+    // Supprimer un rayon : les articles qui l'utilisaient repassent « sans rayon ».
+    void deleteAisle(const QString &aisle);
+
     // --- Favoris (articles fréquents) ---
     QVariantList favorites();
     // Épingler un favori en tête (ou le désépingler), ou le retirer des suggestions.
@@ -177,6 +190,7 @@ signals:
     void onlineChanged();
     void pendingChangesChanged();
     void favoritesChanged();
+    void customAislesChanged();
     void displayNameChanged();
     // Emitted when QML should push the item page.
     void listOpened(const QString &listId, const QString &title);
@@ -198,6 +212,10 @@ private:
     // nombre d'articles ajoutés. Ne recharge pas le modèle (l'appelant groupe l'import).
     int importRowsAsList(const QString &title,
                          const std::vector<std::vector<std::string>> &rows);
+
+    // Réaffecte partout les articles du rayon `oldAisle` vers `newAisle` (vide = « sans
+    // rayon »), met à jour la mémoire, resynchronise les listes touchées.
+    void reassignAisle(const QString &oldAisle, const QString &newAisle);
 
     store::Database  m_db;
     ListsModel      *m_listsModel;

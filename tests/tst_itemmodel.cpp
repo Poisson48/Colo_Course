@@ -742,6 +742,54 @@ private slots:
         QVERIFY(found);
     }
 
+    // Gestion des rayons personnalisés : renommer / supprimer partout, sync comprise.
+    void test_customAisleManagement() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        AppController ctrl;
+        QVERIFY(ctrl.db().open(dir.filePath("c.db")));
+        Database &db = ctrl.db();
+
+        // Deux listes, chacune avec un article dans le rayon perso « Cave ».
+        for (const char *lid : { "L1", "L2" }) {
+            ListMeta m; m.listId = lid; m.key = std::vector<uint8_t>(32, 1);
+            m.title = lid; m.titleVer = {1,"dev-A"}; m.lamport = 1; m.created = 1000;
+            QVERIFY(db.createList(m));
+            Item it; it.listId = lid; it.itemId = std::string("i-") + lid;
+            it.created = 1000; it.name = "Vin"; it.aisle = "Cave"; it.nameVer = {1,"dev-A"};
+            it.aisleVer = {1,"dev-A"};
+            QVERIFY(db.upsertItem(it));
+        }
+        db.recordAisleForName("Vin", "Cave", 1000);
+
+        // « Cave » est un rayon perso (pas d'origine), listé pour la gestion.
+        QVERIFY(ctrl.customAisles().contains(QStringLiteral("Cave")));
+        QVERIFY(!ctrl.customAisles().contains(QStringLiteral("Crèmerie"))); // rayon d'origine
+        QCOMPARE(ctrl.countItemsInAisle("Cave"), 2);
+
+        // Renommer « Cave » → « Cellier » : les deux articles suivent, la mémoire aussi.
+        ctrl.renameAisle("Cave", "Cellier");
+        for (const char *lid : { "L1", "L2" })
+            for (const auto &it : db.getItems(lid))
+                if (it.name == "Vin") QCOMPARE(it.aisle, std::string("Cellier"));
+        QCOMPARE(db.suggestAisleForName("Vin"), std::string("Cellier"));
+        QVERIFY(!ctrl.customAisles().contains(QStringLiteral("Cave")));
+        QVERIFY(ctrl.customAisles().contains(QStringLiteral("Cellier")));
+
+        // Le rayon d'un article est versionné : la réaffectation part au relais.
+        for (const auto &it : db.getItems("L1"))
+            if (it.name == "Vin") QVERIFY(it.aisleVer.lamport > 1);
+
+        // Supprimer « Cellier » : les articles repassent « sans rayon », plus proposé.
+        ctrl.deleteAisle("Cellier");
+        for (const char *lid : { "L1", "L2" })
+            for (const auto &it : db.getItems(lid))
+                if (it.name == "Vin") QVERIFY(it.aisle.empty());
+        QVERIFY(ctrl.customAisles().isEmpty());
+        QVERIFY(db.suggestAisleForName("Vin").empty());
+    }
+
     // ListsModel : groupes (sections triées) et « partagée avec » (membres, soi exclu).
     void test_listsModel_groupsAndMembers() {
         QTemporaryDir dir;

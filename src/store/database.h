@@ -72,6 +72,13 @@ public:
     bool recordAisleForName(const std::string& name, const std::string& aisle, int64_t nowMs);
     // Rayon suggéré pour un nom (via son premier mot), ou "" si inconnu.
     std::string suggestAisleForName(const std::string& name);
+    // Rayons distincts réellement utilisés par des articles (toutes listes, hors
+    // tombstones et hors rayon vide), et ceux mémorisés pour les suggestions.
+    std::vector<std::string> distinctItemAisles();
+    std::vector<std::string> distinctMemoryAisles();
+    // Renommer / oublier un rayon dans la mémoire des suggestions.
+    bool renameAisleInMemory(const std::string& oldAisle, const std::string& newAisle);
+    bool forgetAisleInMemory(const std::string& aisle);
 
     // --- Items ---
     // Insert or update an item. Transactional (updates lamport if needed).

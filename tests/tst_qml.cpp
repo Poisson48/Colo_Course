@@ -393,6 +393,42 @@ private slots:
         delete window;
     }
 
+    // La gestion des rayons (écran des listes) affiche les rayons personnalisés.
+    void test_aisleManagementDialog() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        store::Database &db = m_ctrl.db();
+        if (!db.isOpen())
+            QVERIFY(db.open(dir.filePath("am.db")));
+
+        core::ListMeta m; m.listId = "l-am"; m.key = std::vector<uint8_t>(32, 9);
+        m.title = "Courses"; m.titleVer = {1,"dev-A"}; m.lamport = 1; m.created = 100;
+        db.createList(m);
+        core::Item it; it.listId = "l-am"; it.itemId = "i-am"; it.created = 100;
+        it.name = "Vin"; it.aisle = "Cellier"; it.nameVer = {1,"dev-A"}; it.aisleVer = {1,"dev-A"};
+        db.upsertItem(it);
+        QVERIFY(m_ctrl.customAisles().contains(QStringLiteral("Cellier")));
+
+        QObject *window = load(QStringLiteral("Main.qml"));
+        QVERIFY(window);
+        QTest::qWait(100);
+
+        QObject *dlg = window->findChild<QObject *>(QStringLiteral("aislesDialog"));
+        QVERIFY2(dlg, "dialogue de gestion des rayons introuvable");
+        QMetaObject::invokeMethod(dlg, "open");
+        QTest::qWait(150);
+
+        auto *win = qobject_cast<QQuickWindow *>(window);
+        const QStringList shown = visibleTexts(win->contentItem());
+        QVERIFY2(shown.contains(QStringLiteral("Cellier")),
+                 qPrintable("textes : " + shown.join(QStringLiteral(" | "))));
+
+        if (qEnvironmentVariableIsSet("COLO_SHOT_DIR"))
+            win->grabWindow().save(qEnvironmentVariable("COLO_SHOT_DIR") + "/aisles.png");
+
+        delete window;
+    }
+
     // ListPage se charge seule (elle n'ouvre aucun popup au chargement).
     void test_listPageLoadsCleanly() {
         qInstallMessageHandler(warningCollector);

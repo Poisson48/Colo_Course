@@ -106,10 +106,15 @@ Item {
         }
     }
 
-    // Menu global : import / export de toutes les listes.
+    // Menu global : import / export, et gestion des rayons personnalisés.
     Menu {
         id: overflowMenu
 
+        MenuItem {
+            text: "Gérer les rayons"
+            onTriggered: aislesDialog.open()
+        }
+        MenuSeparator {}
         MenuItem {
             text: "Importer une liste…"
             onTriggered: { const p = root.usePickers(); if (p) p.openImport() }
@@ -794,5 +799,128 @@ Item {
         }
 
         onAccepted: AppController.leaveList(leaveDialog.listId)
+    }
+
+    // --- Gestion des rayons personnalisés ---
+
+    ColoDialog {
+        id: aislesDialog
+        objectName: "aislesDialog"
+        title: "Rayons personnalisés"
+        acceptText: "Fermer"
+        // Les lignes agissent d'elles-mêmes ; un seul bouton « Fermer » suffit.
+        showCancel: false
+        onAccepted: {}
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            visible: AppController.customAisles.length === 0
+            text: "Aucun rayon personnalisé. Ceux que vous créez en rangeant vos articles "
+                  + "apparaîtront ici, à renommer ou supprimer."
+        }
+
+        Repeater {
+            model: AppController.customAisles
+            delegate: RowLayout {
+                required property string modelData
+                Layout.fillWidth: true
+                spacing: 4
+
+                Label {
+                    Layout.fillWidth: true
+                    text: modelData
+                    color: Theme.text
+                    font.pixelSize: 15
+                    elide: Text.ElideRight
+                }
+
+                ToolButton {
+                    Layout.preferredWidth: 84
+                    Layout.preferredHeight: Theme.touchTarget
+                    contentItem: Label {
+                        text: "Renommer"
+                        color: Theme.accent
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: aisleRenameDialog.openFor(modelData)
+                }
+                ToolButton {
+                    Layout.preferredWidth: Theme.touchTarget
+                    Layout.preferredHeight: Theme.touchTarget
+                    contentItem: Icon { name: "close"; color: Theme.danger; size: 15 }
+                    onClicked: aisleDeleteDialog.openFor(modelData)
+                }
+            }
+        }
+    }
+
+    ColoDialog {
+        id: aisleRenameDialog
+        title: "Renommer le rayon"
+        acceptText: "Renommer"
+        acceptEnabled: aisleRenameField.text.trim().length > 0
+
+        property string aisle: ""
+
+        function openFor(a) {
+            aisle = a
+            open()
+            aisleRenameField.text = a
+            aisleRenameField.forceActiveFocus()
+            aisleRenameField.selectAll()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            text: "Les articles rangés dans ce rayon suivront, sur tous les appareils."
+        }
+
+        ColoTextField {
+            id: aisleRenameField
+            Layout.fillWidth: true
+            hint: "Nom du rayon"
+            onAccepted: if (aisleRenameDialog.acceptEnabled) aisleRenameDialog.accept()
+        }
+
+        onAccepted: AppController.renameAisle(aisleRenameDialog.aisle,
+                                              aisleRenameField.text.trim())
+    }
+
+    ColoDialog {
+        id: aisleDeleteDialog
+        title: "Supprimer le rayon ?"
+        acceptText: "Supprimer"
+        destructive: true
+
+        property string aisle: ""
+        property int    count: 0
+
+        function openFor(a) {
+            aisle = a
+            count = AppController.countItemsInAisle(a)
+            open()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 14
+            text: aisleDeleteDialog.count > 0
+                  ? "« " + aisleDeleteDialog.aisle + " » sera retiré de "
+                    + aisleDeleteDialog.count + " article(s), qui repasseront « sans rayon », "
+                    + "et ne sera plus proposé. Les articles ne sont pas supprimés."
+                  : "« " + aisleDeleteDialog.aisle + " » ne sera plus proposé."
+        }
+
+        onAccepted: AppController.deleteAisle(aisleDeleteDialog.aisle)
     }
 }

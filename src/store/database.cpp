@@ -502,6 +502,44 @@ std::string Database::suggestAisleForName(const std::string& name)
     return {};
 }
 
+std::vector<std::string> Database::distinctItemAisles()
+{
+    std::vector<std::string> out;
+    QSqlQuery q(m_db);
+    if (q.exec(QStringLiteral(
+            "SELECT DISTINCT aisle FROM items WHERE del = 0 AND aisle <> ''")))
+        while (q.next())
+            out.push_back(ss(q.value(0).toString()));
+    return out;
+}
+
+std::vector<std::string> Database::distinctMemoryAisles()
+{
+    std::vector<std::string> out;
+    QSqlQuery q(m_db);
+    if (q.exec(QStringLiteral("SELECT DISTINCT aisle FROM aisle_memory WHERE aisle <> ''")))
+        while (q.next())
+            out.push_back(ss(q.value(0).toString()));
+    return out;
+}
+
+bool Database::renameAisleInMemory(const std::string& oldAisle, const std::string& newAisle)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE aisle_memory SET aisle = ? WHERE aisle = ?"));
+    q.addBindValue(qs(newAisle));
+    q.addBindValue(qs(oldAisle));
+    return q.exec();
+}
+
+bool Database::forgetAisleInMemory(const std::string& aisle)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("DELETE FROM aisle_memory WHERE aisle = ?"));
+    q.addBindValue(qs(aisle));
+    return q.exec();
+}
+
 std::optional<core::ListMeta> Database::getList(const std::string& listId)
 {
     QSqlQuery q(m_db);

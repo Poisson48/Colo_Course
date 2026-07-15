@@ -13,6 +13,9 @@ Dialog {
     // Masque le bouton de validation : pour un dialogue dont chaque ligne agit au clic
     // (choix d'un groupe), un « OK » qui ne fait rien n'aurait aucun sens.
     property bool   showAccept: true
+    // Masque « Annuler » : pour un dialogue de gestion où « Fermer » suffit, deux
+    // boutons qui ferment tous les deux n'apportent rien.
+    property bool   showCancel: true
 
     default property alias body: content.data
 
@@ -63,6 +66,7 @@ Dialog {
 
         Button {
             flat: true
+            visible: dlg.showCancel
             text: "Annuler"
             implicitHeight: Theme.touchTarget
             contentItem: Label {

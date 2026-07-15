@@ -713,6 +713,88 @@ QString AppController::suggestAisle(const QString &name) {
     return QString::fromStdString(m_db.suggestAisleForName(name.toStdString()));
 }
 
+QStringList AppController::customAisles() {
+    if (!m_db.isOpen()) return {};
+
+    // Un rayon personnalisé = utilisé par un article, ou mémorisé pour une suggestion,
+    // mais absent des rayons d'origine (ceux-là ne se gèrent pas).
+    const QStringList defaults = app::ItemModel::defaultAisles();
+    QStringList out;
+    const auto add = [&](const std::vector<std::string> &src) {
+        for (const auto &a : src) {
+            const QString aisle = QString::fromStdString(a);
+            if (!defaults.contains(aisle) && !out.contains(aisle))
+                out << aisle;
+        }
+    };
+    add(m_db.distinctItemAisles());
+    add(m_db.distinctMemoryAisles());
+
+    std::sort(out.begin(), out.end(), [](const QString &a, const QString &b) {
+        return QString::localeAwareCompare(a, b) < 0;
+    });
+    return out;
+}
+
+int AppController::countItemsInAisle(const QString &aisle) {
+    if (!m_db.isOpen() || aisle.isEmpty()) return 0;
+    const std::string a = aisle.toStdString();
+    int n = 0;
+    for (const auto &meta : m_db.getLists())
+        for (const auto &it : m_db.getItems(meta.listId))
+            if (!it.del && it.aisle == a) ++n;
+    return n;
+}
+
+void AppController::reassignAisle(const QString &oldAisle, const QString &newAisle) {
+    if (!m_db.isOpen() || oldAisle.isEmpty() || oldAisle == newAisle) return;
+
+    const std::string from = oldAisle.toStdString();
+    const std::string to   = newAisle.toStdString();
+    const std::string dev  = m_deviceId.toStdString();
+    const int64_t now = QDateTime::currentMSecsSinceEpoch();
+
+    // Réaffecter les articles dans toutes les listes. Le rayon est un champ CRDT
+    // répliqué : chaque changement bumpe le Lamport de sa liste, et un onLocalChange
+    // par liste touchée publie la mise à jour aux autres participants.
+    for (const auto &meta : m_db.getLists()) {
+        bool listChanged = false;
+        for (auto &it : m_db.getItems(meta.listId)) {
+            if (it.del || it.aisle != from) continue;
+            const int64_t lamport = m_db.bumpLamport(meta.listId);
+            it.aisle    = to;
+            it.aisleVer = core::Ver{ lamport, dev };
+            it.touched  = now;
+            if (m_db.upsertItem(it)) listChanged = true;
+        }
+        if (listChanged)
+            m_syncEngine.onLocalChange(meta.listId);
+    }
+
+    // Mémoire des suggestions : renommer, ou oublier si le rayon disparaît.
+    if (to.empty())
+        m_db.forgetAisleInMemory(from);
+    else
+        m_db.renameAisleInMemory(from, to);
+
+    // Rafraîchir la liste ouverte (ses articles ont pu changer de section).
+    if (!m_openListId.empty())
+        m_itemModel.load(m_db, m_openListId, dev);
+
+    emit customAislesChanged();
+}
+
+void AppController::renameAisle(const QString &oldAisle, const QString &newAisle) {
+    const QString trimmed = newAisle.trimmed();
+    if (trimmed.isEmpty()) return;
+    reassignAisle(oldAisle, trimmed);
+}
+
+void AppController::deleteAisle(const QString &aisle) {
+    reassignAisle(aisle, QString());   // vers « sans rayon »
+    emit toast(QStringLiteral("Rayon supprimé"));
+}
+
 QVariantList AppController::favorites() {
     QVariantList out;
     if (!m_db.isOpen()) return out;
