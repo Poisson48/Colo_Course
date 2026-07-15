@@ -24,9 +24,36 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build cmake \
-            libsodium-dev libsecp256k1-dev \
+            libsodium-dev \
             libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev \
             libfontconfig1 libfreetype6 wget file
+
+      # La libsecp256k1 d'Ubuntu 22.04 est trop ancienne (secp256k1_schnorrsig_sign32
+      # absent). On garde 22.04 pour un AppImage compatible avec un large éventail de
+      # distributions (glibc ancienne), et on construit secp256k1 depuis les sources —
+      # même version 0.7.0 que le build Android (scripts/build-android-deps.sh).
+      - name: Cache libsecp256k1
+        id: cache-secp
+        uses: actions/cache@v4
+        with:
+          path: ~/secp
+          key: secp256k1-0.7.0-jammy
+
+      - name: libsecp256k1 0.7.0 (sources)
+        if: steps.cache-secp.outputs.cache-hit != 'true'
+        run: |
+          curl -fL -o secp.tar.gz \
+            https://github.com/bitcoin-core/secp256k1/archive/refs/tags/v0.7.0.tar.gz
+          tar xzf secp.tar.gz
+          cmake -S secp256k1-0.7.0 -B secp-build -G Ninja \
+            -DCMAKE_INSTALL_PREFIX="$HOME/secp" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSECP256K1_ENABLE_MODULE_SCHNORRSIG=ON \
+            -DSECP256K1_ENABLE_MODULE_EXTRAKEYS=ON \
+            -DSECP256K1_BUILD_TESTS=OFF -DSECP256K1_BUILD_BENCHMARK=OFF \
+            -DSECP256K1_BUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF
+          cmake --build secp-build -j"$(nproc)"
+          cmake --install secp-build
 
       - name: Cache Qt
         id: cache-qt
@@ -55,6 +82,8 @@ jobs:
         run: |
           QT_ROOT="$HOME/Qt/$QT_VER/gcc_64"
           export PATH="$QT_ROOT/bin:$PATH"
+          # secp256k1 construit depuis les sources : le trouver via pkg-config.
+          export PKG_CONFIG_PATH="$HOME/secp/lib/pkgconfig:$HOME/secp/lib64/pkgconfig"
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_PREFIX_PATH="$QT_ROOT"

@@ -1,10 +1,8 @@
 # Colo_Course
 
-**Liste partagée pour tout ce qui se prévoit à plusieurs — sans compte, sans abonnement, sans serveur à soi.**
+**Liste de courses partagée — privée, gratuite, sans publicité et sans serveur à soi.**
 
-Courses du foyer ou de la coloc, matériel d'une sortie, fournitures d'une équipe, préparatifs d'un événement, cadeaux à plusieurs : dès qu'une liste doit vivre entre plusieurs personnes, Colo Course la tient à jour partout.
-
-Créez une liste, partagez-la par QR code, collaborez en temps réel. Chaque participant garde une copie locale complète, chiffrée de bout en bout. Fonctionne hors ligne, gère les conflits d'édition simultanée, autant de listes que de contextes. Open source, GPL v3.
+Une app simple pour faire ses courses à plusieurs : créez une liste, partagez-la par QR code, chacun l'a à jour en temps réel. Tout est chiffré de bout en bout et reste sur vos appareils — aucun compte, aucune donnée collectée, aucune publicité, aucun serveur à héberger. Fonctionne hors ligne, gère les modifications simultanées, autant de listes que de contextes. Open source, GPL v3.
 
 [![CI](https://github.com/Poisson48/Colo_Course/actions/workflows/ci.yml/badge.svg)](https://github.com/Poisson48/Colo_Course/actions/workflows/ci.yml)
 

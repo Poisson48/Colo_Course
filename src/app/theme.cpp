@@ -29,15 +29,26 @@ Theme::Theme(QObject *parent)
 
 void Theme::applyColorScheme()
 {
+    bool dark;
+
+    // Forçage explicite (captures d'écran, débogage) : COLO_THEME=dark|light l'emporte
+    // sur la détection système.
+    const QByteArray forced = qgetenv("COLO_THEME");
+    if (forced == "dark") {
+        dark = true;
+    } else if (forced == "light") {
+        dark = false;
+    } else {
 #if COLO_HAS_COLOR_SCHEME
-    auto *hints = QGuiApplication::styleHints();
-    // Système sans préférence exprimée (Qt::ColorScheme::Unknown) : on garde le sombre,
-    // qui est l'identité visuelle d'origine de l'app.
-    const bool dark = !hints || hints->colorScheme() != Qt::ColorScheme::Light;
+        auto *hints = QGuiApplication::styleHints();
+        // Système sans préférence exprimée (Qt::ColorScheme::Unknown) : on garde le
+        // sombre, l'identité visuelle d'origine de l'app.
+        dark = !hints || hints->colorScheme() != Qt::ColorScheme::Light;
 #else
-    const QColor window = QGuiApplication::palette().color(QPalette::Window);
-    const bool dark = window.lightness() < 128;
+        const QColor window = QGuiApplication::palette().color(QPalette::Window);
+        dark = window.lightness() < 128;
 #endif
+    }
 
     if (dark == m_dark)
         return;
