@@ -25,8 +25,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build cmake \
             libsodium-dev \
-            libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            libxkbcommon-dev libxkbcommon-x11-0 \
             libfontconfig1 libfreetype6 wget file
+          # libxkbcommon-x11 : dépendance du plugin de plateforme xcb, que linuxdeploy
+          # embarque — sans elle, l'empaquetage échoue (dépendance introuvable).
 
       # La libsecp256k1 d'Ubuntu 22.04 est trop ancienne (secp256k1_schnorrsig_sign32
       # absent). On garde 22.04 pour un AppImage compatible avec un large éventail de
