@@ -248,6 +248,9 @@ bool AppController::init() {
     // Sans cette connexion, l'app modifie sa base et ne synchronise jamais rien.
     connect(&m_itemModel, &ItemModel::localChanged,
             this,         &AppController::onLocalItemChange);
+    // Un ajout manuel enrichit les favoris fréquents : rafraîchir la barre de suggestions.
+    connect(&m_itemModel, &ItemModel::itemAdded,
+            this,         &AppController::favoritesChanged);
 
     // --- Connect and subscribe ---
     m_relayPool.connectAll();
@@ -703,6 +706,31 @@ QVariantList AppController::groups() {
         out.append(m);
     }
     return out;
+}
+
+QVariantList AppController::favorites() {
+    QVariantList out;
+    if (!m_db.isOpen()) return out;
+    // Une douzaine suffit pour une barre qui se parcourt d'un pouce.
+    for (const auto &f : m_db.getFavorites(12)) {
+        QVariantMap m;
+        m.insert(QStringLiteral("name"),   QString::fromStdString(f.name));
+        m.insert(QStringLiteral("qty"),    QString::fromStdString(f.qty));
+        m.insert(QStringLiteral("aisle"),  QString::fromStdString(f.aisle));
+        m.insert(QStringLiteral("pinned"), f.pinned);
+        out.append(m);
+    }
+    return out;
+}
+
+void AppController::pinFavorite(const QString &name, bool pinned) {
+    if (m_db.setFavoritePinned(name.toStdString(), pinned))
+        emit favoritesChanged();
+}
+
+void AppController::removeFavorite(const QString &name) {
+    if (m_db.removeFavorite(name.toStdString()))
+        emit favoritesChanged();
 }
 
 void AppController::leaveList(const QString &listId) {

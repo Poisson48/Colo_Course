@@ -145,6 +145,22 @@ Item {
         }
     }
 
+    // Gestion d'une suggestion de favori (appui long sur une pastille).
+    Menu {
+        id: favMenu
+        property string favName: ""
+        property bool   pinned: false
+
+        MenuItem {
+            text: favMenu.pinned ? "Ne plus épingler" : "Épingler en tête"
+            onTriggered: AppController.pinFavorite(favMenu.favName, !favMenu.pinned)
+        }
+        MenuItem {
+            text: "Retirer des suggestions"
+            onTriggered: AppController.removeFavorite(favMenu.favName)
+        }
+    }
+
     Menu {
         id: pageMenu
 
@@ -586,6 +602,78 @@ Item {
             Item { Layout.fillHeight: true }
         }
 
+        // Favoris : articles fréquents, à ajouter d'un tap. Appris à l'usage (le C++
+        // les classe par fréquence), masqués tant qu'il n'y en a pas — donc invisibles
+        // pour un nouvel utilisateur, puis de plus en plus utiles.
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: favBar.visibleBar ? 46 : 0
+            visible: implicitHeight > 0
+            clip: true
+            color: Theme.surface
+            Behavior on implicitHeight { NumberAnimation { duration: 120 } }
+
+            property alias visibleBar: favBar.visibleBar
+
+            Rectangle { width: parent.width; height: 1; color: Theme.outline }
+
+            ListView {
+                id: favBar
+                anchors.fill: parent
+                anchors.leftMargin: Theme.gap
+                anchors.rightMargin: Theme.gap
+                orientation: ListView.Horizontal
+                spacing: 8
+                clip: true
+                model: AppController.favorites
+
+                readonly property bool visibleBar: count > 0 && !root.selectionMode
+                                                   && !root.shoppingMode && !root.searchOpen
+
+                delegate: Rectangle {
+                    required property var modelData
+                    height: 34
+                    anchors.verticalCenter: parent ? parent.verticalCenter : undefined
+                    width: favLabel.implicitWidth + 34
+                    radius: 17
+                    color: chipMouse.pressed ? Theme.accentSoft : Theme.surfaceHigh
+                    border.color: Theme.outline
+                    border.width: 1
+
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 4
+
+                        Label {
+                            text: "＋"
+                            color: Theme.accent
+                            font.pixelSize: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        Label {
+                            id: favLabel
+                            text: modelData.name
+                            color: Theme.text
+                            font.pixelSize: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    MouseArea {
+                        id: chipMouse
+                        anchors.fill: parent
+                        onClicked: root.addFavorite(modelData)
+                        // Appui long : gérer la suggestion (épingler / retirer).
+                        onPressAndHold: {
+                            favMenu.favName = modelData.name
+                            favMenu.pinned = modelData.pinned === true
+                            favMenu.popup()
+                        }
+                    }
+                }
+            }
+        }
+
         // Barre d'ajout : collée en bas, au-dessus du clavier (adjustResize).
         // Masquée en sélection (on supprime, on n'ajoute pas) et en mode Courses
         // (le clavier n'a rien à faire là, et la liste doit rester entièrement visible).
@@ -768,6 +856,17 @@ Item {
         // Le rayon, lui, ne se réinitialise pas : on remplit une liste rayon par rayon
         // (« trois trucs de crèmerie »), le reproposer à chaque ajout serait pénible.
         nameField.forceActiveFocus()
+    }
+
+    // Ajout depuis un favori : la quantité et le rayon mémorisés font gagner la saisie.
+    // Déjà présent dans la liste ? On le dit sans rien ajouter (pas de doublon silencieux).
+    function addFavorite(fav) {
+        const existing = AppController.items.existingName(fav.name)
+        if (existing.length > 0) {
+            AppController.toast("« " + existing + " » est déjà dans la liste")
+            return
+        }
+        AppController.items.addItem(fav.name, fav.qty, "", fav.aisle)
     }
 
     // Date courte, pour la coller au bout d'une ligne sans l'encombrer : « 14:20 »

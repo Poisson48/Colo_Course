@@ -76,6 +76,9 @@ class AppController : public QObject {
     // tout le monde a reçu. Sans ça, rien ne dit à l'utilisateur si ses ajouts sont
     // partis, et il n'a aucun moyen de le savoir avant de croiser l'autre personne.
     Q_PROPERTY(int pendingChanges READ pendingChanges NOTIFY pendingChangesChanged)
+    // Articles fréquents, appris à l'usage : proposés en un tap sous la barre d'ajout.
+    // [{ name, qty, aisle, pinned }, …], les plus utiles d'abord.
+    Q_PROPERTY(QVariantList favorites READ favorites NOTIFY favoritesChanged)
     // Nom affiché aux autres participants ("3 articles ajoutés par Marie").
     Q_PROPERTY(QString displayName READ displayName WRITE setDisplayName NOTIFY displayNameChanged)
     // false tant que l'utilisateur n'a pas choisi son nom : l'écran d'accueil le
@@ -129,6 +132,12 @@ public slots:
     // Groupes existants, pour le menu « Ranger dans… » : [{ id, name }, …].
     QVariantList groups();
 
+    // --- Favoris (articles fréquents) ---
+    QVariantList favorites();
+    // Épingler un favori en tête (ou le désépingler), ou le retirer des suggestions.
+    void pinFavorite(const QString &name, bool pinned);
+    void removeFavorite(const QString &name);
+
     // --- Export / import (CSV, et ZIP pour tout d'un coup) ---
     // CSV d'une liste, en texte : pour le partage direct et le presse-papiers.
     QString listCsv(const QString &listId);
@@ -163,6 +172,7 @@ public slots:
 signals:
     void onlineChanged();
     void pendingChangesChanged();
+    void favoritesChanged();
     void displayNameChanged();
     // Emitted when QML should push the item page.
     void listOpened(const QString &listId, const QString &title);

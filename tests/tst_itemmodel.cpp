@@ -678,6 +678,39 @@ private slots:
         QCOMPARE(maisonCopies, 2);   // l'originale + celle issue du ZIP
     }
 
+    // Un ajout manuel enrichit les favoris ; un article recréé par un merge distant, non.
+    void test_addItem_recordsFavorite() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+
+        QSignalSpy addedSpy(&model, &ItemModel::itemAdded);
+        model.addItem("Lait", "1 L", "", "Crèmerie");
+        QCOMPARE(addedSpy.count(), 1);
+
+        auto favs = db.getFavorites(10);
+        QCOMPARE(favs.size(), size_t(1));
+        QCOMPARE(favs[0].name,  std::string("Lait"));
+        QCOMPARE(favs[0].qty,   std::string("1 L"));
+        QCOMPARE(favs[0].aisle, std::string("Crèmerie"));
+
+        // Rajouter le même nom incrémente le favori (habitude renforcée).
+        model.addItem("Lait", "", "", "");
+        QCOMPARE(db.getFavorites(10).front().uses, int64_t(2));
+
+        // Un article venu d'un merge distant (upsert direct) ne touche pas les favoris.
+        Item remote; remote.listId = listId; remote.itemId = "remote-1";
+        remote.created = 9000; remote.name = "Saumon"; remote.nameVer = {5, "dev-B"};
+        QVERIFY(db.upsertItem(remote));
+        for (const auto &f : db.getFavorites(10))
+            QVERIFY(f.name != "Saumon");
+    }
+
     // ListsModel : groupes (sections triées) et « partagée avec » (membres, soi exclu).
     void test_listsModel_groupsAndMembers() {
         QTemporaryDir dir;

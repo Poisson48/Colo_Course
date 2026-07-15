@@ -411,6 +411,47 @@ private slots:
         QVERIFY(db.getItems("list-A").empty());
     }
 
+    // Favoris : appris à l'usage, classés par fréquence, épinglables, insensibles à la casse.
+    void test_favorites() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(db.open(dir.filePath("f.db")));
+
+        // « Lait » ajouté trois fois (dont deux avec quantité), « Pain » une fois.
+        QVERIFY(db.recordFavoriteUse("Lait", "",    "",         1000));
+        QVERIFY(db.recordFavoriteUse("lait", "1 L", "Crèmerie", 2000)); // même favori (casse)
+        QVERIFY(db.recordFavoriteUse("Lait", "",    "",         3000)); // qty vide → on garde "1 L"
+        QVERIFY(db.recordFavoriteUse("Pain", "",    "",         4000));
+
+        auto favs = db.getFavorites(10);
+        QCOMPARE(favs.size(), size_t(2));           // Lait fusionné, pas dédoublé
+
+        // Lait en tête (3 usages > 1), avec la dernière quantité/rayon non vides retenus.
+        QCOMPARE(favs[0].name,  std::string("Lait"));
+        QCOMPARE(favs[0].uses,  int64_t(3));
+        QCOMPARE(favs[0].qty,   std::string("1 L"));
+        QCOMPARE(favs[0].aisle, std::string("Crèmerie"));
+        QCOMPARE(favs[1].name,  std::string("Pain"));
+
+        // Épingler « Pain » le fait passer devant, malgré moins d'usages.
+        QVERIFY(db.setFavoritePinned("Pain", true));
+        favs = db.getFavorites(10);
+        QCOMPARE(favs[0].name,   std::string("Pain"));
+        QVERIFY(favs[0].pinned);
+
+        // Retirer un favori le fait disparaître des suggestions.
+        QVERIFY(db.removeFavorite("Lait"));
+        favs = db.getFavorites(10);
+        QCOMPARE(favs.size(), size_t(1));
+        QCOMPARE(favs[0].name, std::string("Pain"));
+
+        // La limite est respectée.
+        for (int i = 0; i < 20; ++i)
+            db.recordFavoriteUse(QStringLiteral("Article %1").arg(i).toStdString(), "", "", 5000 + i);
+        QCOMPARE(db.getFavorites(5).size(), size_t(5));
+    }
+
     // Groupes locaux : ranger des listes, renommer, supprimer sans perdre les listes.
     void test_groups() {
         QTemporaryDir dir;

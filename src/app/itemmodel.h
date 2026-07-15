@@ -106,6 +106,9 @@ signals:
     void doneCountChanged();
     void filterChanged();
     void aisleNamesChanged();
+    // Un article a été ajouté par l'utilisateur (pas un merge ni un import) : les
+    // favoris fréquents ont changé.
+    void itemAdded();
     // Emitted after any local write (addItem, toggleDone, removeItem, editItem).
     void localChanged(const std::string& listId);
 

@@ -54,6 +54,18 @@ public:
     bool deleteGroup(const std::string& groupId);
     std::vector<Group> getGroups();
 
+    // --- Favoris (local : articles fréquents, appris à l'usage) ---
+    struct Favorite { std::string name; std::string qty; std::string aisle;
+                      int64_t uses = 0; bool pinned = false; };
+    // Enregistre l'ajout d'un article : crée le favori ou incrémente son compteur, et
+    // mémorise sa dernière quantité / son dernier rayon non vides comme valeurs par défaut.
+    bool recordFavoriteUse(const std::string& name, const std::string& qty,
+                           const std::string& aisle, int64_t nowMs);
+    // Favoris les plus utiles d'abord (épinglés, puis fréquence, puis récence).
+    std::vector<Favorite> getFavorites(int limit);
+    bool setFavoritePinned(const std::string& name, bool pinned);
+    bool removeFavorite(const std::string& name);
+
     // --- Items ---
     // Insert or update an item. Transactional (updates lamport if needed).
     bool upsertItem(const core::Item& item);

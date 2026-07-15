@@ -138,6 +138,10 @@ private slots:
             db.upsertItem(it);
             ++i;
         }
+        // Quelques favoris fréquents pour la barre de suggestions.
+        for (const char *fav : { "Bananes", "Café", "Beurre", "Pâtes" })
+            db.recordFavoriteUse(fav, "", "", now);
+
         qobject_cast<app::ListsModel *>(m_ctrl.lists())->reload(db, "dev-A");
         m_ctrl.items()->load(db, "l-courses", "dev-A");
 
@@ -348,6 +352,43 @@ private slots:
         QVERIFY2(options.contains(QStringLiteral("Crèmerie")),
                  qPrintable("rayons proposés : " + options.join(QStringLiteral(" | "))));
         QVERIFY(options.contains(QStringLiteral("Sans rayon")));
+
+        delete window;
+    }
+
+    // Les articles ajoutés deviennent des pastilles de favoris, cliquables sous la
+    // barre d'ajout. On vérifie qu'elles s'affichent réellement.
+    void test_favoritesBar() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        store::Database &db = m_ctrl.db();
+        if (!db.isOpen())
+            QVERIFY(db.open(dir.filePath("fav.db")));
+
+        core::ListMeta m; m.listId = "l-fav"; m.key = std::vector<uint8_t>(32, 7);
+        m.title = "Courses"; m.titleVer = {1,"dev-A"}; m.lamport = 1; m.created = 100;
+        db.createList(m);
+
+        // Ajouts manuels via le modèle exposé à QML → alimentent les favoris.
+        app::ItemModel *model = m_ctrl.items();
+        model->load(db, "l-fav", "dev-A");
+        model->addItem("Bananes", "", "", "");
+        model->addItem("Café", "250 g", "", "Épicerie salée");
+        QVERIFY(m_ctrl.favorites().size() >= 2);
+
+        QObject *window = load(QStringLiteral("Main.qml"));
+        QVERIFY(window);
+        QMetaObject::invokeMethod(&m_ctrl, "listOpened",
+                                  Q_ARG(QString, "l-fav"), Q_ARG(QString, "Courses"));
+        QTest::qWait(200);
+
+        auto *win = qobject_cast<QQuickWindow *>(window);
+        QVERIFY(win);
+        const QStringList shown = visibleTexts(win->contentItem());
+        // Les noms des favoris apparaissent en pastilles.
+        QVERIFY2(shown.contains(QStringLiteral("Bananes")),
+                 qPrintable("textes : " + shown.join(QStringLiteral(" | "))));
+        QVERIFY(shown.contains(QStringLiteral("Café")));
 
         delete window;
     }

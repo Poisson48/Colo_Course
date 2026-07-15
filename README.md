@@ -47,6 +47,7 @@ le QR code (ou le lien) aux autres — les modifications s'y synchronisent en di
 - **Hors ligne d'abord** : les modifications s'ajoutent immédiatement localement dans une file d'attente. Au retour du réseau, la sync reprend automatiquement, et l'app **confirme** quand tout est parti.
 
 ### Au quotidien
+- **Favoris appris à l'usage** : les articles que vous ajoutez souvent réapparaissent en pastilles sous la barre d'ajout, à remettre d'un tap (avec leur quantité et rayon habituels).
 - **Rayons** : rangez les articles par rayon (crèmerie, surgelés…, ou vos propres rayons). La liste se regroupe en sections dans l'ordre d'un parcours de magasin. Réordonnez à la main en glissant.
 - **Mode Courses** : dans le magasin, toute la ligne devient une case à cocher, une barre suit le remplissage du panier, l'écran reste allumé et cocher fait vibrer.
 - **Description et quantité** par article, date d'ajout et de cochage, qui a ajouté quoi.

@@ -286,8 +286,14 @@ void ItemModel::addItem(const QString &name, const QString &qty,
 
     if (!m_db->upsertItem(item)) return;
 
+    // Apprendre l'habitude : cet article rejoint (ou renforce) les favoris fréquents.
+    // Seulement sur un ajout manuel — imports et duplications écrivent en base
+    // directement, sans passer par ici, donc sans polluer les favoris.
+    m_db->recordFavoriteUse(item.name, item.qty, item.aisle, ts);
+
     emit localChanged(m_listId);
     emit aisleNamesChanged();
+    emit itemAdded();
 
     // Insert into m_items (full set).
     m_items.push_back(item);

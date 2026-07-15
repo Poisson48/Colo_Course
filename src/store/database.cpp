@@ -129,6 +129,18 @@ bool Database::createSchema()
             "  key TEXT PRIMARY KEY,"
             "  value TEXT"
             ")"),
+        QStringLiteral(
+            // Favoris locaux : articles fréquemment ajoutés, appris à l'usage. Purement
+            // local (habitude propre à l'appareil), jamais synchronisé. La clé est le
+            // nom, insensible à la casse (« Lait » et « lait » = même favori).
+            "CREATE TABLE IF NOT EXISTS favorites ("
+            "  name TEXT PRIMARY KEY COLLATE NOCASE,"
+            "  qty TEXT,"
+            "  aisle TEXT,"
+            "  uses INT,"
+            "  last_used INT,"
+            "  pinned INT"
+            ")"),
     };
 
     for (const QString& stmt : ddl) {
@@ -358,6 +370,81 @@ std::vector<Database::Group> Database::getGroups()
                            ss(q.value(1).toString()),
                            q.value(2).toLongLong() });
     return result;
+}
+
+// --- Favorites ---
+
+bool Database::recordFavoriteUse(const std::string& name, const std::string& qty,
+                                 const std::string& aisle, int64_t nowMs)
+{
+    if (name.empty()) return false;
+
+    QSqlQuery q(m_db);
+    // Compteur incrémenté ; on garde la DERNIÈRE quantité / le dernier rayon non vides
+    // comme valeurs par défaut à la prochaine ré-utilisation.
+    q.prepare(QStringLiteral(
+        "INSERT INTO favorites (name, qty, aisle, uses, last_used, pinned)"
+        " VALUES (?, ?, ?, 1, ?, 0)"
+        " ON CONFLICT(name) DO UPDATE SET"
+        "  uses = uses + 1,"
+        "  last_used = excluded.last_used,"
+        "  qty   = CASE WHEN excluded.qty   <> '' THEN excluded.qty   ELSE favorites.qty   END,"
+        "  aisle = CASE WHEN excluded.aisle <> '' THEN excluded.aisle ELSE favorites.aisle END"));
+    q.addBindValue(qs(name));
+    q.addBindValue(qs(qty));
+    q.addBindValue(qs(aisle));
+    q.addBindValue(ll(nowMs));
+    if (!q.exec()) {
+        qWarning() << "recordFavoriteUse error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+std::vector<Database::Favorite> Database::getFavorites(int limit)
+{
+    std::vector<Favorite> result;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "SELECT name, qty, aisle, uses, pinned FROM favorites"
+        " ORDER BY pinned DESC, uses DESC, last_used DESC LIMIT ?"));
+    q.addBindValue(limit);
+    if (!q.exec()) {
+        qWarning() << "getFavorites error:" << q.lastError().text();
+        return result;
+    }
+    while (q.next())
+        result.push_back({ ss(q.value(0).toString()),
+                           ss(q.value(1).toString()),
+                           ss(q.value(2).toString()),
+                           q.value(3).toLongLong(),
+                           q.value(4).toInt() != 0 });
+    return result;
+}
+
+bool Database::setFavoritePinned(const std::string& name, bool pinned)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE favorites SET pinned = ? WHERE name = ?"));
+    q.addBindValue(pinned ? 1 : 0);
+    q.addBindValue(qs(name));
+    if (!q.exec()) {
+        qWarning() << "setFavoritePinned error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool Database::removeFavorite(const std::string& name)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("DELETE FROM favorites WHERE name = ?"));
+    q.addBindValue(qs(name));
+    if (!q.exec()) {
+        qWarning() << "removeFavorite error:" << q.lastError().text();
+        return false;
+    }
+    return true;
 }
 
 std::optional<core::ListMeta> Database::getList(const std::string& listId)
