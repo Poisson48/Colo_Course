@@ -31,3 +31,7 @@ jobs:
     # Signé avec la clé de publication si elle est configurée : un APK de CI s'installe
     # alors par-dessus une release, sans désinstaller.
     secrets: inherit
+
+  # AppImage Linux, récupérable dans les artefacts du run.
+  desktop:
+    uses: ./.github/workflows/desktop.yml

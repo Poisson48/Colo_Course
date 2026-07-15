@@ -38,8 +38,14 @@ jobs:
       require_release_key: true
     secrets: inherit
 
+  appimage:
+    needs: version
+    uses: ./.github/workflows/desktop.yml
+    with:
+      version_name: ${{ needs.version.outputs.name }}
+
   publish:
-    needs: [version, apk]
+    needs: [version, apk, appimage]
     runs-on: ubuntu-latest
     steps:
       # Le message du tag EST le changelog : l'app l'affiche avant d'installer
@@ -61,9 +67,11 @@ jobs:
             echo "COLO_EOF"
           } >> "$GITHUB_ENV"
 
+      # Les deux artefacts (APK Android, AppImage Linux) réunis dans le dossier courant.
       - uses: actions/download-artifact@v4
         with:
-          name: colocourse-arm64-apk
+          pattern: colocourse-*
+          merge-multiple: true
 
       - name: Renommer l'APK avec la version
         run: mv colocourse-arm64.apk "colocourse-${GITHUB_REF_NAME}-arm64.apk"
@@ -75,6 +83,8 @@ jobs:
         # `release create` échouerait sur « tag already exists ».
         run: |
           APK="colocourse-${GITHUB_REF_NAME}-arm64.apk"
+          APPIMAGE="$(ls ColoCourse-*-x86_64.AppImage 2>/dev/null | head -1)"
+          [ -n "$APPIMAGE" ] || { echo "AppImage introuvable" >&2; exit 1; }
 
           # Corps de la release : les nouveautés d'abord — c'est CETTE partie que l'app
           # affiche avant d'installer — puis une ligne « --- », puis ce qui n'a de sens
@@ -83,29 +93,31 @@ jobs:
             printf '%s\n\n' "$NOTES"
             printf -- '---\n\n'
             cat <<'EOF'
-          ## Installation (Android, arm64)
+          ## Installation
 
-          Téléchargez l'APK ci-dessous, puis autorisez l'installation depuis cette source.
-          En ligne de commande : `adb install -r colocourse-*-arm64.apk`
+          **PC / Linux (x86-64)** — l'AppImage `ColoCourse-*-x86_64.AppImage` :
+          `chmod +x ColoCourse-*.AppImage && ./ColoCourse-*.AppImage`. Autonome, rien à installer.
 
-          APK signé avec la clé de publication du projet : les versions suivantes
-          s'installent **par-dessus**, sans désinstaller ni perdre vos listes.
+          **Android (arm64)** — l'APK `colocourse-*-arm64.apk` : ouvrez-le sur le téléphone
+          (autorisez l'installation depuis cette source), ou `adb install -r colocourse-*-arm64.apk`.
+          Signé avec la clé de publication du projet : les versions suivantes s'installent
+          **par-dessus**, sans désinstaller ni perdre vos listes — et l'app vous les proposera.
 
-          *Venant d'une version antérieure à la v0.3.0 ? Ces APK-là portaient une
+          *Venant d'une version Android antérieure à la v0.3.0 ? Ces APK-là portaient une
           signature qui changeait à chaque build : une dernière désinstallation est
           nécessaire avant d'installer celui-ci.*
 
-          **Limite connue (v1)** : app fermée = pas de réception. Les changements sont
-          récupérés à l'ouverture ou au retour au premier plan.
+          **Limite connue** : app fermée = pas de réception. Les changements sont récupérés
+          à l'ouverture ou au retour au premier plan.
           EOF
           } > notes.md
 
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$APK" \
+            gh release upload "$GITHUB_REF_NAME" "$APK" "$APPIMAGE" \
               --repo "$GITHUB_REPOSITORY" --clobber
             exit 0
           fi
-          gh release create "$GITHUB_REF_NAME" "$APK" \
+          gh release create "$GITHUB_REF_NAME" "$APK" "$APPIMAGE" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Colo Course $GITHUB_REF_NAME" \
             --notes-file notes.md

@@ -13,6 +13,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTemporaryDir>
+#include <QDateTime>
 
 #include "app/appcontroller.h"
 #include "app/itemmodel.h"
@@ -81,6 +82,91 @@ private slots:
         m_engine->rootContext()->setContextProperty(QStringLiteral("AppController"), &m_ctrl);
         m_engine->rootContext()->setContextProperty(QStringLiteral("Theme"), &m_theme);
         m_engine->rootContext()->setContextProperty(QStringLiteral("Updater"), &m_updater);
+    }
+
+    // Captures d'écran pour le README. Ne tourne que si COLO_SHOT_DIR est défini
+    // (sinon on n'impose pas un serveur graphique à la CI de tests). À lancer avec :
+    //   QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+    //   COLO_SHOT_DIR=docs/screenshots ./tst_qml
+    void screenshots() {
+        const QString outDir = qEnvironmentVariable("COLO_SHOT_DIR");
+        if (outDir.isEmpty())
+            QSKIP("COLO_SHOT_DIR non défini");
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        store::Database &db = m_ctrl.db();
+        QVERIFY(db.open(dir.filePath("shots.db")));
+
+        // Nom défini (pas de dialogue au démarrage) et en ligne (pas de bandeau).
+        m_ctrl.setDisplayName("Alex");
+        QMetaObject::invokeMethod(&m_ctrl, "onSyncOnlineChanged", Q_ARG(bool, true));
+
+        // Deux listes : une rangée dans « Maison » et partagée, une non rangée.
+        core::ListMeta a; a.listId = "l-courses"; a.key = std::vector<uint8_t>(32, 2);
+        a.title = "Courses de la semaine"; a.titleVer = {1,"dev-A"}; a.lamport = 1; a.created = 100;
+        db.createList(a);
+        core::ListMeta b; b.listId = "l-bricolage"; b.key = std::vector<uint8_t>(32, 3);
+        b.title = "Bricolage"; b.titleVer = {1,"dev-A"}; b.lamport = 1; b.created = 200;
+        db.createList(b);
+        db.createGroup("g-maison", "Maison", 1000);
+        db.setListGroup("l-courses", "g-maison");
+        db.upsertMember("l-courses", "dev-B", "Marie", {1,"dev-B"});
+        db.upsertMember("l-courses", "dev-C", "Léo",   {1,"dev-C"});
+
+        // Articles de « Courses », répartis en rayons, un déjà pris.
+        struct Seed { const char *name, *qty, *note, *aisle; bool done; };
+        const Seed seeds[] = {
+            { "Pommes",  "1 kg",   "",              "Fruits & légumes", false },
+            { "Salade",  "",       "",              "Fruits & légumes", false },
+            { "Lait",    "2 L",    "demi-écrémé",   "Crèmerie",         false },
+            { "Yaourts", "x8",     "",              "Crèmerie",         true  },
+            { "Papier toilette", "2", "6 couches",  "Hygiène",          false },
+        };
+        // Horodatages récents pour que les dates affichées se lisent naturellement
+        // (l'heure du jour, « hier »…) plutôt que « 1 Jan » (époque 1970).
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        int i = 0;
+        for (const auto &s : seeds) {
+            core::Item it; it.listId = "l-courses";
+            it.itemId = QString("it-%1").arg(i).toStdString();
+            it.created = now - (5 - i) * 60000; it.order = 1000 + i; it.by = "dev-A";
+            it.name = s.name; it.qty = s.qty; it.note = s.note; it.aisle = s.aisle;
+            it.done = s.done; it.doneAt = s.done ? now - 86400000 : 0;
+            const core::Ver v{1, "dev-A"};
+            it.nameVer = it.qtyVer = it.noteVer = it.aisleVer = it.orderVer = it.doneVer = it.delVer = v;
+            db.upsertItem(it);
+            ++i;
+        }
+        qobject_cast<app::ListsModel *>(m_ctrl.lists())->reload(db, "dev-A");
+        m_ctrl.items()->load(db, "l-courses", "dev-A");
+
+        QObject *window = load(QStringLiteral("Main.qml"));
+        QVERIFY(window);
+        auto *win = qobject_cast<QQuickWindow *>(window);
+        QVERIFY(win);
+        QTest::qWait(250);
+        win->grabWindow().save(outDir + "/lists.png");
+
+        // Ouvrir « Courses » : l'écran des articles, avec ses rayons.
+        QMetaObject::invokeMethod(&m_ctrl, "listOpened",
+                                  Q_ARG(QString, "l-courses"),
+                                  Q_ARG(QString, "Courses de la semaine"));
+        QTest::qWait(250);
+        win->grabWindow().save(outDir + "/list.png");
+
+        // Mode Courses (barre de progression, lignes cochables) : on active le
+        // shoppingMode du ListPage, seul objet à exposer cette propriété.
+        for (QObject *o : window->findChildren<QObject *>()) {
+            if (o->property("shoppingMode").isValid()) {
+                o->setProperty("shoppingMode", true);
+                QTest::qWait(250);
+                win->grabWindow().save(outDir + "/shopping.png");
+                break;
+            }
+        }
+
+        delete window;
     }
 
     // La comparaison de versions décide si l'app propose une mise à jour : une erreur
