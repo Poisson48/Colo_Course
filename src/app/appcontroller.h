@@ -132,6 +132,10 @@ public slots:
     // Groupes existants, pour le menu « Ranger dans… » : [{ id, name }, …].
     QVariantList groups();
 
+    // Rayon suggéré pour un nom d'article (d'après les articles déjà classés), "" si
+    // inconnu. Sert UNIQUEMENT à pré-remplir le sélecteur : rien n'est assigné en douce.
+    QString suggestAisle(const QString &name);
+
     // --- Favoris (articles fréquents) ---
     QVariantList favorites();
     // Épingler un favori en tête (ou le désépingler), ou le retirer des suggestions.

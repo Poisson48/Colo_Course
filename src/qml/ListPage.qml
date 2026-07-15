@@ -22,6 +22,11 @@ Item {
     // que l'affichage, il ne supprime ni ne désynchronise rien.
     property bool searchOpen: false
 
+    // Mode Réorganiser : les poignées de glissement apparaissent, le tap et le swipe
+    // sont mis en pause. On y entre par le menu, on en sort par « Terminer ». Garder
+    // la poignée hors du repos, c'est ce qui allège la ligne au quotidien.
+    property bool reorderMode: false
+
     readonly property string pageTitle: selectionMode
         ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
         : listTitle
@@ -48,6 +53,10 @@ Item {
         }
         if (searchOpen) {
             closeSearch()
+            return true
+        }
+        if (reorderMode) {
+            reorderMode = false
             return true
         }
         if (shoppingMode) {
@@ -99,11 +108,11 @@ Item {
             onClicked: deleteDialog.openFor(root.selectedIds)
         }
 
-        // En mode Courses, une seule sortie possible, bien visible.
+        // En mode Courses ou Réorganiser, une seule sortie possible, bien visible.
         ToolButton {
             width: 92
             height: Theme.touchTarget
-            visible: root.shoppingMode && !root.selectionMode
+            visible: (root.shoppingMode || root.reorderMode) && !root.selectionMode
             contentItem: Label {
                 text: "Terminer"
                 color: Theme.accent
@@ -112,7 +121,7 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
             }
-            onClicked: root.shoppingMode = false
+            onClicked: { root.shoppingMode = false; root.reorderMode = false }
         }
 
         // Le mode du magasin est celui qu'on ouvre le plus souvent : il mérite un
@@ -120,7 +129,7 @@ Item {
         ToolButton {
             width: 90
             height: Theme.touchTarget
-            visible: !root.selectionMode && !root.shoppingMode
+            visible: !root.selectionMode && !root.shoppingMode && !root.reorderMode
             contentItem: Label {
                 text: "Courses"
                 color: Theme.accent
@@ -135,7 +144,7 @@ Item {
         ToolButton {
             width: Theme.touchTarget
             height: Theme.touchTarget
-            visible: !root.selectionMode && !root.shoppingMode
+            visible: !root.selectionMode && !root.shoppingMode && !root.reorderMode
             contentItem: Icon {
                 name: "menu"
                 color: Theme.text
@@ -180,6 +189,11 @@ Item {
             enabled: AppController.items.doneCount > 0
             onTriggered: clearDoneDialog.open()
         }
+        MenuItem {
+            text: "Réorganiser les articles"
+            enabled: AppController.items.count > 1
+            onTriggered: root.reorderMode = true
+        }
         MenuSeparator {}
         MenuItem {
             text: "Partager la liste"
@@ -200,6 +214,27 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+
+        // Mode Réorganiser : un rappel discret de ce qu'on fait.
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.reorderMode ? 34 : 0
+            visible: Layout.preferredHeight > 0
+            clip: true
+            color: Theme.surfaceHigh
+            Behavior on Layout.preferredHeight { NumberAnimation { duration: 140 } }
+
+            Label {
+                anchors.centerIn: parent
+                text: "Glissez les articles par la poignée pour les réordonner"
+                color: Theme.textDim
+                font.pixelSize: 12
+            }
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width; height: 1; color: Theme.outline
+            }
+        }
 
         // Mode Courses : où en est le caddie, sans avoir à compter les lignes.
         Rectangle {
@@ -397,10 +432,10 @@ Item {
                     ParentChange { target: row; parent: items }
                 }
 
-                // Le swipe supprime : en sélection il entrerait en conflit avec le
-                // geste de sélection, et en mode Courses on ne supprime rien du tout —
-                // un geste de travers dans le magasin effacerait l'article des autres.
-                swipe.enabled: !root.selectionMode && !root.shoppingMode
+                // Le swipe supprime : désactivé en sélection (conflit avec le geste), en
+                // mode Courses (un geste de travers effacerait l'article des autres) et
+                // en réorganisation (le glissement sert à déplacer).
+                swipe.enabled: !root.selectionMode && !root.shoppingMode && !root.reorderMode
 
                 background: Rectangle {
                     radius: 12
@@ -418,6 +453,8 @@ Item {
                         Layout.alignment: Qt.AlignVCenter
                         implicitWidth: Theme.touchTarget
                         implicitHeight: Theme.touchTarget
+                        // Inerte en réorganisation : on ne fait que déplacer.
+                        enabled: !root.reorderMode
                         // En mode sélection, la case coche la ligne ; sinon elle
                         // marque l'article comme acheté.
                         checked: root.selectionMode ? row.selected : model.done
@@ -465,43 +502,17 @@ Item {
                         }
                     }
 
-                    // Quand l'article a été ajouté, ou coché s'il l'est : l'info était
-                    // enterrée dans le dialogue d'édition, elle se lit ici.
-                    Label {
-                        Layout.rightMargin: root.shoppingMode || root.selectionMode ? 14 : 0
-                        Layout.alignment: Qt.AlignVCenter
-                        text: model.done ? root.formatShort(model.doneAt)
-                                         : root.formatShort(model.created)
-                        color: Theme.textDim
-                        font.pixelSize: 11
-                        horizontalAlignment: Text.AlignRight
-                    }
-
-                    // Repli tactile pour qui ne devine pas le swipe. Absent en mode
-                    // Courses : rien ne doit pouvoir être supprimé d'un doigt distrait.
-                    ToolButton {
-                        Layout.alignment: Qt.AlignVCenter
-                        visible: !root.selectionMode && !root.shoppingMode
-                        width: Theme.touchTarget
-                        height: Theme.touchTarget
-                        contentItem: Icon {
-                            name: "close"
-                            color: Theme.textDim
-                            size: 14
-                        }
-                        onClicked: deleteDialog.openFor([model.itemId], model.name)
-                    }
-
-                    // Poignée de déplacement. Un geste dédié, et pas l'appui long, qui
-                    // sert déjà à la sélection multiple. Absente en mode Courses : dans
-                    // un rayon, on coche, on ne réorganise pas.
+                    // Poignée de déplacement, seulement en mode « Réorganiser » : au repos,
+                    // une ligne se limite à case + nom + quantité. La date de l'article et
+                    // sa suppression se trouvent en le touchant (dialogue), le glissement
+                    // le supprime aussi.
                     MouseArea {
                         id: dragHandle
                         Layout.rightMargin: 2
                         Layout.alignment: Qt.AlignVCenter
-                        Layout.preferredWidth: visible ? 30 : 0
+                        Layout.preferredWidth: visible ? 34 : 0
                         Layout.preferredHeight: Theme.touchTarget
-                        visible: !root.selectionMode && !root.shoppingMode
+                        visible: root.reorderMode
 
                         drag.target: visible ? row : undefined
                         drag.axis: Drag.YAxis
@@ -516,16 +527,19 @@ Item {
                     }
                 }
 
-                // Appui long : entrer en sélection multiple — sauf en mode Courses, où
-                // la seule action possible est de cocher.
+                // Appui long : entrer en sélection multiple — sauf en mode Courses (on
+                // ne fait que cocher) ou Réorganiser (on ne fait que glisser).
                 onPressAndHold: {
-                    if (!root.shoppingMode)
+                    if (!root.shoppingMode && !root.reorderMode)
                         root.toggleSelection(model.itemId)
                 }
                 // Mode Courses : toute la ligne est la case à cocher. Sinon, éditer —
-                // ou étendre la sélection si elle est déjà commencée.
+                // ou étendre la sélection si elle est déjà commencée. En réorganisation,
+                // le tap ne fait rien (on glisse par la poignée).
                 onClicked: {
-                    if (root.selectionMode) {
+                    if (root.reorderMode) {
+                        return
+                    } else if (root.selectionMode) {
                         root.toggleSelection(model.itemId)
                     } else if (root.shoppingMode) {
                         AppController.items.toggleDone(model.itemId)
@@ -708,6 +722,15 @@ Item {
                         Layout.fillWidth: true
                         hint: "Ajouter un article"
                         onAccepted: root.addItem()
+                        // Pré-remplir le rayon d'après les articles déjà classés (« pain »
+                        // → Boulangerie), tant que l'utilisateur n'a pas choisi lui-même.
+                        // Rien n'est assigné : ce n'est qu'une proposition dans le sélecteur.
+                        onTextChanged: {
+                            if (root.aisleManual)
+                                return
+                            const s = AppController.suggestAisle(text.trim())
+                            addAisleBox.aisle = s   // "" si inconnu → « Sans rayon »
+                        }
                     }
 
                     ColoTextField {
@@ -760,6 +783,8 @@ Item {
                         id: addAisleBox
                         objectName: "addAisleBox"
                         Layout.preferredWidth: 132
+                        // Un choix manuel fige le rayon : on cesse de le pré-remplir.
+                        onChosen: root.aisleManual = true
                     }
                 }
             }
@@ -827,6 +852,10 @@ Item {
                                       || addNoteField.activeFocus
                                       || nameField.text.length > 0
 
+    // L'utilisateur a-t-il choisi le rayon lui-même pour l'article en cours ? Si oui, on
+    // cesse de le pré-remplir d'après le nom. Réinitialisé à chaque nouvel article.
+    property bool aisleManual: false
+
     function addItem() {
         const name = nameField.text.trim()
         if (name.length === 0)
@@ -853,8 +882,11 @@ Item {
         nameField.text = ""
         qtyField.text = ""
         addNoteField.text = ""
-        // Le rayon, lui, ne se réinitialise pas : on remplit une liste rayon par rayon
-        // (« trois trucs de crèmerie »), le reproposer à chaque ajout serait pénible.
+        // On repart propre : le rayon du prochain article sera pré-rempli d'après son
+        // nom. Plus besoin de garder le rayon « collant » — la mémoire fait le travail
+        // (« lait », « beurre », « yaourt » retomberont d'eux-mêmes en crèmerie).
+        root.aisleManual = false
+        addAisleBox.aisle = ""
         nameField.forceActiveFocus()
     }
 
@@ -867,20 +899,6 @@ Item {
             return
         }
         AppController.items.addItem(fav.name, fav.qty, "", fav.aisle)
-    }
-
-    // Date courte, pour la coller au bout d'une ligne sans l'encombrer : « 14:20 »
-    // aujourd'hui, « hier », puis « 3 juil. ».
-    function formatShort(ms) {
-        if (!ms || ms <= 0)
-            return ""
-        const d = new Date(ms)
-        const now = new Date()
-        if (d.toDateString() === now.toDateString())
-            return Qt.formatDateTime(d, "HH:mm")
-        if (new Date(now.getTime() - 86400000).toDateString() === d.toDateString())
-            return "hier"
-        return Qt.formatDateTime(d, "d MMM")
     }
 
     // Une date lisible : « aujourd'hui à 18:32 », « hier à 09:05 », sinon « 3 juil. à 14:20 ».
@@ -972,6 +990,34 @@ Item {
                 if (editDialog.doneAtMs > 0)
                     lines.push("Coché " + root.formatStamp(editDialog.doneAtMs))
                 return lines.join("\n")
+            }
+        }
+
+        // Supprimer depuis le détail : le geste de glissement n'est pas le seul chemin
+        // (la croix par ligne a été retirée pour alléger l'affichage).
+        Button {
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            flat: true
+            implicitHeight: Theme.touchTarget
+            contentItem: Label {
+                text: "Supprimer l'article"
+                color: Theme.danger
+                font.pixelSize: 14
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 10
+                color: parent.pressed ? Theme.surfaceHigh : "transparent"
+                border.color: Theme.outline
+                border.width: 1
+            }
+            onClicked: {
+                const id = editDialog.itemId
+                const nm = editName.text.trim()
+                editDialog.close()
+                deleteDialog.openFor([id], nm)
             }
         }
 

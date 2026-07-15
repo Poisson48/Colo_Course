@@ -66,6 +66,13 @@ public:
     bool setFavoritePinned(const std::string& name, bool pinned);
     bool removeFavorite(const std::string& name);
 
+    // --- Mémoire des rayons (local : où retombe un article par son nom) ---
+    // Mémorise que les articles commençant par le premier mot de `name` vont dans
+    // `aisle`. Sans effet si le nom ou le rayon est vide.
+    bool recordAisleForName(const std::string& name, const std::string& aisle, int64_t nowMs);
+    // Rayon suggéré pour un nom (via son premier mot), ou "" si inconnu.
+    std::string suggestAisleForName(const std::string& name);
+
     // --- Items ---
     // Insert or update an item. Transactional (updates lamport if needed).
     bool upsertItem(const core::Item& item);

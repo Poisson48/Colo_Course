@@ -708,6 +708,11 @@ QVariantList AppController::groups() {
     return out;
 }
 
+QString AppController::suggestAisle(const QString &name) {
+    if (!m_db.isOpen()) return {};
+    return QString::fromStdString(m_db.suggestAisleForName(name.toStdString()));
+}
+
 QVariantList AppController::favorites() {
     QVariantList out;
     if (!m_db.isOpen()) return out;

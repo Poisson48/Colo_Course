@@ -48,7 +48,7 @@ le QR code (ou le lien) aux autres — les modifications s'y synchronisent en di
 
 ### Au quotidien
 - **Favoris appris à l'usage** : les articles que vous ajoutez souvent réapparaissent en pastilles sous la barre d'ajout, à remettre d'un tap (avec leur quantité et rayon habituels).
-- **Rayons** : rangez les articles par rayon (crèmerie, surgelés…, ou vos propres rayons). La liste se regroupe en sections dans l'ordre d'un parcours de magasin. Réordonnez à la main en glissant.
+- **Rayons** : rangez les articles par rayon (crèmerie, surgelés…, ou vos propres rayons). La liste se regroupe en sections dans l'ordre d'un parcours de magasin. Le rayon d'un nouvel article est **pré-rempli** d'après ceux déjà classés (« pain » → boulangerie) — proposé, jamais imposé. Réordonner via « Réorganiser les articles ».
 - **Mode Courses** : dans le magasin, toute la ligne devient une case à cocher, une barre suit le remplissage du panier, l'écran reste allumé et cocher fait vibrer.
 - **Description et quantité** par article, date d'ajout et de cochage, qui a ajouté quoi.
 - **Import / export** : une liste en CSV, ou toutes vos listes en ZIP ; réimport d'un CSV ou d'un ZIP.

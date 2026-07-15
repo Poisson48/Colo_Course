@@ -411,6 +411,39 @@ private slots:
         QVERIFY(db.getItems("list-A").empty());
     }
 
+    // Mémoire des rayons : un nom retombe dans le rayon d'un article similaire déjà classé.
+    void test_aisleMemory() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(db.open(dir.filePath("am.db")));
+
+        // Rien de connu au départ.
+        QVERIFY(db.suggestAisleForName("Pain").empty());
+
+        // « Pain » classé une fois en boulangerie.
+        QVERIFY(db.recordAisleForName("Pain", "Boulangerie", 1000));
+
+        // Toutes ces variantes partagent le premier mot « pain » → Boulangerie.
+        QCOMPARE(db.suggestAisleForName("pain"),         std::string("Boulangerie")); // casse
+        QCOMPARE(db.suggestAisleForName("PAIN"),         std::string("Boulangerie"));
+        QCOMPARE(db.suggestAisleForName("pain de mie"),  std::string("Boulangerie")); // suffixe
+        QCOMPARE(db.suggestAisleForName("Pain aux noix"),std::string("Boulangerie"));
+
+        // Un nom sans rapport reste inconnu.
+        QVERIFY(db.suggestAisleForName("Lait").empty());
+        // Le second mot ne suffit pas (on ne classe que par le premier).
+        QVERIFY(db.suggestAisleForName("brioche mie").empty());
+
+        // Reclasser met à jour : « pain » suit désormais l'épicerie.
+        QVERIFY(db.recordAisleForName("pain de mie", "Épicerie sucrée", 2000));
+        QCOMPARE(db.suggestAisleForName("Pain"), std::string("Épicerie sucrée"));
+
+        // Un rayon vide n'enseigne rien (pas d'oubli du classement précédent).
+        QVERIFY(!db.recordAisleForName("Pain", "", 3000));
+        QCOMPARE(db.suggestAisleForName("Pain"), std::string("Épicerie sucrée"));
+    }
+
     // Favoris : appris à l'usage, classés par fréquence, épinglables, insensibles à la casse.
     void test_favorites() {
         QTemporaryDir dir;

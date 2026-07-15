@@ -141,6 +141,15 @@ bool Database::createSchema()
             "  last_used INT,"
             "  pinned INT"
             ")"),
+        QStringLiteral(
+            // Mémoire des rayons : à quel rayon appartient un mot d'article. Clé = premier
+            // mot du nom, en minuscules (« pain », « PAIN », « pain de mie » → « pain »),
+            // pour qu'un nouvel article retombe dans le rayon déjà utilisé. Local.
+            "CREATE TABLE IF NOT EXISTS aisle_memory ("
+            "  word TEXT PRIMARY KEY,"
+            "  aisle TEXT,"
+            "  last_used INT"
+            ")"),
     };
 
     for (const QString& stmt : ddl) {
@@ -445,6 +454,52 @@ bool Database::removeFavorite(const std::string& name)
         return false;
     }
     return true;
+}
+
+// --- Aisle memory ---
+
+namespace {
+// Premier mot du nom, en minuscules (Unicode) : clé de la mémoire des rayons.
+// « pain aux noix » et « PAIN » partagent le mot « pain ».
+QString firstWordLower(const std::string& name)
+{
+    const QString s = QString::fromStdString(name).trimmed();
+    const int sp = s.indexOf(QLatin1Char(' '));
+    return (sp < 0 ? s : s.left(sp)).toLower();
+}
+} // namespace
+
+bool Database::recordAisleForName(const std::string& name, const std::string& aisle, int64_t nowMs)
+{
+    if (aisle.empty()) return false;
+    const QString word = firstWordLower(name);
+    if (word.isEmpty()) return false;
+
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "INSERT INTO aisle_memory (word, aisle, last_used) VALUES (?, ?, ?)"
+        " ON CONFLICT(word) DO UPDATE SET aisle = excluded.aisle, last_used = excluded.last_used"));
+    q.addBindValue(word);
+    q.addBindValue(qs(aisle));
+    q.addBindValue(ll(nowMs));
+    if (!q.exec()) {
+        qWarning() << "recordAisleForName error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+std::string Database::suggestAisleForName(const std::string& name)
+{
+    const QString word = firstWordLower(name);
+    if (word.isEmpty()) return {};
+
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT aisle FROM aisle_memory WHERE word = ?"));
+    q.addBindValue(word);
+    if (q.exec() && q.next())
+        return ss(q.value(0).toString());
+    return {};
 }
 
 std::optional<core::ListMeta> Database::getList(const std::string& listId)

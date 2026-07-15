@@ -711,6 +711,37 @@ private slots:
             QVERIFY(f.name != "Saumon");
     }
 
+    // Ajouter/ranger un article enseigne la mémoire des rayons ; les variantes du même
+    // premier mot en héritent (« pain » ajouté en boulangerie → « pain de mie » suit).
+    void test_addItem_learnsAisle() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+
+        // Ajout avec rayon → la mémoire l'apprend.
+        model.addItem("Pain", "", "", "Boulangerie");
+        QCOMPARE(db.suggestAisleForName("pain de mie"), std::string("Boulangerie"));
+
+        // Ranger un article via setAisle enseigne aussi.
+        model.addItem("Camembert", "", "", "");
+        const QString cam = model.data(model.index(model.count() - 1), ItemModel::ItemIdRole).toString();
+        model.setAisle(cam, "Crèmerie");
+        QCOMPARE(db.suggestAisleForName("Camembert"), std::string("Crèmerie"));
+
+        // Pas d'auto-assignation : ajouter sans rayon laisse le rayon vide (le
+        // pré-remplissage se fait côté UI, pas dans le modèle).
+        model.addItem("pain aux céréales", "", "", "");
+        bool found = false;
+        for (const auto &it : db.getItems(listId))
+            if (it.name == "pain aux céréales") { found = true; QVERIFY(it.aisle.empty()); }
+        QVERIFY(found);
+    }
+
     // ListsModel : groupes (sections triées) et « partagée avec » (membres, soi exclu).
     void test_listsModel_groupsAndMembers() {
         QTemporaryDir dir;

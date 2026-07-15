@@ -12,6 +12,10 @@ ComboBox {
     // Le rayon choisi, "" pour « Sans rayon ».
     property string aisle: ""
 
+    // Émis quand l'utilisateur choisit LUI-MÊME un rayon (pas un pré-remplissage) :
+    // la barre d'ajout s'en sert pour cesser d'écraser son choix.
+    signal chosen()
+
     readonly property string newLabel: "Nouveau rayon…"
 
     readonly property var options: {
@@ -41,6 +45,7 @@ ComboBox {
             return
         }
         aisle = (index === 0) ? "" : options[index]
+        box.chosen()
     }
 
     ColoDialog {
@@ -67,7 +72,7 @@ ComboBox {
 
         onOpened: { newAisleField.text = ""; newAisleField.forceActiveFocus() }
 
-        onAccepted: box.aisle = newAisleField.text.trim()
+        onAccepted: { box.aisle = newAisleField.text.trim(); box.chosen() }
         // Refusé : le champ affichait déjà « Nouveau rayon… », il faut le remettre sur
         // le rayon réellement choisi.
         onRejected: box.currentIndex = Math.max(0, box.options.indexOf(
@@ -149,6 +154,7 @@ ComboBox {
             }
             box.aisle = (index === 0) ? "" : box.options[index]
             box.currentIndex = index
+            box.chosen()
         }
     }
 }

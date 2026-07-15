@@ -270,6 +270,8 @@ void ItemModel::addItem(const QString &name, const QString &qty,
     item.qtyVer  = ver;
     item.note    = note.trimmed().toStdString();
     item.noteVer = ver;
+    // Le rayon est celui fourni par l'appelant, tel quel (la barre d'ajout le pré-remplit
+    // côté UI, mais rien n'est assigné en douce : un rayon vide reste vide).
     item.aisle   = aisle.trimmed().toStdString();
     item.aisleVer = ver;
     // Position initiale = date de création : l'article se pose en bas de son groupe,
@@ -290,6 +292,8 @@ void ItemModel::addItem(const QString &name, const QString &qty,
     // Seulement sur un ajout manuel — imports et duplications écrivent en base
     // directement, sans passer par ici, donc sans polluer les favoris.
     m_db->recordFavoriteUse(item.name, item.qty, item.aisle, ts);
+    // Et mémoriser où va cet article, pour que les suivants du même nom suivent.
+    m_db->recordAisleForName(item.name, item.aisle, ts);
 
     emit localChanged(m_listId);
     emit aisleNamesChanged();
@@ -411,6 +415,10 @@ void ItemModel::editItem(const QString &itemId, const QString &name,
 
     if (!m_db->upsertItem(*it)) return;
 
+    // Ranger un article enseigne où va son nom, pour pré-remplir les prochains.
+    if (aisleChanged && !newAisle.empty())
+        m_db->recordAisleForName(it->name, newAisle, it->touched);
+
     emit localChanged(m_listId);
     emit aisleNamesChanged();
 
@@ -452,6 +460,9 @@ void ItemModel::setAisle(const QString &itemId, const QString &aisle) {
     it->touched  = QDateTime::currentMSecsSinceEpoch();
 
     if (!m_db->upsertItem(*it)) return;
+
+    if (!newAisle.empty())
+        m_db->recordAisleForName(it->name, newAisle, it->touched);
 
     emit localChanged(m_listId);
     emit aisleNamesChanged();
@@ -522,13 +533,18 @@ void ItemModel::moveItem(int from, int to) {
 
     it->order    = order;
     it->orderVer = ver;
-    if (it->aisle != targetAisle) {
+    const bool aisleChanged = (it->aisle != targetAisle);
+    if (aisleChanged) {
         it->aisle    = targetAisle;
         it->aisleVer = ver;
     }
     it->touched = now;
 
     if (!m_db->upsertItem(*it)) return;
+
+    // Glisser un article dans un rayon enseigne aussi où va son nom.
+    if (aisleChanged && !targetAisle.empty())
+        m_db->recordAisleForName(it->name, targetAisle, now);
 
     emit localChanged(m_listId);
     emit aisleNamesChanged();

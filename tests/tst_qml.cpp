@@ -463,6 +463,12 @@ private slots:
         QCOMPARE(handled.toBool(), true);
         QCOMPARE(page->property("shoppingMode").toBool(), false);
 
+        // Mode Réorganiser : le retour en sort aussi.
+        page->setProperty("reorderMode", true);
+        QMetaObject::invokeMethod(page, "handleBack", Q_RETURN_ARG(QVariant, handled));
+        QCOMPARE(handled.toBool(), true);
+        QCOMPARE(page->property("reorderMode").toBool(), false);
+
         // La sélection passe avant le mode Courses : on défait le plus récent d'abord.
         page->setProperty("shoppingMode", true);
         QMetaObject::invokeMethod(page, "toggleSelection", Q_ARG(QVariant, "item-a"));
