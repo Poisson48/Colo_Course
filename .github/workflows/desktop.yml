@@ -26,10 +26,13 @@ jobs:
           sudo apt-get install -y ninja-build cmake \
             libsodium-dev \
             libgl1-mesa-dev libegl1-mesa-dev \
+            libfontconfig1 libfreetype6 wget file \
             libxkbcommon-dev libxkbcommon-x11-0 \
-            libfontconfig1 libfreetype6 wget file
-          # libxkbcommon-x11 : dépendance du plugin de plateforme xcb, que linuxdeploy
-          # embarque — sans elle, l'empaquetage échoue (dépendance introuvable).
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 \
+            libxcb-xkb1 libxcb-util1
+          # Dépendances du plugin de plateforme xcb, que linuxdeploy embarque : sans
+          # elles, l'empaquetage s'arrête sur « dépendance introuvable ».
 
       # La libsecp256k1 d'Ubuntu 22.04 est trop ancienne (secp256k1_schnorrsig_sign32
       # absent). On garde 22.04 pour un AppImage compatible avec un large éventail de
