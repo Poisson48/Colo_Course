@@ -8,6 +8,25 @@ Item {
 
     readonly property string pageTitle: "Mes listes"
 
+    // AppController.groups() lit la base à chaque appel ; rien ne le rappelle tout seul.
+    // Le modèle des listes se réinitialise à chaque changement de groupe (reload en
+    // C++) : on s'y raccroche pour rafraîchir la liste des groupes exposée à l'UI.
+    property int groupsRev: 0
+    readonly property var groupList: { groupsRev; return AppController.groups() }
+    readonly property bool hasGroups: groupList.length > 0
+
+    Connections {
+        target: AppController.lists
+        function onModelReset() { root.groupsRev++ }
+    }
+
+    function groupIdForName(name) {
+        for (let i = 0; i < groupList.length; ++i)
+            if (groupList[i].name === name)
+                return groupList[i].id
+        return ""
+    }
+
     // Boutons affichés dans la barre supérieure par Main.qml.
     property Component actions: Row {
         spacing: 0
@@ -93,10 +112,56 @@ Item {
         clip: true
         model: AppController.lists
 
+        // Sections par groupe. Les en-têtes n'apparaissent que si des groupes existent :
+        // qui ne s'en sert pas voit la même liste plate qu'avant.
+        section.property: "groupName"
+        section.criteria: ViewSection.FullString
+        section.delegate: ItemDelegate {
+            id: header
+            required property string section
+            width: listView.width - 2 * Theme.gap
+            height: root.hasGroups ? 40 : 0
+            visible: height > 0
+            padding: 0
+
+            background: Item {}
+
+            contentItem: RowLayout {
+                spacing: 6
+
+                Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 4
+                    // Le groupe vide (« ») est réel : les listes non rangées.
+                    text: header.section.length > 0 ? header.section : "Sans groupe"
+                    color: Theme.accent
+                    font.pixelSize: 12
+                    font.weight: Font.DemiBold
+                    font.capitalization: Font.AllUppercase
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                // Renommer / supprimer : réservé aux vrais groupes, pas au fourre-tout.
+                ToolButton {
+                    Layout.preferredWidth: 34
+                    Layout.preferredHeight: 34
+                    visible: header.section.length > 0
+                    contentItem: Icon {
+                        name: "menu"; color: Theme.textDim; size: 15
+                    }
+                    onClicked: {
+                        groupMenu.groupName = header.section
+                        groupMenu.groupId = root.groupIdForName(header.section)
+                        groupMenu.popup()
+                    }
+                }
+            }
+        }
+
         delegate: ItemDelegate {
             id: card
             width: listView.width - 2 * Theme.gap
-            height: 84
+            height: 96
             padding: 0
 
             background: Rectangle {
@@ -162,6 +227,32 @@ Item {
                               : (model.count === 0
                                  ? "Tout est dans le panier"
                                  : model.count + " à acheter sur " + model.total)
+                    }
+
+                    // Avec qui la liste est partagée. « Pas encore partagée » tant que
+                    // personne d'autre n'a envoyé de modification : c'est honnête, on
+                    // ne compte que les participants réellement vus.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 1
+                        spacing: 5
+
+                        Icon {
+                            name: model.memberCount > 0 ? "check" : "close"
+                            color: model.memberCount > 0 ? Theme.accent : Theme.textDim
+                            size: 12
+                            opacity: 0.9
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            color: Theme.textDim
+                            font.pixelSize: 12
+                            elide: Text.ElideRight
+                            text: model.memberCount > 0
+                                  ? "Partagée avec " + model.members
+                                  : "Pas encore partagée"
+                        }
                     }
                 }
 
@@ -267,6 +358,10 @@ Item {
             onTriggered: duplicateDialog.openFor(cardMenu.listId, cardMenu.listName)
         }
         MenuItem {
+            text: "Ranger dans un groupe"
+            onTriggered: groupPicker.openFor(cardMenu.listId)
+        }
+        MenuItem {
             text: "Quitter la liste"
             onTriggered: {
                 leaveDialog.listId = cardMenu.listId
@@ -276,9 +371,163 @@ Item {
         }
     }
 
+    // Menu d'un en-tête de groupe : renommer, ou supprimer (les listes sont conservées).
+    Menu {
+        id: groupMenu
+        property string groupId: ""
+        property string groupName: ""
+
+        MenuItem {
+            text: "Renommer le groupe"
+            onTriggered: groupRenameDialog.openFor(groupMenu.groupId, groupMenu.groupName)
+        }
+        MenuItem {
+            text: "Supprimer le groupe"
+            onTriggered: AppController.deleteGroup(groupMenu.groupId)
+        }
+    }
+
     ShareSheet { id: shareSheet }
 
     // --- Dialogues ---
+
+    // Choisir le groupe d'une liste : un groupe existant, un nouveau, ou aucun.
+    ColoDialog {
+        id: groupPicker
+        title: "Ranger dans un groupe"
+        // Pas de bouton de validation : chaque ligne agit au clic.
+        showAccept: false
+
+        property string listId: ""
+
+        function openFor(id) {
+            listId = id
+            open()
+        }
+
+        Repeater {
+            model: root.groupList
+            delegate: Button {
+                required property var modelData
+                Layout.fillWidth: true
+                flat: true
+                implicitHeight: 46
+                contentItem: Label {
+                    text: modelData.name
+                    color: Theme.text
+                    font.pixelSize: 15
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: 10
+                    color: parent.pressed ? Theme.surfaceHigh : "transparent"
+                }
+                onClicked: {
+                    AppController.setListGroup(groupPicker.listId, modelData.id)
+                    groupPicker.close()
+                }
+            }
+        }
+
+        Button {
+            Layout.fillWidth: true
+            flat: true
+            implicitHeight: 46
+            contentItem: Label {
+                text: "＋ Nouveau groupe…"
+                color: Theme.accent
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 10
+                color: parent.pressed ? Theme.surfaceHigh : "transparent"
+            }
+            onClicked: {
+                groupPicker.close()
+                newGroupDialog.openFor(groupPicker.listId)
+            }
+        }
+
+        Button {
+            Layout.fillWidth: true
+            flat: true
+            implicitHeight: 46
+            visible: root.hasGroups
+            contentItem: Label {
+                text: "Retirer du groupe"
+                color: Theme.textDim
+                font.pixelSize: 15
+                verticalAlignment: Text.AlignVCenter
+            }
+            background: Rectangle {
+                radius: 10
+                color: parent.pressed ? Theme.surfaceHigh : "transparent"
+            }
+            onClicked: {
+                AppController.setListGroup(groupPicker.listId, "")
+                groupPicker.close()
+            }
+        }
+    }
+
+    // Créer un groupe, et y ranger la liste dans la foulée.
+    ColoDialog {
+        id: newGroupDialog
+        title: "Nouveau groupe"
+        acceptText: "Créer"
+        acceptEnabled: newGroupField.text.trim().length > 0
+
+        property string listId: ""
+
+        function openFor(id) {
+            listId = id
+            open()
+            newGroupField.text = ""
+            newGroupField.forceActiveFocus()
+        }
+
+        ColoTextField {
+            id: newGroupField
+            Layout.fillWidth: true
+            hint: "Maison, Boulot, Vacances…"
+            onAccepted: if (newGroupDialog.acceptEnabled) newGroupDialog.accept()
+        }
+
+        onAccepted: {
+            const gid = AppController.createGroup(newGroupField.text.trim())
+            if (gid.length > 0 && newGroupDialog.listId.length > 0)
+                AppController.setListGroup(newGroupDialog.listId, gid)
+        }
+    }
+
+    ColoDialog {
+        id: groupRenameDialog
+        title: "Renommer le groupe"
+        acceptText: "Renommer"
+        acceptEnabled: groupRenameField.text.trim().length > 0
+
+        property string groupId: ""
+
+        function openFor(id, currentName) {
+            groupId = id
+            open()
+            groupRenameField.text = currentName
+            groupRenameField.forceActiveFocus()
+            groupRenameField.selectAll()
+        }
+
+        ColoTextField {
+            id: groupRenameField
+            Layout.fillWidth: true
+            hint: "Nom du groupe"
+            onAccepted: if (groupRenameDialog.acceptEnabled) groupRenameDialog.accept()
+        }
+
+        onAccepted: AppController.renameGroup(groupRenameDialog.groupId,
+                                              groupRenameField.text.trim())
+    }
 
     ColoDialog {
         id: createDialog

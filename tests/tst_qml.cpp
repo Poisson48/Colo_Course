@@ -182,10 +182,35 @@ private slots:
         model->addItem("Papier toilette", "2", "6 couches épaisses", "Hygiène");
         QCOMPARE(model->count(), 2);
 
+        // Peuple aussi l'écran des listes (groupes + membres), pour la capture.
+        const bool listsShot = qEnvironmentVariableIsSet("COLO_SCREENSHOT_LISTS");
+        if (listsShot) {
+            store::Database &cdb = m_ctrl.db();
+            QVERIFY(cdb.open(dir.filePath("ctrl.db")));
+            core::ListMeta a; a.listId = "l-courses"; a.key = std::vector<uint8_t>(32, 2);
+            a.title = "Courses maison"; a.titleVer = {1, "dev-A"}; a.lamport = 1; a.created = 100;
+            cdb.createList(a);
+            core::ListMeta b; b.listId = "l-boulot"; b.key = std::vector<uint8_t>(32, 3);
+            b.title = "Fournitures bureau"; b.titleVer = {1, "dev-A"}; b.lamport = 1; b.created = 200;
+            cdb.createList(b);
+            cdb.createGroup("g-maison", "Maison", 1000);
+            cdb.setListGroup("l-courses", "g-maison");
+            cdb.upsertMember("l-courses", "dev-B", "Marie", {1, "dev-B"});
+            cdb.upsertMember("l-courses", "dev-C", "Léo",   {1, "dev-C"});
+            qobject_cast<app::ListsModel *>(m_ctrl.lists())->reload(cdb, "dev-A");
+        }
+
         qInstallMessageHandler(warningCollector);
 
         QObject *window = load(QStringLiteral("Main.qml"));
         QVERIFY(window);
+
+        // Capture de l'écran des listes (groupes + partage) avant d'ouvrir une liste.
+        if (listsShot) {
+            QTest::qWait(200);
+            if (auto *w = qobject_cast<QQuickWindow *>(window))
+                w->grabWindow().save(qEnvironmentVariable("COLO_SCREENSHOT_LISTS"));
+        }
 
         // La page s'empile comme dans l'app : par le signal qu'émet openList().
         QMetaObject::invokeMethod(&m_ctrl, "listOpened",

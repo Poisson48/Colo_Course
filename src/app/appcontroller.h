@@ -24,6 +24,12 @@ public:
         NameRole,
         CountRole,
         TotalRole,
+        // Groupe local : identifiant, et nom affiché en en-tête de section.
+        GroupIdRole,
+        GroupNameRole,
+        // Avec qui la liste est partagée : noms joints (« Marie, Léo »), et leur nombre.
+        MembersRole,
+        MemberCountRole,
     };
 
     explicit ListsModel(QObject *parent = nullptr);
@@ -32,11 +38,8 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    // Reload from DB
-    void reload(store::Database &db);
-
-    // Add a new list entry
-    void prepend(const core::ListMeta &meta, int uncheckedCount);
+    // Reload from DB. deviceId sert à s'exclure soi-même de la liste des participants.
+    void reload(store::Database &db, const std::string &deviceId);
 
     // Remove a row by listId (no-op if absent).
     void remove(const QString &listId);
@@ -50,6 +53,11 @@ private:
         QString name;
         int     count = 0;  // articles restant à acheter
         int     total = 0;  // articles visibles (tombstones exclus)
+        QString groupId;
+        QString groupName;  // "" = non rangé, affiché en dernier
+        int64_t groupOrder = 0;
+        QString members;    // noms des autres participants, joints
+        int     memberCount = 0;
     };
     std::vector<Row> m_rows;
 };
@@ -107,6 +115,17 @@ public slots:
     QString joinUri(const QString &listId);
     // Quitter une liste : effacement local uniquement (les autres la gardent).
     void leaveList(const QString &listId);
+
+    // --- Groupes (organisation locale des listes) ---
+    // Crée un groupe et retourne son identifiant (pour y ranger la liste dans la foulée).
+    QString createGroup(const QString &name);
+    void    renameGroup(const QString &groupId, const QString &name);
+    // Supprime le groupe ; ses listes redeviennent « non rangées », rien n'est effacé.
+    void    deleteGroup(const QString &groupId);
+    // Ranger une liste dans un groupe existant, ou la sortir de tout groupe ("").
+    void    setListGroup(const QString &listId, const QString &groupId);
+    // Groupes existants, pour le menu « Ranger dans… » : [{ id, name }, …].
+    QVariantList groups();
 
     // Deep link colocourse://join/... (lien tapé dans WhatsApp, ou QR scanné).
     void handleJoinUrl(const QUrl &url);

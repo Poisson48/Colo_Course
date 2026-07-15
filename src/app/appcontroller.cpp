@@ -10,6 +10,8 @@
 #include <QStandardPaths>
 #include <QUuid>
 #include <algorithm>
+#include <map>
+#include <limits>
 
 #include "../core/types.h"
 #include "../core/crdt.h"
@@ -37,28 +39,42 @@ QVariant ListsModel::data(const QModelIndex &index, int role) const {
         return {};
     const auto &row = m_rows[static_cast<size_t>(index.row())];
     switch (role) {
-    case ListIdRole: return row.listId;
-    case NameRole:   return row.name;
-    case CountRole:  return row.count;
-    case TotalRole:  return row.total;
-    default:         return {};
+    case ListIdRole:     return row.listId;
+    case NameRole:       return row.name;
+    case CountRole:      return row.count;
+    case TotalRole:      return row.total;
+    case GroupIdRole:    return row.groupId;
+    case GroupNameRole:  return row.groupName;
+    case MembersRole:    return row.members;
+    case MemberCountRole:return row.memberCount;
+    default:             return {};
     }
 }
 
 QHash<int, QByteArray> ListsModel::roleNames() const {
     return {
-        { ListIdRole, "listId" },
-        { NameRole,   "name"   },
-        { CountRole,  "count"  },
-        { TotalRole,  "total"  },
+        { ListIdRole,     "listId"      },
+        { NameRole,       "name"        },
+        { CountRole,      "count"       },
+        { TotalRole,      "total"       },
+        { GroupIdRole,    "groupId"     },
+        { GroupNameRole,  "groupName"   },
+        { MembersRole,    "members"     },
+        { MemberCountRole,"memberCount" },
     };
 }
 
-void ListsModel::reload(store::Database &db) {
+void ListsModel::reload(store::Database &db, const std::string &deviceId) {
     beginResetModel();
     m_rows.clear();
-    const auto lists = db.getLists();
-    for (const auto &meta : lists) {
+
+    // Table des groupes : id → (nom, ordre). Un rang par défaut très grand range les
+    // listes non rangées après tous les groupes.
+    std::map<std::string, std::pair<QString, int64_t>> groups;
+    for (const auto &g : db.getGroups())
+        groups[g.groupId] = { QString::fromStdString(g.name), g.sortOrder };
+
+    for (const auto &meta : db.getLists()) {
         int unchecked = 0;
         int total     = 0;
         for (const auto &item : db.getItems(meta.listId)) {
@@ -66,25 +82,44 @@ void ListsModel::reload(store::Database &db) {
             ++total;
             if (!item.done) ++unchecked;
         }
-        m_rows.push_back({
-            QString::fromStdString(meta.listId),
-            QString::fromStdString(meta.title),
-            unchecked,
-            total
-        });
-    }
-    endResetModel();
-}
 
-void ListsModel::prepend(const core::ListMeta &meta, int uncheckedCount) {
-    beginInsertRows({}, 0, 0);
-    m_rows.insert(m_rows.begin(), {
-        QString::fromStdString(meta.listId),
-        QString::fromStdString(meta.title),
-        uncheckedCount,
-        uncheckedCount
+        // Avec qui c'est partagé : les membres connus, soi-même exclu. Un membre =
+        // quelqu'un dont on a reçu au moins un événement, donc un vrai participant.
+        QStringList names;
+        for (const auto &[devId, name] : db.getMembers(meta.listId)) {
+            if (devId == deviceId || name.empty()) continue;
+            names << QString::fromStdString(name);
+        }
+        names.removeDuplicates();
+
+        Row row;
+        row.listId      = QString::fromStdString(meta.listId);
+        row.name        = QString::fromStdString(meta.title);
+        row.count       = unchecked;
+        row.total       = total;
+        row.members     = names.join(QStringLiteral(", "));
+        row.memberCount = static_cast<int>(names.size());
+
+        const auto git = groups.find(meta.groupId);
+        if (!meta.groupId.empty() && git != groups.end()) {
+            row.groupId    = QString::fromStdString(meta.groupId);
+            row.groupName  = git->second.first;
+            row.groupOrder = git->second.second;
+        } else {
+            // Non rangée (ou groupe supprimé) : après tous les groupes.
+            row.groupOrder = std::numeric_limits<int64_t>::max();
+        }
+        m_rows.push_back(std::move(row));
+    }
+
+    // Trier par groupe pour que les sections soient contiguës ; l'ordre d'origine
+    // (création) est préservé à l'intérieur d'un groupe par le tri stable.
+    std::stable_sort(m_rows.begin(), m_rows.end(), [](const Row &a, const Row &b) {
+        if (a.groupOrder != b.groupOrder) return a.groupOrder < b.groupOrder;
+        return a.groupName < b.groupName;
     });
-    endInsertRows();
+
+    endResetModel();
 }
 
 void ListsModel::rename(const QString &listId, const QString &name) {
@@ -168,7 +203,7 @@ bool AppController::init() {
     m_hasDisplayName = m_db.getSetting("displayNameSet").has_value();
 
     // --- Load lists ---
-    m_listsModel->reload(m_db);
+    m_listsModel->reload(m_db, m_deviceId.toStdString());
 
     // --- Setup relay pool ---
     // Load relay URLs from settings (or use defaults).
@@ -241,7 +276,7 @@ void AppController::onOutboxChanged() {
 void AppController::onLocalItemChange(const std::string& listId) {
     m_syncEngine.onLocalChange(listId);
     // Les compteurs de l'écran des listes ("2 sur 7") dépendent des items.
-    m_listsModel->reload(m_db);
+    m_listsModel->reload(m_db, m_deviceId.toStdString());
 }
 
 void AppController::onSyncOnlineChanged(bool online) {
@@ -252,7 +287,7 @@ void AppController::onSyncOnlineChanged(bool online) {
 
 void AppController::onRemoteChanges(const QString& /*listId*/, int /*count*/, const QString& /*authorName*/) {
     // Refresh the lists model so counts update.
-    m_listsModel->reload(m_db);
+    m_listsModel->reload(m_db, m_deviceId.toStdString());
 }
 
 void AppController::onRemoteTitleChanged(const QString& listId, const QString& title) {
@@ -290,7 +325,7 @@ void AppController::createList(const QString &title) {
     }
 
     if (m_db.createList(meta)) {
-        m_listsModel->prepend(meta, 0);
+        m_listsModel->reload(m_db, m_deviceId.toStdString());
         // Souscrire tout de suite : sans ça, la liste n'est écoutée qu'au prochain
         // lancement et les modifications des autres n'arrivent jamais.
         m_syncEngine.onListJoined(meta.listId);
@@ -377,7 +412,7 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
         if (m_db.upsertItem(item)) ++copied;
     }
 
-    m_listsModel->prepend(copy, copied);
+    m_listsModel->reload(m_db, m_deviceId.toStdString());
     m_syncEngine.onListJoined(copy.listId);
     // Publier le contenu : sans ça, quelqu'un qui rejoindrait la copie par lien
     // trouverait un canal vide tant que personne n'y touche.
@@ -386,6 +421,52 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
     emit toast(copied > 0
         ? QStringLiteral("Liste dupliquée — %1 article(s) à acheter").arg(copied)
         : QStringLiteral("Liste dupliquée"));
+}
+
+QString AppController::createGroup(const QString &name) {
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) return {};
+
+    const QString groupId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    // Ordre = date de création : les groupes apparaissent dans l'ordre où on les crée.
+    if (!m_db.createGroup(groupId.toStdString(), trimmed.toStdString(),
+                          QDateTime::currentMSecsSinceEpoch()))
+        return {};
+
+    m_listsModel->reload(m_db, m_deviceId.toStdString());
+    return groupId;
+}
+
+void AppController::renameGroup(const QString &groupId, const QString &name) {
+    const QString trimmed = name.trimmed();
+    if (groupId.isEmpty() || trimmed.isEmpty()) return;
+    if (m_db.renameGroup(groupId.toStdString(), trimmed.toStdString()))
+        m_listsModel->reload(m_db, m_deviceId.toStdString());
+}
+
+void AppController::deleteGroup(const QString &groupId) {
+    if (groupId.isEmpty()) return;
+    if (m_db.deleteGroup(groupId.toStdString())) {
+        m_listsModel->reload(m_db, m_deviceId.toStdString());
+        emit toast(QStringLiteral("Groupe supprimé — les listes sont conservées"));
+    }
+}
+
+void AppController::setListGroup(const QString &listId, const QString &groupId) {
+    if (m_db.setListGroup(listId.toStdString(), groupId.toStdString()))
+        m_listsModel->reload(m_db, m_deviceId.toStdString());
+}
+
+QVariantList AppController::groups() {
+    QVariantList out;
+    if (!m_db.isOpen()) return out;   // appelée avant init() (ou en test) : rien à lire
+    for (const auto &g : m_db.getGroups()) {
+        QVariantMap m;
+        m.insert(QStringLiteral("id"),   QString::fromStdString(g.groupId));
+        m.insert(QStringLiteral("name"), QString::fromStdString(g.name));
+        out.append(m);
+    }
+    return out;
 }
 
 void AppController::leaveList(const QString &listId) {
@@ -485,7 +566,7 @@ bool AppController::joinList(const QString &uri)
 
     bool created = m_db.createList(meta);
     if (created) {
-        m_listsModel->prepend(meta, 0);
+        m_listsModel->reload(m_db, m_deviceId.toStdString());
     }
     // Subscribe to catch up full history (SPEC §3.4).
     m_syncEngine.onListJoined(info.listId);

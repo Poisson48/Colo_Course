@@ -25,6 +25,10 @@ public:
 
     void close();
 
+    // La base est-elle ouverte ? Permet aux appelants d'éviter une requête (et son
+    // avertissement) quand l'app n'a pas encore initialisé le stockage.
+    bool isOpen() const { return m_db.isOpen(); }
+
     // --- Lists ---
     bool createList(const core::ListMeta& meta);
     std::vector<core::ListMeta> getLists();
@@ -39,6 +43,16 @@ public:
     // Purement local — aucune opération CRDT n'est émise, les autres participants
     // gardent la liste (§2.2 : pas de suppression de liste répliquée).
     bool deleteList(const std::string& listId);
+    // Ranger une liste dans un groupe (groupId vide = la sortir de tout groupe).
+    bool setListGroup(const std::string& listId, const std::string& groupId);
+
+    // --- Groups (local uniquement : organisation propre à l'appareil) ---
+    struct Group { std::string groupId; std::string name; int64_t sortOrder; };
+    bool createGroup(const std::string& groupId, const std::string& name, int64_t sortOrder);
+    bool renameGroup(const std::string& groupId, const std::string& name);
+    // Supprime le groupe ; ses listes ne sont pas effacées, juste sorties du groupe.
+    bool deleteGroup(const std::string& groupId);
+    std::vector<Group> getGroups();
 
     // --- Items ---
     // Insert or update an item. Transactional (updates lamport if needed).

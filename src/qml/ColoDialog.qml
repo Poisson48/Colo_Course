@@ -10,6 +10,9 @@ Dialog {
     property string acceptText: "OK"
     property bool   acceptEnabled: true
     property bool   destructive: false
+    // Masque le bouton de validation : pour un dialogue dont chaque ligne agit au clic
+    // (choix d'un groupe), un « OK » qui ne fait rien n'aurait aucun sens.
+    property bool   showAccept: true
 
     default property alias body: content.data
 
@@ -74,6 +77,7 @@ Dialog {
 
         Button {
             flat: true
+            visible: dlg.showAccept
             text: dlg.acceptText
             enabled: dlg.acceptEnabled
             implicitHeight: Theme.touchTarget

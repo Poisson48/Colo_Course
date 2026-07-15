@@ -411,6 +411,78 @@ private slots:
         QVERIFY(db.getItems("list-A").empty());
     }
 
+    // Groupes locaux : ranger des listes, renommer, supprimer sans perdre les listes.
+    void test_groups() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(db.open(dir.filePath("g.db")));
+
+        QVERIFY(db.createList(makeList("list-A")));
+        QVERIFY(db.createList(makeList("list-B")));
+
+        QVERIFY(db.createGroup("grp-1", "Maison", 1000));
+        QVERIFY(db.createGroup("grp-2", "Boulot", 2000));
+        QCOMPARE(db.getGroups().size(), size_t(2));
+        QCOMPARE(db.getGroups().front().name, std::string("Maison")); // trié par sort_order
+
+        // Ranger list-A dans Maison ; getLists remonte le group_id.
+        QVERIFY(db.setListGroup("list-A", "grp-1"));
+        std::string groupOfA, groupOfB = "sentinel";
+        for (const auto &m : db.getLists()) {
+            if (m.listId == "list-A") groupOfA = m.groupId;
+            if (m.listId == "list-B") groupOfB = m.groupId;
+        }
+        QCOMPARE(groupOfA, std::string("grp-1"));
+        QCOMPARE(groupOfB, std::string(""));   // list-B reste non rangée
+
+        QVERIFY(db.renameGroup("grp-1", "Maison & jardin"));
+        QCOMPARE(db.getGroups().front().name, std::string("Maison & jardin"));
+
+        // Supprimer un groupe ne supprime pas ses listes : elles redeviennent non rangées.
+        QVERIFY(db.deleteGroup("grp-1"));
+        QCOMPARE(db.getGroups().size(), size_t(1));
+        QVERIFY(db.getList("list-A").has_value());
+        for (const auto &m : db.getLists())
+            if (m.listId == "list-A")
+                QCOMPARE(m.groupId, std::string(""));
+    }
+
+    // Une base créée par une version antérieure n'a pas la colonne group_id : la
+    // migration doit l'ajouter, et les listes rester intactes.
+    void test_migration_addsGroupId() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath("legacy-lists.db");
+        {
+            QSqlDatabase old = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                         QStringLiteral("legacyLists"));
+            old.setDatabaseName(path);
+            QVERIFY(old.open());
+            QSqlQuery q(old);
+            QVERIFY(q.exec(QStringLiteral(
+                "CREATE TABLE lists (list_id TEXT PRIMARY KEY, key BLOB, title TEXT,"
+                " title_ver_l INT, title_ver_d TEXT, lamport INT, last_sync INT, created INT)")));
+            QVERIFY(q.exec(QStringLiteral(
+                "INSERT INTO lists VALUES ('list-A', X'', 'Courses', 1, 'dev-A', 1, 0, 1000)")));
+            old.close();
+        }
+        QSqlDatabase::removeDatabase(QStringLiteral("legacyLists"));
+
+        Database db;
+        QVERIFY(db.open(path));
+
+        const auto lists = db.getLists();
+        QCOMPARE(lists.size(), size_t(1));
+        QCOMPARE(QString::fromStdString(lists.front().title), QStringLiteral("Courses"));
+        QCOMPARE(lists.front().groupId, std::string(""));   // colonne ajoutée, vide par défaut
+
+        // La colonne est écrivable : on peut ranger la liste tout de suite.
+        QVERIFY(db.createGroup("grp-1", "Maison", 1000));
+        QVERIFY(db.setListGroup("list-A", "grp-1"));
+        QCOMPARE(db.getLists().front().groupId, std::string("grp-1"));
+    }
+
     // Une base créée par une version antérieure n'a ni colonnes note*, ni done_at.
     // CREATE TABLE IF NOT EXISTS ne les ajoute pas : sans migration, toute lecture
     // d'article échoue et l'app est vide après mise à jour.

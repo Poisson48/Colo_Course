@@ -75,6 +75,11 @@ struct ListMeta {
     int64_t lamport  = 0;  // current Lamport clock for this list
     int64_t lastSync = 0;  // ms epoch of last relay sync
     int64_t created  = 0;  // ms epoch of list creation
+
+    // Groupe local (« Maison », « Boulot »…), vide = non rangé. Purement local et non
+    // synchronisé : chaque appareil organise ses listes comme il veut, la même liste
+    // partagée peut être dans « Maison » chez l'un et « Courses » chez l'autre.
+    std::string groupId;
 };
 
 } // namespace core

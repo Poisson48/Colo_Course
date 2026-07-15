@@ -74,6 +74,15 @@ bool Database::createSchema()
             "  title_ver_d TEXT,"
             "  lamport INT,"
             "  last_sync INT,"
+            "  created INT,"
+            "  group_id TEXT"          // groupe local, '' = non rangé
+            ")"),
+        QStringLiteral(
+            // Groupes locaux : jamais synchronisés, propres à l'appareil.
+            "CREATE TABLE IF NOT EXISTS groups ("
+            "  group_id TEXT PRIMARY KEY,"
+            "  name TEXT,"
+            "  sort_order INT,"
             "  created INT"
             ")"),
         QStringLiteral(
@@ -185,6 +194,22 @@ bool Database::migrateSchema()
             return false;
         }
     }
+
+    // La colonne group_id des listes : ajoutée aux bases d'avant les groupes.
+    QStringList listCols;
+    if (!q.exec(QStringLiteral("PRAGMA table_info(lists)"))) {
+        qWarning() << "migrateSchema: PRAGMA lists failed:" << q.lastError().text();
+        return false;
+    }
+    while (q.next())
+        listCols << q.value(1).toString();
+    if (!listCols.contains(QStringLiteral("group_id"))) {
+        if (!q.exec(QStringLiteral("ALTER TABLE lists ADD COLUMN group_id TEXT DEFAULT ''"))) {
+            qWarning() << "migrateSchema: ADD COLUMN group_id failed:"
+                       << q.lastError().text();
+            return false;
+        }
+    }
     return true;
 }
 
@@ -239,7 +264,8 @@ std::vector<core::ListMeta> Database::getLists()
     std::vector<core::ListMeta> result;
     QSqlQuery q(m_db);
     q.exec(QStringLiteral(
-        "SELECT list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created"
+        "SELECT list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created,"
+        " group_id"
         " FROM lists ORDER BY created ASC"));
     while (q.next()) {
         core::ListMeta m;
@@ -252,8 +278,85 @@ std::vector<core::ListMeta> Database::getLists()
         m.lamport       = q.value(5).toLongLong();
         m.lastSync      = q.value(6).toLongLong();
         m.created       = q.value(7).toLongLong();
+        m.groupId       = ss(q.value(8).toString());
         result.push_back(std::move(m));
     }
+    return result;
+}
+
+bool Database::setListGroup(const std::string& listId, const std::string& groupId)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE lists SET group_id = ? WHERE list_id = ?"));
+    q.addBindValue(qs(groupId));
+    q.addBindValue(qs(listId));
+    if (!q.exec()) {
+        qWarning() << "setListGroup error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+// --- Groups ---
+
+bool Database::createGroup(const std::string& groupId, const std::string& name, int64_t sortOrder)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "INSERT OR IGNORE INTO groups (group_id, name, sort_order, created)"
+        " VALUES (?, ?, ?, ?)"));
+    q.addBindValue(qs(groupId));
+    q.addBindValue(qs(name));
+    q.addBindValue(ll(sortOrder));
+    q.addBindValue(ll(QDateTime::currentMSecsSinceEpoch()));
+    if (!q.exec()) {
+        qWarning() << "createGroup error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool Database::renameGroup(const std::string& groupId, const std::string& name)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE groups SET name = ? WHERE group_id = ?"));
+    q.addBindValue(qs(name));
+    q.addBindValue(qs(groupId));
+    if (!q.exec()) {
+        qWarning() << "renameGroup error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool Database::deleteGroup(const std::string& groupId)
+{
+    if (!m_db.transaction()) return false;
+    QSqlQuery q(m_db);
+
+    // Les listes du groupe ne sont PAS supprimées : elles reviennent simplement
+    // « non rangées ». Supprimer un dossier ne doit pas emporter son contenu.
+    q.prepare(QStringLiteral("UPDATE lists SET group_id = '' WHERE group_id = ?"));
+    q.addBindValue(qs(groupId));
+    if (!q.exec()) { m_db.rollback(); return false; }
+
+    q.prepare(QStringLiteral("DELETE FROM groups WHERE group_id = ?"));
+    q.addBindValue(qs(groupId));
+    if (!q.exec()) { m_db.rollback(); return false; }
+
+    return m_db.commit();
+}
+
+std::vector<Database::Group> Database::getGroups()
+{
+    std::vector<Group> result;
+    QSqlQuery q(m_db);
+    q.exec(QStringLiteral(
+        "SELECT group_id, name, sort_order FROM groups ORDER BY sort_order ASC, created ASC"));
+    while (q.next())
+        result.push_back({ ss(q.value(0).toString()),
+                           ss(q.value(1).toString()),
+                           q.value(2).toLongLong() });
     return result;
 }
 

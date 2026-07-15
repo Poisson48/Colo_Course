@@ -585,6 +585,50 @@ private slots:
         QVERIFY(model.aisleNames().contains(QStringLiteral("Animalerie")));
     }
 
+    // ListsModel : groupes (sections triées) et « partagée avec » (membres, soi exclu).
+    void test_listsModel_groupsAndMembers() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+
+        makeList(db, "list-maison");
+        makeList(db, "list-libre");
+
+        db.createGroup("grp-1", "Maison", 1000);
+        db.setListGroup("list-maison", "grp-1");
+
+        // « list-maison » partagée avec Marie ; nous-mêmes (dev-A) ne comptons pas.
+        db.upsertMember("list-maison", "dev-A", "Moi",   { 1, "dev-A" });
+        db.upsertMember("list-maison", "dev-B", "Marie", { 1, "dev-B" });
+
+        ListsModel model;
+        model.reload(db, "dev-A");
+        QCOMPARE(model.rowCount(), 2);
+
+        // La liste rangée passe avant la non rangée (les groupes d'abord).
+        QCOMPARE(model.data(model.index(0), ListsModel::ListIdRole).toString(),
+                 QStringLiteral("list-maison"));
+        QCOMPARE(model.data(model.index(0), ListsModel::GroupNameRole).toString(),
+                 QStringLiteral("Maison"));
+        QCOMPARE(model.data(model.index(1), ListsModel::GroupNameRole).toString(),
+                 QStringLiteral(""));   // non rangée, section vide, en dernier
+
+        // Partagée avec Marie, sans se compter soi-même.
+        QCOMPARE(model.data(model.index(0), ListsModel::MemberCountRole).toInt(), 1);
+        QCOMPARE(model.data(model.index(0), ListsModel::MembersRole).toString(),
+                 QStringLiteral("Marie"));
+        QCOMPARE(model.data(model.index(1), ListsModel::MemberCountRole).toInt(), 0);
+
+        // Groupe supprimé → la liste redescend chez les non rangées, mais existe encore.
+        db.deleteGroup("grp-1");
+        model.reload(db, "dev-A");
+        QCOMPARE(model.rowCount(), 2);
+        for (int i = 0; i < 2; ++i)
+            QCOMPARE(model.data(model.index(i), ListsModel::GroupNameRole).toString(),
+                     QStringLiteral(""));
+    }
+
     // Réordonner : la ligne va où on la dépose, et la nouvelle position est persistée
     // avec une version (donc synchronisée).
     void test_moveItem() {
