@@ -533,6 +533,10 @@ Item {
                         drag.target: visible ? row : undefined
                         drag.axis: Drag.YAxis
                         cursorShape: Qt.SizeVerCursor
+                        // Sans ça, sur écran tactile la ListView vole le geste vertical
+                        // (elle le prend pour un défilement) et le glissement de la
+                        // poignée ne démarre jamais : le réordonnancement au doigt est mort.
+                        preventStealing: true
 
                         Icon {
                             anchors.centerIn: parent
