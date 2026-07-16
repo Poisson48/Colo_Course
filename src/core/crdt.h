@@ -42,6 +42,10 @@ std::vector<std::string> mergeItems(std::map<std::string, Item>& local,
 // Returns true if title changed.
 bool mergeTitle(ListMeta& local, const std::string& remoteTitle, const Ver& remoteTitleVer);
 
+// Merge le mode de classement (LWW), même règle que le titre.
+// Returns true if sortMode changed.
+bool mergeSortMode(ListMeta& local, const std::string& remoteMode, const Ver& remoteVer);
+
 // §2.3 — Merge a single members entry.
 // Returns true if the entry was inserted or updated.
 bool mergeMember(std::map<std::string, std::pair<std::string, Ver>>& members,

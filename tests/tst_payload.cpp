@@ -206,6 +206,30 @@ static void test_SnapRoundTrip() {
     EXPECT_EQ(parsed->items[0].name, "Beurre");
 }
 
+static void test_SortModeRoundTrip() {
+    Payload p;
+    p.type        = Payload::Type::delta;
+    p.listId      = "l";
+    p.sortMode    = "manual";
+    p.sortModeVer = makeVer(7, "devB");
+
+    auto parsed = parsePayload(serializePayload(p));
+    EXPECT_TRUE(parsed.has_value());
+    EXPECT_TRUE(parsed->sortMode.has_value());
+    EXPECT_EQ(*parsed->sortMode, "manual");
+    EXPECT_TRUE(parsed->sortModeVer.has_value());
+    EXPECT_EQ(parsed->sortModeVer->lamport, int64_t(7));
+    EXPECT_EQ(parsed->sortModeVer->deviceId, "devB");
+
+    // Omis quand non renseigné (pas de bruit pour les listes qui n'y touchent pas).
+    Payload q;
+    q.type   = Payload::Type::delta;
+    q.listId = "l";
+    auto parsedQ = parsePayload(serializePayload(q));
+    EXPECT_TRUE(parsedQ.has_value());
+    EXPECT_FALSE(parsedQ->sortMode.has_value());
+}
+
 static void test_MalformedJson() {
     EXPECT_FALSE(parsePayload("{not valid json").has_value());
     EXPECT_FALSE(parsePayload("null").has_value());
@@ -307,6 +331,7 @@ int main() {
     test_AuthorNoteDoneAtRoundTrip();
     test_LegacyPayloadWithoutNewFields();
     test_SnapRoundTrip();
+    test_SortModeRoundTrip();
     test_MalformedJson();
     test_WrongVersion();
     test_UnknownTypeRejected();

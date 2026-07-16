@@ -72,6 +72,12 @@ struct ListMeta {
     std::string title;
     Ver         titleVer;
 
+    // Mode de classement des articles, répliqué (LWW) comme le titre : partagé par tous
+    // les participants. "" ou "aisle" = rangé par rayon puis position manuelle (défaut),
+    // "manual" = position manuelle seule (pas de sections, glisser réordonne librement).
+    std::string sortMode;
+    Ver         sortModeVer;
+
     int64_t lamport  = 0;  // current Lamport clock for this list
     int64_t lastSync = 0;  // ms epoch of last relay sync
     int64_t created  = 0;  // ms epoch of list creation

@@ -81,6 +81,17 @@ bool mergeTitle(ListMeta& local,
     return false;
 }
 
+bool mergeSortMode(ListMeta& local,
+                   const std::string& remoteMode,
+                   const Ver& remoteVer) {
+    if (remoteVer > local.sortModeVer) {
+        local.sortMode    = remoteMode;
+        local.sortModeVer = remoteVer;
+        return true;
+    }
+    return false;
+}
+
 bool mergeMember(std::map<std::string, std::pair<std::string, Ver>>& members,
                  const std::string& deviceId,
                  const std::string& displayName,

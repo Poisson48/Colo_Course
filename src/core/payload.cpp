@@ -148,6 +148,16 @@ std::optional<Payload> parsePayload(const std::string& jsonStr) {
         }
     }
 
+    // Parse optional sortMode (mode de classement répliqué)
+    if (j.contains("sortMode")) {
+        std::string mode;
+        Ver         ver;
+        if (parseVersionedField(j["sortMode"], mode, ver)) {
+            p.sortMode    = std::move(mode);
+            p.sortModeVer = ver;
+        }
+    }
+
     // Parse optional members
     if (j.contains("members") && j["members"].is_object()) {
         for (const auto& [devId, mval] : j["members"].items()) {
@@ -198,6 +208,10 @@ std::string serializePayload(const Payload& p) {
 
     if (p.title.has_value() && p.titleVer.has_value()) {
         j["title"] = json::array({*p.title, verToJson(*p.titleVer)});
+    }
+
+    if (p.sortMode.has_value() && p.sortModeVer.has_value()) {
+        j["sortMode"] = json::array({*p.sortMode, verToJson(*p.sortModeVer)});
     }
 
     if (!p.members.empty()) {

@@ -84,17 +84,22 @@ QStringList ItemModel::aisleNames() const {
     return names + custom;
 }
 
-bool ItemModel::rowLessThan(const Row &a, const Row &b) {
-    const int rankA = aisleRank(a.item.aisle);
-    const int rankB = aisleRank(b.item.aisle);
-    if (rankA != rankB)
-        return rankA < rankB;
-    // Deux rayons de même rang mais de libellés différents (deux inconnus) : les
-    // départager, sinon les sections s'entremêleraient.
-    if (a.item.aisle != b.item.aisle)
-        return a.item.aisle < b.item.aisle;
+bool ItemModel::rowLessThan(const Row &a, const Row &b, bool manual) {
+    // Mode rayon : on regroupe d'abord par rayon (ordre du magasin). En mode manuel,
+    // le rayon ne compte pas — la liste est une seule séquence ordonnée à la main.
+    if (!manual) {
+        const int rankA = aisleRank(a.item.aisle);
+        const int rankB = aisleRank(b.item.aisle);
+        if (rankA != rankB)
+            return rankA < rankB;
+        // Deux rayons de même rang mais de libellés différents (deux inconnus) : les
+        // départager, sinon les sections s'entremêleraient.
+        if (a.item.aisle != b.item.aisle)
+            return a.item.aisle < b.item.aisle;
+    }
 
-    // Dans un rayon : ce qui reste à prendre avant ce qui est déjà dans le panier.
+    // Ce qui reste à prendre avant ce qui est déjà dans le panier (dans le rayon en
+    // mode rayon, sur toute la liste en mode manuel).
     if (a.item.done != b.item.done)
         return !a.item.done; // false < true
 
@@ -120,8 +125,35 @@ void ItemModel::load(store::Database &db, const std::string &listId, const std::
     for (const auto &[devId, name] : db.getMembers(listId))
         m_memberNames[devId] = QString::fromStdString(name);
 
+    // Mode de classement de la liste (répliqué). "manual" = manuel seul, sinon rayon.
+    const bool manual = [&]{
+        auto meta = db.getList(listId);
+        return meta && meta->sortMode == "manual";
+    }();
+    if (manual != m_manualSort) {
+        m_manualSort = manual;
+        emit manualSortChanged();
+    }
+
     m_items = db.getItems(listId);
     rebuildRows();
+}
+
+void ItemModel::setManualSort(bool manual) {
+    if (!m_db || manual == m_manualSort) return;
+
+    // Écriture locale = tick du Lamport de la liste : la nouvelle version bat celle
+    // qu'on connaissait et gagne le merge LWW chez les autres participants. Repasser
+    // en mode rayon écrit "aisle" (et non "") pour battre un "manual" distant.
+    const int64_t lamport = m_db->bumpLamport(m_listId);
+    const core::Ver ver{ lamport, m_deviceId };
+    m_db->updateListSortMode(m_listId, manual ? "manual" : "aisle", ver);
+
+    m_manualSort = manual;
+    emit manualSortChanged();
+    rebuildRows();
+    // Publier le changement de mode (comme un renommage : c'est un champ de liste).
+    emit localChanged(m_listId);
 }
 
 // Filtre d'affichage : nom, quantité ou description. Insensible à la casse — on tape
@@ -152,7 +184,9 @@ void ItemModel::rebuildRows() {
             m_rows.push_back(Row{ item });
         }
     }
-    std::stable_sort(m_rows.begin(), m_rows.end(), rowLessThan);
+    const bool manual = m_manualSort;
+    std::stable_sort(m_rows.begin(), m_rows.end(),
+                     [manual](const Row &a, const Row &b){ return rowLessThan(a, b, manual); });
     endResetModel();
     emit countChanged();
     emit doneCountChanged();
@@ -207,6 +241,9 @@ QHash<int, QByteArray> ItemModel::roleNames() const {
 }
 
 int ItemModel::aisleCount() const {
+    // En mode manuel la liste n'a pas de sections : un seul « rayon » du point de vue
+    // de la vue, pour que les en-têtes disparaissent.
+    if (m_manualSort) return 1;
     std::set<std::string> distinct;
     for (const auto &row : m_rows)
         distinct.insert(row.item.aisle);
@@ -309,7 +346,9 @@ void ItemModel::addItem(const QString &name, const QString &qty,
 
     // Find sorted insertion position (upper_bound to append after equals).
     Row newRow{ item };
-    auto it = std::upper_bound(m_rows.begin(), m_rows.end(), newRow, rowLessThan);
+    const bool manual = m_manualSort;
+    const auto less = [manual](const Row &a, const Row &b){ return rowLessThan(a, b, manual); };
+    auto it = std::upper_bound(m_rows.begin(), m_rows.end(), newRow, less);
     const int pos = static_cast<int>(it - m_rows.begin());
 
     beginInsertRows({}, pos, pos);
@@ -353,7 +392,9 @@ void ItemModel::toggleDone(const QString &itemId) {
     std::vector<Row> scratch = m_rows;
     scratch.erase(scratch.begin() + oldPos);
 
-    auto newIt = std::upper_bound(scratch.begin(), scratch.end(), updatedRow, rowLessThan);
+    const bool manual = m_manualSort;
+    const auto less = [manual](const Row &a, const Row &b){ return rowLessThan(a, b, manual); };
+    auto newIt = std::upper_bound(scratch.begin(), scratch.end(), updatedRow, less);
     int newPos = static_cast<int>(newIt - scratch.begin());
 
     if (oldPos == newPos) {
@@ -488,19 +529,23 @@ void ItemModel::moveItem(int from, int to) {
     const Row *after  = (to < static_cast<int>(without.size()))
                         ? &without[static_cast<size_t>(to)] : nullptr;
 
-    // L'article prend le rayon de la ligne qu'on a survolée pour le déposer — c'est
-    // elle que le doigt désigne. Selon le sens du geste, cette ligne se retrouve
-    // au-dessus ou en dessous de la place visée : en descendant, on vient se poser
-    // APRÈS elle (elle est donc `before`) ; en montant, on vient prendre sa place
-    // (elle est donc `after`). Prendre systématiquement `before` classerait l'article
-    // dans le rayon de la ligne précédente, qui peut être un tout autre rayon.
+    // En mode rayon, l'article prend le rayon de la ligne qu'on a survolée pour le
+    // déposer — c'est elle que le doigt désigne. Selon le sens du geste, cette ligne se
+    // retrouve au-dessus ou en dessous de la place visée : en descendant, on vient se
+    // poser APRÈS elle (elle est donc `before`) ; en montant, on vient prendre sa place
+    // (elle est donc `after`). En mode manuel, glisser NE reclasse pas : le rayon ne
+    // bouge pas, on ne fait que déplacer dans la séquence unique.
     const Row *hovered = (from < to) ? before : after;
-    const std::string targetAisle = hovered ? hovered->item.aisle : moved.aisle;
+    const std::string targetAisle = m_manualSort
+        ? moved.aisle
+        : (hovered ? hovered->item.aisle : moved.aisle);
 
-    // Les voisins qui comptent pour la position sont ceux du MÊME rayon et du même
-    // état (à acheter / pris) : le tri les sépare avant de regarder la position.
+    // Les voisins qui comptent pour la position sont ceux du même groupe : même état
+    // (à acheter / pris), et — en mode rayon seulement — même rayon. Le tri les sépare
+    // avant de regarder la position.
     const auto sameGroup = [&](const Row *r) {
-        return r && r->item.aisle == targetAisle && r->item.done == moved.done;
+        return r && r->item.done == moved.done
+            && (m_manualSort || r->item.aisle == targetAisle);
     };
     const int64_t lo = sameGroup(before) ? before->item.order : 0;
     const int64_t hi = sameGroup(after)  ? after->item.order  : 0;
@@ -574,7 +619,8 @@ void ItemModel::renumber(const std::string &aisle, bool done) {
 
     int64_t next = 1000;
     for (auto &row : m_rows) {
-        if (row.item.aisle != aisle || row.item.done != done)
+        // En mode manuel le rayon ne délimite pas le groupe : seul l'état compte.
+        if (row.item.done != done || (!m_manualSort && row.item.aisle != aisle))
             continue;
         auto it = std::find_if(m_items.begin(), m_items.end(),
                                [&](const core::Item &i){ return i.itemId == row.item.itemId; });

@@ -924,6 +924,74 @@ private slots:
         }
     }
 
+    // Mode manuel : le tri ignore les rayons (une seule séquence), glisser réordonne
+    // sans reclasser, et le mode est persisté (répliqué comme le titre).
+    void test_manualSort() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        QVERIFY(!model.manualSort());   // défaut = par rayon
+
+        // Ajoutés dans le désordre des rayons : Crèmerie (rang 2) avant Fruits (rang 0).
+        model.addItem("Beurre", "", "", "Crèmerie");
+        model.addItem("Pommes", "", "", "Fruits & légumes");
+
+        // En mode rayon, le tri remonte Fruits avant Crèmerie malgré l'ordre d'ajout.
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Pommes"));
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Beurre"));
+
+        // Passage en manuel : le rayon ne trie plus, on retrouve l'ordre d'ajout.
+        QSignalSpy modeSpy(&model, &ItemModel::manualSortChanged);
+        model.setManualSort(true);
+        QCOMPARE(modeSpy.count(), 1);
+        QVERIFY(model.manualSort());
+        QCOMPARE(model.aisleCount(), 1);   // pas de sections en manuel
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Beurre"));
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Pommes"));
+
+        // Le mode est persisté et versionné (répliqué).
+        auto meta = db.getList(listId);
+        QVERIFY(meta.has_value());
+        QCOMPARE(meta->sortMode, std::string("manual"));
+        QVERIFY(meta->sortModeVer.lamport > 0);
+
+        // Glisser en manuel réordonne SANS changer le rayon : Pommes remonte au-dessus
+        // de Beurre, mais garde « Fruits & légumes ».
+        model.moveItem(1, 0);
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Pommes"));
+        QCOMPARE(model.data(model.index(0), ItemModel::AisleRole).toString(),
+                 QStringLiteral("Fruits & légumes"));   // rayon intact
+        for (const auto &it : db.getItems(listId))
+            if (it.name == "Pommes")
+                QCOMPARE(it.aisle, std::string("Fruits & légumes"));
+
+        // Retour en mode rayon : "aisle" est écrit (pas ""), pour battre un "manual"
+        // distant au merge. L'ordre par rayon revient.
+        model.setManualSort(false);
+        QVERIFY(!model.manualSort());
+        QCOMPARE(db.getList(listId)->sortMode, std::string("aisle"));
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Pommes"));   // Fruits d'abord
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Beurre"));
+
+        // Le mode survit à un rechargement (relu depuis la base).
+        model.setManualSort(true);
+        ItemModel reloaded;
+        reloaded.load(db, listId, "dev-A");
+        QVERIFY(reloaded.manualSort());
+    }
+
     // Ranger un article depuis le dialogue d'édition le fait changer de section.
     void test_setAisle() {
         QTemporaryDir dir;

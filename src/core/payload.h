@@ -28,6 +28,11 @@ struct Payload {
     std::optional<std::string> title;
     std::optional<Ver>         titleVer;
 
+    // Mode de classement répliqué (voir ListMeta::sortMode). Optionnel : absent des
+    // payloads des versions antérieures, et omis tant que personne ne l'a choisi.
+    std::optional<std::string> sortMode;
+    std::optional<Ver>         sortModeVer;
+
     // deviceId -> (displayName, ver)
     std::map<std::string, std::pair<std::string, Ver>> members;
 };

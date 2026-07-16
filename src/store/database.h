@@ -37,6 +37,10 @@ public:
     bool updateListTitle(const std::string& listId,
                          const std::string& title,
                          const core::Ver& ver);
+    // Persist an LWW-merged sort mode (caller does the mergeSortMode comparison).
+    bool updateListSortMode(const std::string& listId,
+                            const std::string& sortMode,
+                            const core::Ver& ver);
     // Advance last_sync (ms epoch); only moves forward.
     bool updateLastSync(const std::string& listId, int64_t ms);
     // Quitter une liste : efface toute trace locale (liste, items, membres, outbox).

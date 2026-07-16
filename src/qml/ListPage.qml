@@ -195,6 +195,21 @@ Item {
             onTriggered: root.reorderMode = true
         }
         MenuSeparator {}
+        // Choix du classement (partagé avec les autres participants). Deux options
+        // exclusives, cochées selon le mode courant.
+        MenuItem {
+            text: "Classer par rayon"
+            checkable: true
+            checked: !AppController.items.manualSort
+            onTriggered: AppController.items.manualSort = false
+        }
+        MenuItem {
+            text: "Classement manuel"
+            checkable: true
+            checked: AppController.items.manualSort
+            onTriggered: AppController.items.manualSort = true
+        }
+        MenuSeparator {}
         MenuItem {
             text: "Partager la liste"
             onTriggered: shareSheet.openFor(root.listId, root.listTitle)
@@ -351,8 +366,9 @@ Item {
             spacing: 6
 
             // Sections par rayon. Elles n'apparaissent que si les articles sont
-            // effectivement classés : qui ne s'en sert pas ne voit aucun en-tête.
-            section.property: "aisle"
+            // effectivement classés : qui ne s'en sert pas ne voit aucun en-tête. En
+            // mode manuel, aucune section : la liste est une seule séquence à la main.
+            section.property: AppController.items.manualSort ? "" : "aisle"
             section.criteria: ViewSection.FullString
             section.delegate: Item {
                 required property string section

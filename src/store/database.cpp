@@ -75,7 +75,10 @@ bool Database::createSchema()
             "  lamport INT,"
             "  last_sync INT,"
             "  created INT,"
-            "  group_id TEXT"          // groupe local, '' = non rangé
+            "  group_id TEXT,"         // groupe local, '' = non rangé
+            "  sort_mode TEXT,"        // mode de classement répliqué, '' = par rayon
+            "  sort_mode_l INT,"
+            "  sort_mode_d TEXT"
             ")"),
         QStringLiteral(
             // Groupes locaux : jamais synchronisés, propres à l'appareil.
@@ -231,6 +234,22 @@ bool Database::migrateSchema()
             return false;
         }
     }
+
+    // Colonnes du mode de classement répliqué : ajoutées aux bases d'avant cette version.
+    // Absent = '' en version {0,''} : tout choix réel le bat au merge LWW, rien n'est perdu.
+    const QList<QPair<QString, QString>> listSortCols = {
+        { QStringLiteral("sort_mode"),   QStringLiteral("sort_mode TEXT DEFAULT ''") },
+        { QStringLiteral("sort_mode_l"), QStringLiteral("sort_mode_l INT DEFAULT 0") },
+        { QStringLiteral("sort_mode_d"), QStringLiteral("sort_mode_d TEXT DEFAULT ''") },
+    };
+    for (const auto& [name, def] : listSortCols) {
+        if (listCols.contains(name)) continue;
+        if (!q.exec(QStringLiteral("ALTER TABLE lists ADD COLUMN ") + def)) {
+            qWarning() << "migrateSchema: ADD COLUMN" << name
+                       << "failed:" << q.lastError().text();
+            return false;
+        }
+    }
     return true;
 }
 
@@ -241,8 +260,9 @@ bool Database::createList(const core::ListMeta& meta)
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
         "INSERT OR IGNORE INTO lists"
-        " (list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"));
+        " (list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created,"
+        "  sort_mode, sort_mode_l, sort_mode_d)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
     q.addBindValue(qs(meta.listId));
     q.addBindValue(QByteArray(reinterpret_cast<const char*>(meta.key.data()),
                               static_cast<int>(meta.key.size())));
@@ -252,6 +272,9 @@ bool Database::createList(const core::ListMeta& meta)
     q.addBindValue(ll(meta.lamport));
     q.addBindValue(ll(meta.lastSync));
     q.addBindValue(ll(meta.created));
+    q.addBindValue(qs(meta.sortMode));
+    q.addBindValue(ll(meta.sortModeVer.lamport));
+    q.addBindValue(qs(meta.sortModeVer.deviceId));
 
     if (!q.exec()) {
         qWarning() << "createList error:" << q.lastError().text();
@@ -280,13 +303,33 @@ bool Database::updateListTitle(const std::string& listId,
     return true;
 }
 
+bool Database::updateListSortMode(const std::string& listId,
+                                  const std::string& sortMode,
+                                  const core::Ver& ver)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "UPDATE lists SET sort_mode = ?, sort_mode_l = ?, sort_mode_d = ?"
+        " WHERE list_id = ?"));
+    q.addBindValue(qs(sortMode));
+    q.addBindValue(ll(ver.lamport));
+    q.addBindValue(qs(ver.deviceId));
+    q.addBindValue(qs(listId));
+
+    if (!q.exec()) {
+        qWarning() << "updateListSortMode error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
 std::vector<core::ListMeta> Database::getLists()
 {
     std::vector<core::ListMeta> result;
     QSqlQuery q(m_db);
     q.exec(QStringLiteral(
         "SELECT list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created,"
-        " group_id"
+        " group_id, sort_mode, sort_mode_l, sort_mode_d"
         " FROM lists ORDER BY created ASC"));
     while (q.next()) {
         core::ListMeta m;
@@ -300,6 +343,8 @@ std::vector<core::ListMeta> Database::getLists()
         m.lastSync      = q.value(6).toLongLong();
         m.created       = q.value(7).toLongLong();
         m.groupId       = ss(q.value(8).toString());
+        m.sortMode      = ss(q.value(9).toString());
+        m.sortModeVer   = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
         result.push_back(std::move(m));
     }
     return result;
@@ -544,7 +589,8 @@ std::optional<core::ListMeta> Database::getList(const std::string& listId)
 {
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
-        "SELECT list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created"
+        "SELECT list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created,"
+        " group_id, sort_mode, sort_mode_l, sort_mode_d"
         " FROM lists WHERE list_id = ?"));
     q.addBindValue(qs(listId));
     if (!q.exec() || !q.next())
@@ -560,6 +606,9 @@ std::optional<core::ListMeta> Database::getList(const std::string& listId)
     m.lamport       = q.value(5).toLongLong();
     m.lastSync      = q.value(6).toLongLong();
     m.created       = q.value(7).toLongLong();
+    m.groupId       = ss(q.value(8).toString());
+    m.sortMode      = ss(q.value(9).toString());
+    m.sortModeVer   = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
     return m;
 }
 

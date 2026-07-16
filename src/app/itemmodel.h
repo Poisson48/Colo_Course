@@ -24,6 +24,10 @@ class ItemModel : public QAbstractListModel {
     // Nombre de rayons distincts affichés. À un seul, les en-têtes de section ne
     // servent à rien : qui ne classe pas ses articles ne voit aucun changement.
     Q_PROPERTY(int aisleCount READ aisleCount NOTIFY countChanged)
+    // Mode de classement de la liste (répliqué). false = par rayon puis position
+    // manuelle (défaut) ; true = position manuelle seule, sans sections, glisser
+    // réordonne librement sans reclasser. Le changer le publie aux autres participants.
+    Q_PROPERTY(bool manualSort READ manualSort WRITE setManualSort NOTIFY manualSortChanged)
     // Les rayons proposés à la saisie : ceux d'origine, puis ceux que les participants
     // ont inventés dans cette liste. NOTIFY et pas CONSTANT : un rayon créé doit
     // apparaître aussitôt dans le choix, ici comme chez les autres.
@@ -69,6 +73,11 @@ public:
     QString filter() const { return m_filter; }
     void    setFilter(const QString &filter);
 
+    bool manualSort() const { return m_manualSort; }
+    // Choisir le mode : écrit le champ répliqué (LWW), retrie, et publie aux autres.
+    // Un merge distant, lui, arrive par un rechargement complet du modèle (load).
+    void setManualSort(bool manual);
+
     // Nom d'un article déjà présent (comparaison insensible à la casse et aux
     // espaces), ou chaîne vide. Sert à prévenir avant d'ajouter un doublon.
     Q_INVOKABLE QString existingName(const QString &name) const;
@@ -106,6 +115,7 @@ signals:
     void doneCountChanged();
     void filterChanged();
     void aisleNamesChanged();
+    void manualSortChanged();
     // Un article a été ajouté par l'utilisateur (pas un merge ni un import) : les
     // favoris fréquents ont changé.
     void itemAdded();
@@ -121,10 +131,11 @@ private:
     // Find visible row index by itemId (-1 if not found).
     int findRow(const QString &itemId) const;
 
-    // Tri d'affichage : rayon (ordre du magasin), puis à acheter avant pris, puis
-    // position manuelle. Un article coché descend au bas de SON rayon, pas au bas de
-    // la liste : on parcourt le magasin rayon par rayon.
-    static bool rowLessThan(const Row &a, const Row &b);
+    // Tri d'affichage. En mode rayon : rayon (ordre du magasin), puis à acheter avant
+    // pris, puis position manuelle — un article coché descend au bas de SON rayon, on
+    // parcourt le magasin rayon par rayon. En mode manuel : le rayon est ignoré, tri
+    // par à-acheter/pris puis position manuelle sur toute la liste.
+    static bool rowLessThan(const Row &a, const Row &b, bool manual);
 
     // Rang du rayon dans le parcours. Rayon inconnu ou vide → après tous les autres.
     static int aisleRank(const std::string &aisle);
@@ -134,14 +145,16 @@ private:
 
     bool matchesFilter(const core::Item &item) const;
 
-    // Ré-espace les positions d'un groupe (même rayon, même état) quand l'intervalle
-    // entre deux voisins est épuisé.
+    // Ré-espace les positions d'un groupe quand l'intervalle entre deux voisins est
+    // épuisé. Le groupe = même état (pris / à acheter) et, en mode rayon, même rayon ;
+    // en mode manuel, tous rayons confondus.
     void renumber(const std::string &aisle, bool done);
 
     store::Database *m_db     = nullptr;
     std::string      m_listId;
     std::string      m_deviceId;
     QString          m_filter;
+    bool             m_manualSort = false;  // mode de classement de la liste chargée
 
     // deviceId → nom affiché, pour dire qui a ajouté quoi. Chargé avec la liste.
     std::map<std::string, QString> m_memberNames;

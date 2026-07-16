@@ -162,6 +162,13 @@ void SyncEngine::publishDelta(const std::string& listId)
     p.title    = metaOpt->title;
     p.titleVer = metaOpt->titleVer;
 
+    // Mode de classement, versionné comme le titre. Omis tant que personne ne l'a
+    // choisi (ver lamport 0) : inutile d'imposer un défaut aux versions antérieures.
+    if (metaOpt->sortModeVer.lamport > 0) {
+        p.sortMode    = metaOpt->sortMode;
+        p.sortModeVer = metaOpt->sortModeVer;
+    }
+
     // Include our own member entry so remote peers know our display name.
     const std::string devId = m_deviceId.toStdString();
     p.by = devId;
@@ -188,6 +195,10 @@ void SyncEngine::publishSnap(const std::string& listId)
     p.items     = items;
     p.title     = metaOpt->title;
     p.titleVer  = metaOpt->titleVer;
+    if (metaOpt->sortModeVer.lamport > 0) {
+        p.sortMode    = metaOpt->sortMode;
+        p.sortModeVer = metaOpt->sortModeVer;
+    }
 
     const std::string devId = m_deviceId.toStdString();
     p.by = devId;
@@ -338,6 +349,7 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
                                item.delVer.lamport});
     }
     if (payload.titleVer) maxLamport = std::max(maxLamport, payload.titleVer->lamport);
+    if (payload.sortModeVer) maxLamport = std::max(maxLamport, payload.sortModeVer->lamport);
     for (const auto& [did, entry] : payload.members)
         maxLamport = std::max(maxLamport, entry.second.lamport);
 
@@ -370,6 +382,14 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
                                       QString::fromStdString(metaOpt2->title));
             }
         }
+    }
+
+    // Merge sort mode if present. Change silencieuse (aucun article touché) : l'écran
+    // ouvert la reflète via le rechargement du modèle plus bas ; rien à notifier.
+    if (payload.sortMode && payload.sortModeVer) {
+        auto metaS = m_db->getList(listId);
+        if (metaS && core::mergeSortMode(*metaS, *payload.sortMode, *payload.sortModeVer))
+            m_db->updateListSortMode(listId, metaS->sortMode, metaS->sortModeVer);
     }
 
     // Merge members.

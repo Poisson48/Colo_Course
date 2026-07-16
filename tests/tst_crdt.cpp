@@ -533,6 +533,20 @@ static void test_MergeTitle() {
     EXPECT_EQ(meta.title, "New");
 }
 
+// mergeSortMode — même règle LWW que le titre.
+static void test_MergeSortMode() {
+    ListMeta meta;   // défaut : "" en version {0,""}
+    // Un premier choix (lamport 1) bat le défaut.
+    EXPECT_TRUE(mergeSortMode(meta, "manual", makeVer(1, "devA")));
+    EXPECT_EQ(meta.sortMode, "manual");
+    // Une version plus récente gagne (retour au tri par rayon).
+    EXPECT_TRUE(mergeSortMode(meta, "aisle", makeVer(2, "devB")));
+    EXPECT_EQ(meta.sortMode, "aisle");
+    // Une version périmée est ignorée.
+    EXPECT_FALSE(mergeSortMode(meta, "manual", makeVer(1, "devA")));
+    EXPECT_EQ(meta.sortMode, "aisle");
+}
+
 // mergeMember
 // La description suit la même règle LWW que les autres champs, indépendamment d'eux.
 static void test_MergeNote() {
@@ -694,6 +708,7 @@ int main() {
     test_LateJoinConvergence();
     test_GcEligibility();
     test_MergeTitle();
+    test_MergeSortMode();
     test_MergeNote();
     test_MergeDoneAt();
     test_MergeAisleAndOrder();
