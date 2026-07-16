@@ -441,14 +441,12 @@ private slots:
         delete page;
     }
 
-    // L'écran des listes se charge sans erreur de binding, y compris en mode
-    // Réorganiser (bandeau + flèches). Ne rend pas les délégués (offscreen), mais
-    // valide le niveau supérieur : bandeau, menu, propriété reorderMode.
+    // L'écran des listes se charge sans erreur de binding. Ne rend pas les délégués
+    // (offscreen), mais valide le niveau supérieur : barre, menu, bindings.
     void test_listsPageLoadsCleanly() {
         g_warnings.clear();
         qInstallMessageHandler(warningCollector);
         QObject *page = load(QStringLiteral("ListsPage.qml"));
-        if (page) page->setProperty("reorderMode", true);
         qInstallMessageHandler(nullptr);
 
         // Chargée hors fenêtre, la page ouvre son dialogue de nom (onCompleted) sans
@@ -517,12 +515,6 @@ private slots:
         QMetaObject::invokeMethod(page, "handleBack", Q_RETURN_ARG(QVariant, handled));
         QCOMPARE(handled.toBool(), true);
         QCOMPARE(page->property("shoppingMode").toBool(), false);
-
-        // Mode Réorganiser : le retour en sort aussi.
-        page->setProperty("reorderMode", true);
-        QMetaObject::invokeMethod(page, "handleBack", Q_RETURN_ARG(QVariant, handled));
-        QCOMPARE(handled.toBool(), true);
-        QCOMPARE(page->property("reorderMode").toBool(), false);
 
         // La sélection passe avant le mode Courses : on défait le plus récent d'abord.
         page->setProperty("shoppingMode", true);

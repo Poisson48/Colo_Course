@@ -22,10 +22,9 @@ Item {
     // que l'affichage, il ne supprime ni ne désynchronise rien.
     property bool searchOpen: false
 
-    // Mode Réorganiser : des flèches ↑/↓ apparaissent sur chaque ligne, le tap et le
-    // swipe sont mis en pause. On y entre par le menu, on en sort par « Terminer ».
-    // Les flèches hors du repos, c'est ce qui allège la ligne au quotidien.
-    property bool reorderMode: false
+    // Vrai le temps qu'une poignée de déplacement est tenue : fige le défilement de la
+    // liste pour que le glissement l'emporte sur écran tactile.
+    property bool rowDragging: false
 
     readonly property string pageTitle: selectionMode
         ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
@@ -53,10 +52,6 @@ Item {
         }
         if (searchOpen) {
             closeSearch()
-            return true
-        }
-        if (reorderMode) {
-            reorderMode = false
             return true
         }
         if (shoppingMode) {
@@ -108,11 +103,11 @@ Item {
             onClicked: deleteDialog.openFor(root.selectedIds)
         }
 
-        // En mode Courses ou Réorganiser, une seule sortie possible, bien visible.
+        // En mode Courses, une seule sortie possible, bien visible.
         ToolButton {
             width: 92
             height: Theme.touchTarget
-            visible: (root.shoppingMode || root.reorderMode) && !root.selectionMode
+            visible: root.shoppingMode && !root.selectionMode
             contentItem: Label {
                 text: "Terminer"
                 color: Theme.accent
@@ -121,7 +116,7 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
             }
-            onClicked: { root.shoppingMode = false; root.reorderMode = false }
+            onClicked: root.shoppingMode = false
         }
 
         // Le mode du magasin est celui qu'on ouvre le plus souvent : il mérite un
@@ -129,7 +124,7 @@ Item {
         ToolButton {
             width: 90
             height: Theme.touchTarget
-            visible: !root.selectionMode && !root.shoppingMode && !root.reorderMode
+            visible: !root.selectionMode && !root.shoppingMode
             contentItem: Label {
                 text: "Courses"
                 color: Theme.accent
@@ -144,7 +139,7 @@ Item {
         ToolButton {
             width: Theme.touchTarget
             height: Theme.touchTarget
-            visible: !root.selectionMode && !root.shoppingMode && !root.reorderMode
+            visible: !root.selectionMode && !root.shoppingMode
             contentItem: Icon {
                 name: "menu"
                 color: Theme.text
@@ -189,11 +184,6 @@ Item {
             enabled: AppController.items.doneCount > 0
             onTriggered: clearDoneDialog.open()
         }
-        MenuItem {
-            text: "Réorganiser les articles"
-            enabled: AppController.items.count > 1
-            onTriggered: root.reorderMode = true
-        }
         MenuSeparator {}
         // Choix du classement (partagé avec les autres participants). Deux options
         // exclusives, cochées selon le mode courant.
@@ -229,27 +219,6 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
-
-        // Mode Réorganiser : un rappel discret de ce qu'on fait.
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.reorderMode ? 34 : 0
-            visible: Layout.preferredHeight > 0
-            clip: true
-            color: Theme.surfaceHigh
-            Behavior on Layout.preferredHeight { NumberAnimation { duration: 140 } }
-
-            Label {
-                anchors.centerIn: parent
-                text: "Rangez les articles avec les flèches ↑↓"
-                color: Theme.textDim
-                font.pixelSize: 12
-            }
-            Rectangle {
-                anchors.bottom: parent.bottom
-                width: parent.width; height: 1; color: Theme.outline
-            }
-        }
 
         // Mode Courses : où en est le caddie, sans avoir à compter les lignes.
         Rectangle {
@@ -361,6 +330,9 @@ Item {
             Layout.fillHeight: true
             clip: true
             model: AppController.items
+            // La vue ne se fige QUE pendant qu'une poignée est tenue : sinon elle
+            // disputerait le geste vertical au glissement. Au repos, elle défile.
+            interactive: !root.rowDragging
             topMargin: Theme.gap
             bottomMargin: Theme.gap
             spacing: 6
@@ -391,169 +363,196 @@ Item {
 
             // Ce qui reste à acheter est en haut de son rayon (tri du modèle) ; une
             // fois coché, l'article descend et s'estompe au lieu de disparaître.
-            delegate: SwipeDelegate {
-                id: row
-                width: items.width - 2 * Theme.gap
-                x: Theme.gap
+            //
+            // Conteneur immobile (place dans la vue + zone de dépôt) contenant la ligne,
+            // qui se détache sous le doigt pendant un glissement.
+            delegate: Item {
+                id: wrapper
+                width: items.width
                 height: root.shoppingMode ? 68 : 60
-                padding: 0
 
-                readonly property bool selected: root.isSelected(model.itemId)
+                // Pas de `required property int index` (couperait le contexte du modèle).
+                property int rowIndex: index
+                // « Saisie » : posée par la poignée dès l'appui. Fige la vue le temps du
+                // glissement (root.rowDragging) pour que le geste l'emporte sur le
+                // défilement, et détache la ligne sous le doigt.
+                property bool held: false
+                z: held ? 2 : 1
 
-                // Le swipe supprime : désactivé en sélection (conflit avec le geste), en
-                // mode Courses (un geste de travers effacerait l'article des autres) et
-                // en réorganisation (les flèches suffisent).
-                swipe.enabled: !root.selectionMode && !root.shoppingMode && !root.reorderMode
-
-                background: Rectangle {
-                    radius: 12
-                    color: row.selected ? Theme.accentSoft
-                         : (row.pressed ? Theme.surfaceHigh : Theme.surface)
-                    border.color: row.selected ? Theme.accent : Theme.outline
-                    border.width: 1
+                DropArea {
+                    anchors.fill: parent
+                    onEntered: function (drag) {
+                        const source = drag.source
+                        if (!source || source === wrapper)
+                            return
+                        // Franchir une frontière de rayon range l'article dans ce rayon :
+                        // c'est le modèle qui en décide (moveItem), pas la vue.
+                        AppController.items.moveItem(source.rowIndex, wrapper.rowIndex)
+                    }
                 }
 
-                contentItem: RowLayout {
-                    spacing: 0
+                SwipeDelegate {
+                    id: row
+                    width: wrapper.width - 2 * Theme.gap
+                    x: Theme.gap
+                    height: wrapper.height
+                    padding: 0
 
-                    CheckBox {
-                        Layout.leftMargin: 6
-                        Layout.alignment: Qt.AlignVCenter
-                        implicitWidth: Theme.touchTarget
-                        implicitHeight: Theme.touchTarget
-                        // Inerte en réorganisation : on ne fait que déplacer.
-                        enabled: !root.reorderMode
-                        // En mode sélection, la case coche la ligne ; sinon elle
-                        // marque l'article comme acheté.
-                        checked: root.selectionMode ? row.selected : model.done
-                        Material.accent: Theme.accent
-                        // onToggled et pas onCheckedChanged : ce dernier repart en
-                        // boucle quand le modèle se recharge après un merge distant.
-                        onToggled: {
-                            if (root.selectionMode)
-                                root.toggleSelection(model.itemId)
-                            else
-                                AppController.items.toggleDone(model.itemId)
-                        }
+                    readonly property bool selected: root.isSelected(model.itemId)
+
+                    Drag.active: wrapper.held
+                    Drag.source: wrapper
+                    Drag.hotSpot.x: width / 2
+                    Drag.hotSpot.y: height / 2
+                    opacity: wrapper.held ? 0.85 : 1.0
+                    // Pendant le glissement, la ligne quitte son conteneur pour la vue :
+                    // elle reste sous le doigt pendant que les autres se réorganisent.
+                    states: State {
+                        when: wrapper.held
+                        ParentChange { target: row; parent: items }
                     }
 
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignVCenter
-                        Layout.leftMargin: 4
-                        spacing: 1
+                    // Le swipe supprime : désactivé en sélection (conflit) et en mode
+                    // Courses (un geste de travers effacerait l'article des autres).
+                    swipe.enabled: !root.selectionMode && !root.shoppingMode
 
-                        Label {
-                            Layout.fillWidth: true
-                            text: model.name
-                            color: model.done ? Theme.textDim : Theme.text
-                            font.pixelSize: 16
-                            font.strikeout: model.done
-                            elide: Text.ElideRight
-                        }
+                    background: Rectangle {
+                        radius: 12
+                        color: row.selected ? Theme.accentSoft
+                             : (row.pressed ? Theme.surfaceHigh : Theme.surface)
+                        border.color: row.selected ? Theme.accent : Theme.outline
+                        border.width: 1
+                    }
 
-                        // Quantité et description sur une seule ligne : « 2 · sans sucre ».
-                        Label {
-                            Layout.fillWidth: true
-                            visible: text.length > 0
-                            text: {
-                                const parts = []
-                                if (model.qty && model.qty.length > 0)
-                                    parts.push(model.qty)
-                                if (model.note && model.note.length > 0)
-                                    parts.push(model.note)
-                                return parts.join(" \u00b7 ")
+                    contentItem: RowLayout {
+                        spacing: 0
+
+                        CheckBox {
+                            Layout.leftMargin: 6
+                            Layout.alignment: Qt.AlignVCenter
+                            implicitWidth: Theme.touchTarget
+                            implicitHeight: Theme.touchTarget
+                            // En mode sélection, la case coche la ligne ; sinon elle
+                            // marque l'article comme acheté.
+                            checked: root.selectionMode ? row.selected : model.done
+                            Material.accent: Theme.accent
+                            // onToggled et pas onCheckedChanged : ce dernier repart en
+                            // boucle quand le modèle se recharge après un merge distant.
+                            onToggled: {
+                                if (root.selectionMode)
+                                    root.toggleSelection(model.itemId)
+                                else
+                                    AppController.items.toggleDone(model.itemId)
                             }
-                            color: Theme.textDim
-                            font.pixelSize: 13
-                            elide: Text.ElideRight
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.leftMargin: 4
+                            spacing: 1
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: model.name
+                                color: model.done ? Theme.textDim : Theme.text
+                                font.pixelSize: 16
+                                font.strikeout: model.done
+                                elide: Text.ElideRight
+                            }
+
+                            // Quantité et description sur une ligne : « 2 \u00b7 sans sucre ».
+                            Label {
+                                Layout.fillWidth: true
+                                visible: text.length > 0
+                                text: {
+                                    const parts = []
+                                    if (model.qty && model.qty.length > 0)
+                                        parts.push(model.qty)
+                                    if (model.note && model.note.length > 0)
+                                        parts.push(model.note)
+                                    return parts.join(" \u00b7 ")
+                                }
+                                color: Theme.textDim
+                                font.pixelSize: 13
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        // Poignée de déplacement, toujours visible (hors sélection et
+                        // Courses) : on la glisse pour ranger l'article, loin d'un coup,
+                        // sans passer par un menu. `held` fige la vue le temps du geste.
+                        MouseArea {
+                            id: dragHandle
+                            Layout.rightMargin: 2
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: visible ? 34 : 0
+                            Layout.preferredHeight: Theme.touchTarget
+                            visible: !root.selectionMode && !root.shoppingMode
+                            drag.target: wrapper.held ? row : undefined
+                            drag.axis: Drag.YAxis
+                            cursorShape: Qt.SizeVerCursor
+                            preventStealing: true
+                            onPressed: { wrapper.held = true; root.rowDragging = true }
+                            onReleased: { wrapper.held = false; root.rowDragging = false }
+                            onCanceled: { wrapper.held = false; root.rowDragging = false }
+
+                            Icon {
+                                anchors.centerIn: parent
+                                name: "grip"
+                                color: Theme.textDim
+                                size: 16
+                            }
                         }
                     }
 
-                    // Réorganisation : deux flèches pour monter / descendre l'article d'un
-                    // cran. Un simple tap, fiable au doigt — pas de glissement qui se
-                    // battrait avec le défilement ou la sélection. Grisées aux extrémités.
-                    ToolButton {
-                        id: upButton
-                        visible: root.reorderMode
-                        Layout.preferredWidth: visible ? 40 : 0
-                        Layout.preferredHeight: Theme.touchTarget
-                        Layout.alignment: Qt.AlignVCenter
-                        enabled: index > 0
-                        opacity: enabled ? 1 : 0.3
-                        contentItem: Icon {
-                            anchors.centerIn: parent
-                            name: "chevron-up"; color: Theme.text; size: 18
+                    // Appui long sur la ligne : sélection multiple (sauf en Courses).
+                    onPressAndHold: {
+                        if (!root.shoppingMode)
+                            root.toggleSelection(model.itemId)
+                    }
+                    // Mode Courses : toute la ligne coche. Sinon : éditer, ou étendre la
+                    // sélection si elle est commencée.
+                    onClicked: {
+                        if (root.selectionMode) {
+                            root.toggleSelection(model.itemId)
+                        } else if (root.shoppingMode) {
+                            AppController.items.toggleDone(model.itemId)
+                            // On coche sans quitter le rayon des yeux : la vibration
+                            // confirme le geste à la place du regard.
+                            AppController.vibrate()
+                        } else {
+                            editDialog.openFor(model)
                         }
-                        onClicked: AppController.items.moveItem(index, index - 1)
                     }
-                    ToolButton {
-                        id: downButton
-                        visible: root.reorderMode
-                        Layout.preferredWidth: visible ? 40 : 0
-                        Layout.preferredHeight: Theme.touchTarget
-                        Layout.rightMargin: 2
-                        Layout.alignment: Qt.AlignVCenter
-                        enabled: index < AppController.items.count - 1
-                        opacity: enabled ? 1 : 0.3
-                        contentItem: Icon {
-                            anchors.centerIn: parent
-                            name: "chevron-down"; color: Theme.text; size: 18
+
+                    // Glisser vers la gauche : suppression, avec un fond rouge explicite.
+                    swipe.right: Rectangle {
+                        width: parent.width
+                        height: parent.height
+                        radius: 12
+                        color: Theme.danger
+
+                        Label {
+                            anchors.right: parent.right
+                            anchors.rightMargin: 20
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Supprimer"
+                            color: "white"
+                            font.pixelSize: 15
+                            font.weight: Font.DemiBold
                         }
-                        onClicked: AppController.items.moveItem(index, index + 1)
-                    }
-                }
 
-                // Appui long : entrer en sélection multiple — sauf en mode Courses (on
-                // ne fait que cocher) ou Réorganiser (on range par les flèches).
-                onPressAndHold: {
-                    if (!root.shoppingMode && !root.reorderMode)
-                        root.toggleSelection(model.itemId)
-                }
-                // Mode Courses : toute la ligne est la case à cocher. Sinon, éditer —
-                // ou étendre la sélection si elle est déjà commencée. En réorganisation,
-                // le tap ne fait rien (on range par les flèches).
-                onClicked: {
-                    if (root.reorderMode) {
-                        return
-                    } else if (root.selectionMode) {
-                        root.toggleSelection(model.itemId)
-                    } else if (root.shoppingMode) {
-                        AppController.items.toggleDone(model.itemId)
-                        // On coche sans quitter le rayon des yeux : la vibration
-                        // confirme le geste à la place du regard.
-                        AppController.vibrate()
-                    } else {
-                        editDialog.openFor(model)
+                        SwipeDelegate.onClicked: {
+                            // La ligne est rouverte : si la confirmation est refusée,
+                            // l'article ne doit pas rester en position « glissée ».
+                            row.swipe.close()
+                            deleteDialog.openFor([model.itemId], model.name)
+                        }
                     }
-                }
-
-                // Glisser vers la gauche : suppression, avec un fond rouge explicite.
-                swipe.right: Rectangle {
-                    width: parent.width
-                    height: parent.height
-                    radius: 12
-                    color: Theme.danger
-
-                    Label {
-                        anchors.right: parent.right
-                        anchors.rightMargin: 20
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "Supprimer"
-                        color: "white"
-                        font.pixelSize: 15
-                        font.weight: Font.DemiBold
-                    }
-
-                    SwipeDelegate.onClicked: {
-                        // La ligne est rouverte : si la confirmation est refusée,
-                        // l'article ne doit pas rester en position « glissée ».
-                        row.swipe.close()
-                        deleteDialog.openFor([model.itemId], model.name)
-                    }
-                }
-            }   // SwipeDelegate
-        }
+                }   // SwipeDelegate
+            }   // wrapper
+        }   // ListView
 
         // État vide. Une liste vide et une recherche sans résultat ne se disent pas
         // pareil : « ajoutez un article » quand on cherche « harissa » serait absurde.

@@ -81,16 +81,6 @@ Item {
                 ctx.moveTo(x - w * 0.04, h * 0.5)
                 ctx.lineTo(w * 0.80, h * 0.5)
 
-            } else if (icon.name === "chevron-up") {
-                ctx.moveTo(w * 0.26, h * 0.62)
-                ctx.lineTo(w * 0.5,  h * 0.38)
-                ctx.lineTo(w * 0.74, h * 0.62)
-
-            } else if (icon.name === "chevron-down") {
-                ctx.moveTo(w * 0.26, h * 0.38)
-                ctx.lineTo(w * 0.5,  h * 0.62)
-                ctx.lineTo(w * 0.74, h * 0.38)
-
             } else if (icon.name === "check") {
                 ctx.moveTo(w * 0.22, h * 0.52)
                 ctx.lineTo(w * 0.42, h * 0.72)

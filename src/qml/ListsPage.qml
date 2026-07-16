@@ -8,9 +8,9 @@ Item {
 
     readonly property string pageTitle: "Mes listes"
 
-    // Mode Réorganiser : des flèches ↑/↓ apparaissent sur chaque liste, le tap n'ouvre
-    // plus une liste (on ne fait que la ranger). Piloté depuis le menu.
-    property bool reorderMode: false
+    // Vrai le temps qu'une poignée de déplacement est tenue : fige le défilement des
+    // listes pour que le glissement l'emporte sur écran tactile.
+    property bool rowDragging: false
 
     // AppController.groups() lit la base à chaque appel ; rien ne le rappelle tout seul.
     // Le modèle des listes se réinitialise à chaque changement de groupe (reload en
@@ -115,11 +115,6 @@ Item {
         id: overflowMenu
 
         MenuItem {
-            text: "Réorganiser les listes"
-            enabled: listView.count > 1
-            onTriggered: root.reorderMode = true
-        }
-        MenuItem {
             text: "Gérer les rayons"
             onTriggered: aislesDialog.open()
         }
@@ -142,59 +137,17 @@ Item {
             nameDialog.open()
     }
 
-    // Bandeau du mode Réorganiser : rappelle ce qu'on fait, et offre la sortie (le
-    // reste de la barre supérieure appartient à Main.qml, hors de portée d'ici).
-    Rectangle {
-        id: reorderBanner
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: root.reorderMode ? 44 : 0
-        visible: height > 0
-        clip: true
-        color: Theme.surfaceHigh
-
-        RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: Theme.gap + 4
-            anchors.rightMargin: Theme.gap
-            spacing: 8
-
-            Label {
-                Layout.fillWidth: true
-                text: "Rangez les listes avec les flèches"
-                color: Theme.textDim
-                font.pixelSize: 13
-                verticalAlignment: Text.AlignVCenter
-                elide: Text.ElideRight
-            }
-
-            ToolButton {
-                Layout.preferredHeight: 34
-                contentItem: Label {
-                    text: "Terminé"
-                    color: Theme.accent
-                    font.pixelSize: 14
-                    font.weight: Font.DemiBold
-                    verticalAlignment: Text.AlignVCenter
-                }
-                onClicked: root.reorderMode = false
-            }
-        }
-    }
-
     ListView {
         id: listView
-        anchors.top: reorderBanner.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.fill: parent
         anchors.margins: Theme.gap
         topMargin: Theme.gap
         bottomMargin: 96          // laisse respirer le bouton flottant
         spacing: Theme.gap
         clip: true
         model: AppController.lists
+        // La vue ne se fige QUE pendant qu'une poignée est tenue (sinon elle défile).
+        interactive: !root.rowDragging
 
         // Sections par groupe. Les en-têtes n'apparaissent que si des groupes existent :
         // qui ne s'en sert pas voit la même liste plate qu'avant.
@@ -242,151 +195,177 @@ Item {
             }
         }
 
-        delegate: ItemDelegate {
-            id: card
+        // Conteneur immobile (place + zone de dépôt) contenant la carte, qui se
+        // détache sous le doigt pendant un glissement.
+        delegate: Item {
+            id: wrapper
             width: listView.width - 2 * Theme.gap
             height: 96
-            padding: 0
 
-            background: Rectangle {
-                radius: Theme.radius
-                color: card.pressed ? Theme.surfaceHigh : Theme.surface
-                border.color: Theme.outline
-                border.width: 1
+            property int rowIndex: index
+            // « Saisie » posée par la poignée à l'appui (fige la vue + détache la carte).
+            property bool held: false
+            z: held ? 2 : 1
+
+            DropArea {
+                anchors.fill: parent
+                onEntered: function (drag) {
+                    const source = drag.source
+                    if (!source || source === wrapper)
+                        return
+                    // Franchir une frontière de groupe range la liste dans ce groupe :
+                    // c'est le modèle qui en décide (moveList), pas la vue.
+                    AppController.moveList(source.rowIndex, wrapper.rowIndex)
+                }
             }
 
-            contentItem: RowLayout {
-                spacing: Theme.gap
-                anchors.margins: Theme.pad
+            ItemDelegate {
+                id: card
+                width: wrapper.width
+                height: wrapper.height
+                padding: 0
 
-                // Pastille du nombre d'articles restants.
-                Rectangle {
-                    Layout.leftMargin: Theme.pad
-                    Layout.alignment: Qt.AlignVCenter
-                    width: 44; height: 44
-                    radius: 22
-                    color: model.count > 0 ? Theme.accentDim : Theme.surfaceHigh
-
-                    Label {
-                        anchors.centerIn: parent
-                        visible: model.count > 0
-                        text: model.count
-                        color: "#FFFFFF"
-                        font.pixelSize: 17
-                        font.weight: Font.DemiBold
-                    }
-
-                    Icon {
-                        anchors.centerIn: parent
-                        visible: model.count === 0
-                        name: "check"
-                        color: Theme.accent
-                        size: 22
-                    }
+                Drag.active: wrapper.held
+                Drag.source: wrapper
+                Drag.hotSpot.x: width / 2
+                Drag.hotSpot.y: height / 2
+                opacity: wrapper.held ? 0.85 : 1.0
+                states: State {
+                    when: wrapper.held
+                    ParentChange { target: card; parent: listView }
                 }
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignVCenter
-                    spacing: 3
+                background: Rectangle {
+                    radius: Theme.radius
+                    color: card.pressed ? Theme.surfaceHigh : Theme.surface
+                    border.color: Theme.outline
+                    border.width: 1
+                }
 
-                    Label {
-                        Layout.fillWidth: true
-                        text: model.name
-                        color: Theme.text
-                        font.pixelSize: 17
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
-                    }
+                contentItem: RowLayout {
+                    spacing: Theme.gap
+                    anchors.margins: Theme.pad
 
-                    Label {
-                        Layout.fillWidth: true
-                        color: Theme.textDim
-                        font.pixelSize: 13
-                        elide: Text.ElideRight
-                        text: model.total === 0
-                              ? "Liste vide"
-                              : (model.count === 0
-                                 ? "Tout est dans le panier"
-                                 : model.count + " à acheter sur " + model.total)
-                    }
+                    // Pastille du nombre d'articles restants.
+                    Rectangle {
+                        Layout.leftMargin: Theme.pad
+                        Layout.alignment: Qt.AlignVCenter
+                        width: 44; height: 44
+                        radius: 22
+                        color: model.count > 0 ? Theme.accentDim : Theme.surfaceHigh
 
-                    // Avec qui la liste est partagée.
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Layout.topMargin: 1
-                        spacing: 5
+                        Label {
+                            anchors.centerIn: parent
+                            visible: model.count > 0
+                            text: model.count
+                            color: "#FFFFFF"
+                            font.pixelSize: 17
+                            font.weight: Font.DemiBold
+                        }
 
                         Icon {
-                            name: model.memberCount > 0 ? "check" : "close"
-                            color: model.memberCount > 0 ? Theme.accent : Theme.textDim
-                            size: 12
-                            opacity: 0.9
+                            anchors.centerIn: parent
+                            visible: model.count === 0
+                            name: "check"
+                            color: Theme.accent
+                            size: 22
+                        }
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        spacing: 3
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: model.name
+                            color: Theme.text
+                            font.pixelSize: 17
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
                         }
 
                         Label {
                             Layout.fillWidth: true
                             color: Theme.textDim
-                            font.pixelSize: 12
+                            font.pixelSize: 13
                             elide: Text.ElideRight
-                            text: model.memberCount > 0
-                                  ? "Partagée avec " + model.members
-                                  : "Pas encore partagée"
+                            text: model.total === 0
+                                  ? "Liste vide"
+                                  : (model.count === 0
+                                     ? "Tout est dans le panier"
+                                     : model.count + " à acheter sur " + model.total)
+                        }
+
+                        // Avec qui la liste est partagée.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 1
+                            spacing: 5
+
+                            Icon {
+                                name: model.memberCount > 0 ? "check" : "close"
+                                color: model.memberCount > 0 ? Theme.accent : Theme.textDim
+                                size: 12
+                                opacity: 0.9
+                            }
+
+                            Label {
+                                Layout.fillWidth: true
+                                color: Theme.textDim
+                                font.pixelSize: 12
+                                elide: Text.ElideRight
+                                text: model.memberCount > 0
+                                      ? "Partagée avec " + model.members
+                                      : "Pas encore partagée"
+                            }
+                        }
+                    }
+
+                    ToolButton {
+                        Layout.alignment: Qt.AlignVCenter
+                        width: Theme.touchTarget
+                        height: Theme.touchTarget
+                        contentItem: Icon {
+                            name: "menu"
+                            color: Theme.textDim
+                            size: 18
+                        }
+                        onClicked: {
+                            cardMenu.listId = model.listId
+                            cardMenu.listName = model.name
+                            cardMenu.popup()
+                        }
+                    }
+
+                    // Poignée de déplacement, toujours visible : on la glisse pour ranger
+                    // la liste, sans menu. `held` fige la vue le temps du geste.
+                    MouseArea {
+                        id: listDragHandle
+                        Layout.rightMargin: 6
+                        Layout.alignment: Qt.AlignVCenter
+                        Layout.preferredWidth: 34
+                        Layout.preferredHeight: Theme.touchTarget
+                        drag.target: wrapper.held ? card : undefined
+                        drag.axis: Drag.YAxis
+                        cursorShape: Qt.SizeVerCursor
+                        preventStealing: true
+                        onPressed: { wrapper.held = true; root.rowDragging = true }
+                        onReleased: { wrapper.held = false; root.rowDragging = false }
+                        onCanceled: { wrapper.held = false; root.rowDragging = false }
+
+                        Icon {
+                            anchors.centerIn: parent
+                            name: "grip"
+                            color: Theme.textDim
+                            size: 16
                         }
                     }
                 }
 
-                ToolButton {
-                    Layout.rightMargin: 4
-                    Layout.alignment: Qt.AlignVCenter
-                    width: Theme.touchTarget
-                    height: Theme.touchTarget
-                    visible: !root.reorderMode
-                    contentItem: Icon {
-                        name: "menu"
-                        color: Theme.textDim
-                        size: 18
-                    }
-                    onClicked: {
-                        cardMenu.listId = model.listId
-                        cardMenu.listName = model.name
-                        cardMenu.popup()
-                    }
-                }
-
-                // Réorganisation : deux flèches pour monter / descendre la liste d'un
-                // cran (un tap, fiable au doigt). Franchir un groupe y range la liste.
-                ToolButton {
-                    visible: root.reorderMode
-                    Layout.preferredWidth: visible ? 40 : 0
-                    Layout.preferredHeight: Theme.touchTarget
-                    Layout.alignment: Qt.AlignVCenter
-                    enabled: index > 0
-                    opacity: enabled ? 1 : 0.3
-                    contentItem: Icon {
-                        anchors.centerIn: parent
-                        name: "chevron-up"; color: Theme.text; size: 18
-                    }
-                    onClicked: AppController.moveList(index, index - 1)
-                }
-                ToolButton {
-                    visible: root.reorderMode
-                    Layout.preferredWidth: visible ? 40 : 0
-                    Layout.preferredHeight: Theme.touchTarget
-                    Layout.rightMargin: 4
-                    Layout.alignment: Qt.AlignVCenter
-                    enabled: index < listView.count - 1
-                    opacity: enabled ? 1 : 0.3
-                    contentItem: Icon {
-                        anchors.centerIn: parent
-                        name: "chevron-down"; color: Theme.text; size: 18
-                    }
-                    onClicked: AppController.moveList(index, index + 1)
-                }
+                onClicked: AppController.openList(model.listId)
             }
-
-            // En réorganisation, le tap ne fait rien (on range par les flèches).
-            onClicked: if (!root.reorderMode) AppController.openList(model.listId)
         }
     }
 
