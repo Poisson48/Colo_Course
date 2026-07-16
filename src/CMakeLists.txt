@@ -128,6 +128,7 @@ set(COLO_QML_FILES
     qml/ListPage.qml
     qml/ShareSheet.qml
     qml/ColoDialog.qml
+    qml/ColoMenu.qml
     qml/ColoTextField.qml
     qml/AisleBox.qml
     qml/Icon.qml

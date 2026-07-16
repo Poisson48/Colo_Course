@@ -111,7 +111,7 @@ Item {
     }
 
     // Menu global : import / export, et gestion des rayons personnalisés.
-    Menu {
+    ColoMenu {
         id: overflowMenu
 
         MenuItem {
@@ -431,7 +431,7 @@ Item {
         onClicked: createDialog.open()
     }
 
-    Menu {
+    ColoMenu {
         id: cardMenu
         property string listId: ""
         property string listName: ""
@@ -471,7 +471,7 @@ Item {
     }
 
     // Menu d'un en-tête de groupe : renommer, ou supprimer (les listes sont conservées).
-    Menu {
+    ColoMenu {
         id: groupMenu
         property string groupId: ""
         property string groupName: ""

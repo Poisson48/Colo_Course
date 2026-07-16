@@ -150,7 +150,7 @@ Item {
     }
 
     // Gestion d'une suggestion de favori (appui long sur une pastille).
-    Menu {
+    ColoMenu {
         id: favMenu
         property string favName: ""
         property bool   pinned: false
@@ -165,8 +165,9 @@ Item {
         }
     }
 
-    Menu {
+    ColoMenu {
         id: pageMenu
+        objectName: "pageMenu"
 
         MenuItem {
             text: "Rechercher"
@@ -185,19 +186,14 @@ Item {
             onTriggered: clearDoneDialog.open()
         }
         MenuSeparator {}
-        // Choix du classement (partagé avec les autres participants). Deux options
-        // exclusives, cochées selon le mode courant.
-        MenuItem {
-            text: "Classer par rayon"
-            checkable: true
-            checked: !AppController.items.manualSort
-            onTriggered: AppController.items.manualSort = false
-        }
+        // Classement (partagé avec les autres participants) : un seul interrupteur, pour
+        // qu'il y ait toujours un mode actif (coché = manuel, décoché = par rayon). Deux
+        // cases séparées permettaient de tout décocher et de se retrouver sans mode.
         MenuItem {
             text: "Classement manuel"
             checkable: true
             checked: AppController.items.manualSort
-            onTriggered: AppController.items.manualSort = true
+            onTriggered: AppController.items.manualSort = checked
         }
         MenuSeparator {}
         MenuItem {

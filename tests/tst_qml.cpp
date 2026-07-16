@@ -441,6 +441,47 @@ private slots:
         delete page;
     }
 
+    // Le classement est un interrupteur unique « Classement manuel » : coché = manuel,
+    // décoché = par rayon. Impossible de se retrouver sans mode (c'était le bug des deux
+    // cases). Son état reflète le modèle (répliqué), y compris sur changement distant.
+    void test_sortModeMenuToggle() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        store::Database &db = m_ctrl.db();
+        QVERIFY(db.open(dir.filePath("sortmenu.db")));
+        core::ListMeta m; m.listId = "list-1"; m.key = std::vector<uint8_t>(32, 1);
+        m.title = "Courses"; m.titleVer = {1, "dev-A"}; m.lamport = 1; m.created = 100;
+        QVERIFY(db.createList(m));
+        m_ctrl.items()->load(db, "list-1", "dev-A");   // manualSort = false au départ
+
+        QObject *page = load(QStringLiteral("ListPage.qml"),
+                             { {"listId", "list-1"}, {"listTitle", "Courses"} });
+        QVERIFY(page);
+        QObject *menu = page->findChild<QObject *>(QStringLiteral("pageMenu"));
+        QVERIFY(menu);
+
+        QQuickItem *toggle = nullptr;
+        const int cnt = menu->property("count").toInt();
+        for (int i = 0; i < cnt; ++i) {
+            QQuickItem *it = nullptr;
+            QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, it), Q_ARG(int, i));
+            if (it && it->property("text").toString() == QStringLiteral("Classement manuel"))
+                toggle = it;
+        }
+        QVERIFY(toggle);
+        QVERIFY(toggle->property("checkable").toBool());
+
+        // Décoché quand la liste est par rayon.
+        QVERIFY(!toggle->property("checked").toBool());
+        // Passe en manuel (via le modèle) → l'interrupteur se coche.
+        m_ctrl.items()->setManualSort(true);
+        QVERIFY(toggle->property("checked").toBool());
+        // Retour par rayon → décoché.
+        m_ctrl.items()->setManualSort(false);
+        QVERIFY(!toggle->property("checked").toBool());
+        delete page;
+    }
+
     // L'écran des listes se charge sans erreur de binding. Ne rend pas les délégués
     // (offscreen), mais valide le niveau supérieur : barre, menu, bindings.
     void test_listsPageLoadsCleanly() {
