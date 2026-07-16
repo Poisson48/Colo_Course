@@ -440,6 +440,79 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
         : QStringLiteral("Liste dupliquée"));
 }
 
+void AppController::importListInto(const QString &destListId, const QString &sourceListId) {
+    if (destListId == sourceListId) return;  // s'importer soi-même n'a pas de sens
+
+    auto destOpt = m_db.getList(destListId.toStdString());
+    auto srcOpt  = m_db.getList(sourceListId.toStdString());
+    if (!destOpt || !srcOpt) return;
+
+    // Les articles importés arrivent après ceux déjà présents : leur `order` part de
+    // maintenant (ms epoch), forcément au-delà des `order` existants issus d'un
+    // `created` passé. Tout est ajouté tel quel, sans fusion (choix : simple et littéral).
+    const int64_t now = QDateTime::currentMSecsSinceEpoch();
+
+    int copied = 0;
+    for (const auto &src : m_db.getItems(srcOpt->listId)) {
+        if (src.del) continue;  // les tombstones de la source ne sont pas repris
+
+        const int64_t lamport = m_db.bumpLamport(destOpt->listId);
+        const core::Ver ver{ lamport, m_deviceId.toStdString() };
+
+        core::Item item;
+        item.listId  = destOpt->listId;
+        // itemId neuf : garder celui de la source ferait entrer en collision les deux
+        // listes si l'une était un jour fusionnée avec l'autre.
+        item.itemId  = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+        item.created = now + copied;   // préserve l'ordre relatif des articles importés
+        item.by      = m_deviceId.toStdString();
+        item.name    = src.name;
+        item.nameVer = ver;
+        item.qty     = src.qty;
+        item.qtyVer  = ver;
+        item.note    = src.note;
+        item.noteVer = ver;
+        item.aisle    = src.aisle;
+        item.aisleVer = ver;
+        item.order    = now + copied;  // à la suite des articles déjà dans la destination
+        item.orderVer = ver;
+        item.done    = false;          // recopiés « à acheter »
+        item.doneVer = ver;
+        item.doneAt  = 0;
+        item.del     = false;
+        item.delVer  = ver;
+        item.touched = now;
+
+        if (m_db.upsertItem(item)) ++copied;
+    }
+
+    // Si la destination est la liste actuellement ouverte, rafraîchir son écran.
+    if (m_openListId == destOpt->listId)
+        m_itemModel.load(m_db, destOpt->listId, m_deviceId.toStdString());
+
+    m_listsModel->reload(m_db, m_deviceId.toStdString());
+    m_syncEngine.onLocalChange(destOpt->listId);  // publier les ajouts aux autres pairs
+
+    emit toast(copied > 0
+        ? QStringLiteral("%1 article(s) importé(s) depuis « %2 »")
+              .arg(copied).arg(QString::fromStdString(srcOpt->title))
+        : QStringLiteral("Rien à importer (liste vide)"));
+}
+
+QVariantList AppController::otherLists(const QString &exceptListId) {
+    QVariantList out;
+    if (!m_db.isOpen()) return out;
+    const std::string except = exceptListId.toStdString();
+    for (const auto &meta : m_db.getLists()) {
+        if (meta.listId == except) continue;
+        QVariantMap m;
+        m.insert(QStringLiteral("id"),   QString::fromStdString(meta.listId));
+        m.insert(QStringLiteral("name"), QString::fromStdString(meta.title));
+        out.append(m);
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------------------
 // Export / import
 // ---------------------------------------------------------------------------

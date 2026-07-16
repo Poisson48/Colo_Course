@@ -389,6 +389,10 @@ Item {
             onTriggered: duplicateDialog.openFor(cardMenu.listId, cardMenu.listName)
         }
         MenuItem {
+            text: "Importer une liste ici…"
+            onTriggered: importPicker.openFor(cardMenu.listId, cardMenu.listName)
+        }
+        MenuItem {
             text: "Ranger dans un groupe"
             onTriggered: groupPicker.openFor(cardMenu.listId)
         }
@@ -520,6 +524,68 @@ Item {
             onClicked: {
                 AppController.setListGroup(groupPicker.listId, "")
                 groupPicker.close()
+            }
+        }
+    }
+
+    // Importer le contenu d'une autre liste dans celle-ci : choisir la liste source,
+    // ses articles sont recopiés « à acheter ». La source reste intacte (liste-modèle).
+    ColoDialog {
+        id: importPicker
+        title: "Importer une liste ici"
+        // Pas de bouton de validation : chaque ligne agit au clic.
+        showAccept: false
+
+        property string destId: ""
+        property string destName: ""
+        property var sources: []
+
+        function openFor(id, name) {
+            destId = id
+            destName = name
+            sources = AppController.otherLists(id)
+            open()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: importPicker.sources.length > 0
+            text: "Ses articles seront ajoutés à « " + importPicker.destName + " », à acheter."
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: importPicker.sources.length === 0
+            text: "Aucune autre liste à importer."
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 15
+        }
+
+        Repeater {
+            model: importPicker.sources
+            delegate: Button {
+                required property var modelData
+                Layout.fillWidth: true
+                flat: true
+                implicitHeight: 46
+                contentItem: Label {
+                    text: modelData.name
+                    color: Theme.text
+                    font.pixelSize: 15
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: 10
+                    color: parent.pressed ? Theme.surfaceHigh : "transparent"
+                }
+                onClicked: {
+                    AppController.importListInto(importPicker.destId, modelData.id)
+                    importPicker.close()
+                }
             }
         }
     }

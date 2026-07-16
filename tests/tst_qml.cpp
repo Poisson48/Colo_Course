@@ -515,6 +515,71 @@ private slots:
 
         delete page;
     }
+
+    // Importer le contenu d'une liste dans une autre : la destination reçoit les
+    // articles « à acheter », la source reste intacte (liste-modèle réutilisable).
+    void test_importListInto() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        store::Database &db = m_ctrl.db();
+        QVERIFY(db.open(dir.filePath("import.db")));
+
+        auto makeList = [&](const std::string &id, const std::string &title) {
+            core::ListMeta m; m.listId = id; m.key = std::vector<uint8_t>(32, 1);
+            m.title = title; m.titleVer = {1, "dev-A"}; m.lamport = 1; m.created = 1000;
+            QVERIFY(db.createList(m));
+        };
+        auto addItem = [&](const std::string &list, const std::string &id,
+                           const std::string &name, bool done) {
+            core::Item it; it.listId = list; it.itemId = id; it.created = 2000;
+            it.by = "dev-A"; it.name = name; it.done = done;
+            const core::Ver v{1, "dev-A"};
+            it.nameVer = it.qtyVer = it.noteVer = it.aisleVer = it.orderVer =
+                it.doneVer = it.delVer = v;
+            QVERIFY(db.upsertItem(it));
+        };
+
+        // Destination « Semaine » avec un article déjà présent (« Eau », déjà pris).
+        makeList("l-dest", "Semaine");
+        addItem("l-dest", "d-eau", "Eau", true);
+        // Source « Courants » : deux à acheter, plus un supprimé (ne doit pas être repris).
+        makeList("l-src", "Courants");
+        addItem("l-src", "s-bieres", "Bières", false);
+        addItem("l-src", "s-pq",     "PQ",     false);
+        addItem("l-src", "s-old",    "Ancien", false);
+        {
+            core::Item t; t.listId = "l-src"; t.itemId = "s-old"; t.del = true;
+            t.delVer = {2, "dev-A"};
+            QVERIFY(db.upsertItem(t));
+        }
+
+        m_ctrl.importListInto("l-dest", "l-src");
+
+        // La destination a ses 3 articles vivants (Eau + Bières + PQ), l'ancien exclu.
+        QStringList destNames;
+        bool eauStillDone = false, importedAllToBuy = true;
+        for (const auto &it : db.getItems("l-dest")) {
+            if (it.del) continue;
+            destNames << QString::fromStdString(it.name);
+            if (it.name == "Eau") eauStillDone = it.done;   // l'existant n'est pas touché
+            else if (it.done) importedAllToBuy = false;      // les importés sont à acheter
+        }
+        destNames.sort();
+        QCOMPARE(destNames, (QStringList{"Bières", "Eau", "PQ"}));
+        QVERIFY(eauStillDone);          // « Eau » garde son état coché
+        QVERIFY(importedAllToBuy);      // « Bières » et « PQ » arrivent à acheter
+
+        // La source reste intacte : ses deux articles vivants sont toujours là.
+        int srcAlive = 0;
+        for (const auto &it : db.getItems("l-src"))
+            if (!it.del) ++srcAlive;
+        QCOMPARE(srcAlive, 2);
+
+        // S'importer soi-même est sans effet (pas de doublon).
+        const int before = static_cast<int>(db.getItems("l-dest").size());
+        m_ctrl.importListInto("l-dest", "l-dest");
+        QCOMPARE(static_cast<int>(db.getItems("l-dest").size()), before);
+    }
 };
 
 QTEST_MAIN(QmlTest)

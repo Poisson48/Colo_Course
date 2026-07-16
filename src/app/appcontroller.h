@@ -115,6 +115,13 @@ public slots:
     // Dupliquer une liste : nouvelle liste, nouvelle clé, articles recopiés « à
     // acheter ». Purement local — c'est une liste distincte, pas un partage.
     void duplicateList(const QString &listId, const QString &title);
+    // Importer le contenu d'une liste (source) dans une autre (destination), sans
+    // toucher à la source : ses articles sont recopiés « à acheter » à la fin de la
+    // destination. Permet de garder des listes-modèles réutilisables (« courants »).
+    // Tout est ajouté tel quel — pas de fusion : un article déjà présent fait un doublon.
+    void importListInto(const QString &destListId, const QString &sourceListId);
+    // Autres listes que `exceptListId` : [{ id, name }, …], pour le sélecteur d'import.
+    QVariantList otherLists(const QString &exceptListId);
     // openList is called from QML to open a list; emits listOpened.
     void openList(const QString &listId);
     // Parse URI → create list with provided key → true on success
