@@ -78,7 +78,8 @@ bool Database::createSchema()
             "  group_id TEXT,"         // groupe local, '' = non rangé
             "  sort_mode TEXT,"        // mode de classement répliqué, '' = par rayon
             "  sort_mode_l INT,"
-            "  sort_mode_d TEXT"
+            "  sort_mode_d TEXT,"
+            "  list_order INT"         // position manuelle locale dans le groupe
             ")"),
         QStringLiteral(
             // Groupes locaux : jamais synchronisés, propres à l'appareil.
@@ -250,6 +251,22 @@ bool Database::migrateSchema()
             return false;
         }
     }
+
+    // Position manuelle des listes : ajoutée aux bases antérieures. Initialisée sur
+    // `created` pour que l'ordre affiché ne bouge pas à la mise à jour.
+    if (!listCols.contains(QStringLiteral("list_order"))) {
+        if (!q.exec(QStringLiteral("ALTER TABLE lists ADD COLUMN list_order INT DEFAULT 0"))) {
+            qWarning() << "migrateSchema: ADD COLUMN list_order failed:"
+                       << q.lastError().text();
+            return false;
+        }
+        if (!q.exec(QStringLiteral("UPDATE lists SET list_order = created"
+                                   " WHERE list_order IS NULL OR list_order = 0"))) {
+            qWarning() << "migrateSchema: backfill list_order failed:"
+                       << q.lastError().text();
+            return false;
+        }
+    }
     return true;
 }
 
@@ -261,8 +278,8 @@ bool Database::createList(const core::ListMeta& meta)
     q.prepare(QStringLiteral(
         "INSERT OR IGNORE INTO lists"
         " (list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created,"
-        "  sort_mode, sort_mode_l, sort_mode_d)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+        "  sort_mode, sort_mode_l, sort_mode_d, list_order)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
     q.addBindValue(qs(meta.listId));
     q.addBindValue(QByteArray(reinterpret_cast<const char*>(meta.key.data()),
                               static_cast<int>(meta.key.size())));
@@ -275,6 +292,9 @@ bool Database::createList(const core::ListMeta& meta)
     q.addBindValue(qs(meta.sortMode));
     q.addBindValue(ll(meta.sortModeVer.lamport));
     q.addBindValue(qs(meta.sortModeVer.deviceId));
+    // Position par défaut = date de création : une liste neuve se range en fin de son
+    // groupe (created > tous les list_order rétro-remplis sur des créations passées).
+    q.addBindValue(ll(meta.listOrder != 0 ? meta.listOrder : meta.created));
 
     if (!q.exec()) {
         qWarning() << "createList error:" << q.lastError().text();
@@ -327,10 +347,12 @@ std::vector<core::ListMeta> Database::getLists()
 {
     std::vector<core::ListMeta> result;
     QSqlQuery q(m_db);
+    // Trié par position manuelle : c'est l'ordre que le tri (stable) par groupe, côté
+    // modèle, conserve à l'intérieur de chaque groupe. `created` départage les ex æquo.
     q.exec(QStringLiteral(
         "SELECT list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created,"
-        " group_id, sort_mode, sort_mode_l, sort_mode_d"
-        " FROM lists ORDER BY created ASC"));
+        " group_id, sort_mode, sort_mode_l, sort_mode_d, list_order"
+        " FROM lists ORDER BY list_order ASC, created ASC"));
     while (q.next()) {
         core::ListMeta m;
         m.listId        = ss(q.value(0).toString());
@@ -345,6 +367,7 @@ std::vector<core::ListMeta> Database::getLists()
         m.groupId       = ss(q.value(8).toString());
         m.sortMode      = ss(q.value(9).toString());
         m.sortModeVer   = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
+        m.listOrder     = q.value(12).toLongLong();
         result.push_back(std::move(m));
     }
     return result;
@@ -358,6 +381,19 @@ bool Database::setListGroup(const std::string& listId, const std::string& groupI
     q.addBindValue(qs(listId));
     if (!q.exec()) {
         qWarning() << "setListGroup error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+bool Database::setListOrder(const std::string& listId, int64_t order)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE lists SET list_order = ? WHERE list_id = ?"));
+    q.addBindValue(ll(order));
+    q.addBindValue(qs(listId));
+    if (!q.exec()) {
+        qWarning() << "setListOrder error:" << q.lastError().text();
         return false;
     }
     return true;
@@ -590,7 +626,7 @@ std::optional<core::ListMeta> Database::getList(const std::string& listId)
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
         "SELECT list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created,"
-        " group_id, sort_mode, sort_mode_l, sort_mode_d"
+        " group_id, sort_mode, sort_mode_l, sort_mode_d, list_order"
         " FROM lists WHERE list_id = ?"));
     q.addBindValue(qs(listId));
     if (!q.exec() || !q.next())
@@ -609,6 +645,7 @@ std::optional<core::ListMeta> Database::getList(const std::string& listId)
     m.groupId       = ss(q.value(8).toString());
     m.sortMode      = ss(q.value(9).toString());
     m.sortModeVer   = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
+    m.listOrder     = q.value(12).toLongLong();
     return m;
 }
 

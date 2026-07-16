@@ -441,6 +441,25 @@ private slots:
         delete page;
     }
 
+    // L'écran des listes se charge sans erreur de binding, y compris en mode
+    // Réorganiser (bandeau + poignées). Ne rend pas les délégués (offscreen), mais
+    // valide le niveau supérieur : bandeau, menu, propriété reorderMode.
+    void test_listsPageLoadsCleanly() {
+        g_warnings.clear();
+        qInstallMessageHandler(warningCollector);
+        QObject *page = load(QStringLiteral("ListsPage.qml"));
+        if (page) page->setProperty("reorderMode", true);
+        qInstallMessageHandler(nullptr);
+
+        // Chargée hors fenêtre, la page ouvre son dialogue de nom (onCompleted) sans
+        // fenêtre où l'ancrer : artefact du harnais, sans rapport avec les bindings.
+        g_warnings.removeIf([](const QString &w){ return w.contains(QStringLiteral("open popup")); });
+
+        QVERIFY(page != nullptr);
+        QVERIFY2(g_warnings.isEmpty(), qPrintable(g_warnings.join(QStringLiteral("\n"))));
+        delete page;
+    }
+
     // Sélection multiple : la page compte ce qui est sélectionné et le dit dans le titre.
     void test_listPage_selection() {
         QObject *page = load(QStringLiteral("ListPage.qml"),
@@ -579,6 +598,63 @@ private slots:
         const int before = static_cast<int>(db.getItems("l-dest").size());
         m_ctrl.importListInto("l-dest", "l-dest");
         QCOMPARE(static_cast<int>(db.getItems("l-dest").size()), before);
+    }
+
+    // Réordonnancement des listes : moveList change l'ordre du modèle, le persiste, et
+    // franchir un groupe y range la liste. (Le geste tactile reste à valider au doigt ;
+    // ici on vérifie la logique, testable de façon déterministe.)
+    void test_moveList() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        store::Database &db = m_ctrl.db();
+        QVERIFY(db.open(dir.filePath("movelist.db")));
+
+        auto makeList = [&](const std::string &id, const std::string &title, int64_t created) {
+            core::ListMeta m; m.listId = id; m.key = std::vector<uint8_t>(32, 1);
+            m.title = title; m.titleVer = {1, "dev-A"}; m.lamport = 1; m.created = created;
+            QVERIFY(db.createList(m));
+        };
+        makeList("l-a", "A", 100);
+        makeList("l-b", "B", 200);
+        makeList("l-c", "C", 300);
+
+        auto *lists = qobject_cast<app::ListsModel *>(m_ctrl.lists());
+        QVERIFY(lists);
+        lists->reload(db, "dev-A");
+
+        const auto nameAt = [&](int r){
+            return lists->data(lists->index(r), app::ListsModel::NameRole).toString();
+        };
+        QCOMPARE(nameAt(0), QStringLiteral("A"));
+        QCOMPARE(nameAt(2), QStringLiteral("C"));
+
+        // Descendre A tout en bas → B, C, A.
+        m_ctrl.moveList(0, 2);
+        QCOMPARE(nameAt(0), QStringLiteral("B"));
+        QCOMPARE(nameAt(1), QStringLiteral("C"));
+        QCOMPARE(nameAt(2), QStringLiteral("A"));
+
+        // L'ordre est persisté : un rechargement depuis la base le retrouve.
+        lists->reload(db, "dev-A");
+        QCOMPARE(nameAt(0), QStringLiteral("B"));
+        QCOMPARE(nameAt(2), QStringLiteral("A"));
+
+        // Remonter A en tête → A, B, C.
+        m_ctrl.moveList(2, 0);
+        QCOMPARE(nameAt(0), QStringLiteral("A"));
+        QCOMPARE(nameAt(1), QStringLiteral("B"));
+        QCOMPARE(nameAt(2), QStringLiteral("C"));
+
+        // Franchir un groupe : ranger C dans « Maison », puis y glisser A → A rejoint
+        // le groupe. Maison (ordre 1000) passe avant les listes non rangées.
+        QVERIFY(db.createGroup("g-maison", "Maison", 1000));
+        QVERIFY(db.setListGroup("l-c", "g-maison"));
+        lists->reload(db, "dev-A");
+        // Sections : Maison d'abord (C), puis non rangées (A, B).
+        QCOMPARE(nameAt(0), QStringLiteral("C"));
+        // Glisser A (index 1) sur la ligne de C (index 0) → A rejoint Maison.
+        m_ctrl.moveList(1, 0);
+        QCOMPARE(db.getList("l-a")->groupId, std::string("g-maison"));
     }
 };
 

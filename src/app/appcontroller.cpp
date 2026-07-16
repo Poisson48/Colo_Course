@@ -103,6 +103,7 @@ void ListsModel::reload(store::Database &db, const std::string &deviceId) {
         row.name        = QString::fromStdString(meta.title);
         row.count       = unchecked;
         row.total       = total;
+        row.listOrder   = meta.listOrder;
         row.members     = names.join(QStringLiteral(", "));
         row.memberCount = static_cast<int>(names.size());
 
@@ -148,6 +149,81 @@ void ListsModel::remove(const QString &listId) {
     beginRemoveRows({}, row, row);
     m_rows.erase(it);
     endRemoveRows();
+}
+
+void ListsModel::moveRow(store::Database &db, int from, int to) {
+    const int n = static_cast<int>(m_rows.size());
+    if (from < 0 || from >= n || to < 0 || to >= n || from == to) return;
+
+    Row moved = m_rows[static_cast<size_t>(from)];
+
+    // Voisines à l'arrivée, une fois la ligne retirée de sa place actuelle.
+    std::vector<Row> without = m_rows;
+    without.erase(without.begin() + from);
+
+    const Row *before = (to > 0) ? &without[static_cast<size_t>(to - 1)] : nullptr;
+    const Row *after  = (to < static_cast<int>(without.size()))
+                        ? &without[static_cast<size_t>(to)] : nullptr;
+
+    // La liste prend le groupe de la ligne survolée (même raisonnement que le rayon
+    // d'un article) : en descendant on se pose APRÈS elle (`before`), en montant on
+    // prend sa place (`after`).
+    const Row *hovered = (from < to) ? before : after;
+    const QString targetGroupId    = hovered ? hovered->groupId    : moved.groupId;
+    const QString targetGroupName  = hovered ? hovered->groupName  : moved.groupName;
+    const int64_t targetGroupOrder = hovered ? hovered->groupOrder : moved.groupOrder;
+
+    // Les voisines qui comptent pour la position sont celles du MÊME groupe.
+    const auto sameGroup = [&](const Row *r) {
+        return r && r->groupId == targetGroupId;
+    };
+    const int64_t lo = sameGroup(before) ? before->listOrder : 0;
+    const int64_t hi = sameGroup(after)  ? after->listOrder  : 0;
+
+    int64_t order;
+    if (lo && hi)      order = lo + (hi - lo) / 2;   // entre les deux
+    else if (lo)       order = lo + 1000;            // en fin de groupe
+    else if (hi)       order = hi - 1000;            // en tête de groupe
+    else               order = moved.listOrder;      // seule de son groupe
+
+    // Intervalle épuisé : renuméroter le groupe à grands pas, puis rejouer le geste.
+    if (lo && hi && (order == lo || order == hi)) {
+        renumberGroup(db, targetGroupId);
+        moveRow(db, from, to);
+        return;
+    }
+
+    const bool groupChanged = (moved.groupId != targetGroupId);
+    if (groupChanged)
+        db.setListGroup(moved.listId.toStdString(), targetGroupId.toStdString());
+    db.setListOrder(moved.listId.toStdString(), order);
+
+    moved.listOrder  = order;
+    moved.groupId    = targetGroupId;
+    moved.groupName  = targetGroupName;
+    moved.groupOrder = targetGroupOrder;
+
+    // Déplacement de ligne (pas de reset : la ligne glissée ne doit pas être détruite).
+    const int dest = (from < to) ? to + 1 : to;   // Qt insère AVANT `dest`
+    beginMoveRows({}, from, from, {}, dest);
+    m_rows.erase(m_rows.begin() + from);
+    m_rows.insert(m_rows.begin() + to, moved);
+    endMoveRows();
+
+    if (groupChanged) {
+        const QModelIndex idx = index(to);
+        emit dataChanged(idx, idx, { GroupIdRole, GroupNameRole });
+    }
+}
+
+void ListsModel::renumberGroup(store::Database &db, const QString &groupId) {
+    int64_t next = 1000;
+    for (auto &row : m_rows) {
+        if (row.groupId != groupId) continue;
+        row.listOrder = next;
+        db.setListOrder(row.listId.toStdString(), next);
+        next += 1000;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -438,6 +514,10 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
     emit toast(copied > 0
         ? QStringLiteral("Liste dupliquée — %1 article(s) à acheter").arg(copied)
         : QStringLiteral("Liste dupliquée"));
+}
+
+void AppController::moveList(int from, int to) {
+    m_listsModel->moveRow(m_db, from, to);
 }
 
 void AppController::importListInto(const QString &destListId, const QString &sourceListId) {

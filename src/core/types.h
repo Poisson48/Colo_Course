@@ -86,6 +86,11 @@ struct ListMeta {
     // synchronisé : chaque appareil organise ses listes comme il veut, la même liste
     // partagée peut être dans « Maison » chez l'un et « Courses » chez l'autre.
     std::string groupId;
+
+    // Position manuelle de la liste dans son groupe (local, non synchronisé). Comme
+    // pour les articles : valeurs espacées, initialisées sur `created`, pour se glisser
+    // entre deux voisines sans renuméroter. 0 = non défini → traité comme `created`.
+    int64_t listOrder = 0;
 };
 
 } // namespace core

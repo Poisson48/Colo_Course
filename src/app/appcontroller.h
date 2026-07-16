@@ -49,6 +49,11 @@ public:
     // Change a row's displayed name (no-op if absent).
     void rename(const QString &listId, const QString &name);
 
+    // Déplacer une liste (réordonnancement manuel). `from`/`to` sont des index du
+    // modèle. Franchir une frontière de groupe range aussi la liste dans ce groupe —
+    // même geste que pour les articles et les rayons. Purement local.
+    void moveRow(store::Database &db, int from, int to);
+
 private:
     struct Row {
         QString listId;
@@ -58,9 +63,14 @@ private:
         QString groupId;
         QString groupName;  // "" = non rangé, affiché en dernier
         int64_t groupOrder = 0;
+        int64_t listOrder = 0;  // position manuelle dans le groupe
         QString members;    // noms des autres participants, joints
         int     memberCount = 0;
     };
+
+    // Ré-espace les positions des listes d'un groupe quand l'intervalle est épuisé.
+    void renumberGroup(store::Database &db, const QString &groupId);
+
     std::vector<Row> m_rows;
 };
 
@@ -130,6 +140,9 @@ public slots:
     QString joinUri(const QString &listId);
     // Quitter une liste : effacement local uniquement (les autres la gardent).
     void leaveList(const QString &listId);
+
+    // Réordonner les listes à la main (index du modèle). Purement local.
+    void moveList(int from, int to);
 
     // --- Groupes (organisation locale des listes) ---
     // Crée un groupe et retourne son identifiant (pour y ranger la liste dans la foulée).

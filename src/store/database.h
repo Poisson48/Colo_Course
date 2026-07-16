@@ -49,6 +49,8 @@ public:
     bool deleteList(const std::string& listId);
     // Ranger une liste dans un groupe (groupId vide = la sortir de tout groupe).
     bool setListGroup(const std::string& listId, const std::string& groupId);
+    // Position manuelle locale de la liste dans son groupe (réordonnancement).
+    bool setListOrder(const std::string& listId, int64_t order);
 
     // --- Groups (local uniquement : organisation propre à l'appareil) ---
     struct Group { std::string groupId; std::string name; int64_t sortOrder; };

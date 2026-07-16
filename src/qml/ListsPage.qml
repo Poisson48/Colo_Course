@@ -8,6 +8,10 @@ Item {
 
     readonly property string pageTitle: "Mes listes"
 
+    // Mode Réorganiser : les poignées de glissement apparaissent, le tap n'ouvre plus
+    // une liste (on ne fait que glisser pour ordonner). Piloté depuis le menu.
+    property bool reorderMode: false
+
     // AppController.groups() lit la base à chaque appel ; rien ne le rappelle tout seul.
     // Le modèle des listes se réinitialise à chaque changement de groupe (reload en
     // C++) : on s'y raccroche pour rafraîchir la liste des groupes exposée à l'UI.
@@ -111,6 +115,11 @@ Item {
         id: overflowMenu
 
         MenuItem {
+            text: "Réorganiser les listes"
+            enabled: listView.count > 1
+            onTriggered: root.reorderMode = true
+        }
+        MenuItem {
             text: "Gérer les rayons"
             onTriggered: aislesDialog.open()
         }
@@ -133,9 +142,53 @@ Item {
             nameDialog.open()
     }
 
+    // Bandeau du mode Réorganiser : rappelle ce qu'on fait, et offre la sortie (le
+    // reste de la barre supérieure appartient à Main.qml, hors de portée d'ici).
+    Rectangle {
+        id: reorderBanner
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: root.reorderMode ? 44 : 0
+        visible: height > 0
+        clip: true
+        color: Theme.surfaceHigh
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.gap + 4
+            anchors.rightMargin: Theme.gap
+            spacing: 8
+
+            Label {
+                Layout.fillWidth: true
+                text: "Glissez les listes pour les ordonner"
+                color: Theme.textDim
+                font.pixelSize: 13
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
+
+            ToolButton {
+                Layout.preferredHeight: 34
+                contentItem: Label {
+                    text: "Terminé"
+                    color: Theme.accent
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: root.reorderMode = false
+            }
+        }
+    }
+
     ListView {
         id: listView
-        anchors.fill: parent
+        anchors.top: reorderBanner.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
         anchors.margins: Theme.gap
         topMargin: Theme.gap
         bottomMargin: 96          // laisse respirer le bouton flottant
@@ -189,20 +242,59 @@ Item {
             }
         }
 
-        delegate: ItemDelegate {
-            id: card
+        // Conteneur immobile (place dans la vue + zone de dépôt) contenant la carte,
+        // qui se détache sous le doigt pendant un glissement — même montage que l'écran
+        // d'une liste, pour que le réordonnancement au doigt marche vraiment.
+        delegate: Item {
+            id: wrapper
             width: listView.width - 2 * Theme.gap
             height: 96
-            padding: 0
 
-            background: Rectangle {
-                radius: Theme.radius
-                color: card.pressed ? Theme.surfaceHigh : Theme.surface
-                border.color: Theme.outline
-                border.width: 1
+            // Pas de `required property int index` : cela couperait l'injection du
+            // contexte du modèle dans le délégué (voir l'écran d'une liste).
+            property int rowIndex: index
+            readonly property bool dragging: listDragHandle.drag.active
+            z: dragging ? 2 : 1
+
+            DropArea {
+                anchors.fill: parent
+                onEntered: function (drag) {
+                    const source = drag.source
+                    if (!source || source === wrapper)
+                        return
+                    // Franchir une frontière de groupe range la liste dans ce groupe :
+                    // c'est le modèle qui en décide (moveList), pas la vue.
+                    AppController.moveList(source.rowIndex, wrapper.rowIndex)
+                }
             }
 
-            contentItem: RowLayout {
+            ItemDelegate {
+                id: card
+                width: wrapper.width
+                height: wrapper.height
+                padding: 0
+
+                Drag.active: wrapper.dragging
+                Drag.source: wrapper
+                Drag.hotSpot.x: width / 2
+                Drag.hotSpot.y: height / 2
+                opacity: wrapper.dragging ? 0.85 : 1.0
+
+                // Pendant le glissement, la carte quitte son conteneur pour la vue :
+                // elle reste sous le doigt pendant que les autres se réorganisent.
+                states: State {
+                    when: wrapper.dragging
+                    ParentChange { target: card; parent: listView }
+                }
+
+                background: Rectangle {
+                    radius: Theme.radius
+                    color: card.pressed ? Theme.surfaceHigh : Theme.surface
+                    border.color: Theme.outline
+                    border.width: 1
+                }
+
+                contentItem: RowLayout {
                 spacing: Theme.gap
                 anchors.margins: Theme.pad
 
@@ -292,6 +384,7 @@ Item {
                     Layout.alignment: Qt.AlignVCenter
                     width: Theme.touchTarget
                     height: Theme.touchTarget
+                    visible: !root.reorderMode
                     contentItem: Icon {
                         name: "menu"
                         color: Theme.textDim
@@ -303,9 +396,34 @@ Item {
                         cardMenu.popup()
                     }
                 }
+
+                // Poignée de déplacement, seulement en mode Réorganiser. preventStealing :
+                // sans lui, la ListView prend le glissement vertical pour un défilement et
+                // le réordonnancement au doigt ne démarre jamais.
+                MouseArea {
+                    id: listDragHandle
+                    Layout.rightMargin: 6
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.preferredWidth: visible ? 34 : 0
+                    Layout.preferredHeight: Theme.touchTarget
+                    visible: root.reorderMode
+                    drag.target: visible ? card : undefined
+                    drag.axis: Drag.YAxis
+                    cursorShape: Qt.SizeVerCursor
+                    preventStealing: true
+
+                    Icon {
+                        anchors.centerIn: parent
+                        name: "grip"
+                        color: Theme.textDim
+                        size: 16
+                    }
+                }
             }
 
-            onClicked: AppController.openList(model.listId)
+            // En réorganisation, le tap ne fait rien (on glisse par la poignée).
+            onClicked: if (!root.reorderMode) AppController.openList(model.listId)
+            }
         }
     }
 
