@@ -8,8 +8,8 @@ Item {
 
     readonly property string pageTitle: "Mes listes"
 
-    // Mode Réorganiser : les poignées de glissement apparaissent, le tap n'ouvre plus
-    // une liste (on ne fait que glisser pour ordonner). Piloté depuis le menu.
+    // Mode Réorganiser : des flèches ↑/↓ apparaissent sur chaque liste, le tap n'ouvre
+    // plus une liste (on ne fait que la ranger). Piloté depuis le menu.
     property bool reorderMode: false
 
     // AppController.groups() lit la base à chaque appel ; rien ne le rappelle tout seul.
@@ -162,7 +162,7 @@ Item {
 
             Label {
                 Layout.fillWidth: true
-                text: "Glissez les listes pour les ordonner"
+                text: "Rangez les listes avec les flèches"
                 color: Theme.textDim
                 font.pixelSize: 13
                 verticalAlignment: Text.AlignVCenter
@@ -185,7 +185,6 @@ Item {
 
     ListView {
         id: listView
-        objectName: "listsList"
         anchors.top: reorderBanner.bottom
         anchors.left: parent.left
         anchors.right: parent.right
@@ -196,9 +195,6 @@ Item {
         spacing: Theme.gap
         clip: true
         model: AppController.lists
-        // En réorganisation, la vue ne défile pas (sinon elle disputerait le geste à la
-        // poignée sur tactile) — nécessaire avec l'état `held` pour un drag fiable.
-        interactive: !root.reorderMode
 
         // Sections par groupe. Les en-têtes n'apparaissent que si des groupes existent :
         // qui ne s'en sert pas voit la même liste plate qu'avant.
@@ -246,62 +242,20 @@ Item {
             }
         }
 
-        // Conteneur immobile (place dans la vue + zone de dépôt) contenant la carte,
-        // qui se détache sous le doigt pendant un glissement — même montage que l'écran
-        // d'une liste, pour que le réordonnancement au doigt marche vraiment.
-        delegate: Item {
-            id: wrapper
+        delegate: ItemDelegate {
+            id: card
             width: listView.width - 2 * Theme.gap
             height: 96
+            padding: 0
 
-            // Pas de `required property int index` : cela couperait l'injection du
-            // contexte du modèle dans le délégué (voir l'écran d'une liste).
-            property int rowIndex: index
-            // État « saisi » posé à l'appui par la poignée (motif doc Qt) : indispensable
-            // pour que le glissement l'emporte sur le tactile (voir l'écran d'une liste).
-            property bool held: false
-            readonly property bool dragging: held
-            z: dragging ? 2 : 1
-
-            DropArea {
-                anchors.fill: parent
-                onEntered: function (drag) {
-                    const source = drag.source
-                    if (!source || source === wrapper)
-                        return
-                    // Franchir une frontière de groupe range la liste dans ce groupe :
-                    // c'est le modèle qui en décide (moveList), pas la vue.
-                    AppController.moveList(source.rowIndex, wrapper.rowIndex)
-                }
+            background: Rectangle {
+                radius: Theme.radius
+                color: card.pressed ? Theme.surfaceHigh : Theme.surface
+                border.color: Theme.outline
+                border.width: 1
             }
 
-            ItemDelegate {
-                id: card
-                width: wrapper.width
-                height: wrapper.height
-                padding: 0
-
-                Drag.active: wrapper.dragging
-                Drag.source: wrapper
-                Drag.hotSpot.x: width / 2
-                Drag.hotSpot.y: height / 2
-                opacity: wrapper.dragging ? 0.85 : 1.0
-
-                // Pendant le glissement, la carte quitte son conteneur pour la vue :
-                // elle reste sous le doigt pendant que les autres se réorganisent.
-                states: State {
-                    when: wrapper.dragging
-                    ParentChange { target: card; parent: listView }
-                }
-
-                background: Rectangle {
-                    radius: Theme.radius
-                    color: card.pressed ? Theme.surfaceHigh : Theme.surface
-                    border.color: Theme.outline
-                    border.width: 1
-                }
-
-                contentItem: RowLayout {
+            contentItem: RowLayout {
                 spacing: Theme.gap
                 anchors.margins: Theme.pad
 
@@ -313,13 +267,11 @@ Item {
                     radius: 22
                     color: model.count > 0 ? Theme.accentDim : Theme.surfaceHigh
 
-                    // Reste à acheter, ou une coche quand tout est pris. La coche est
-                    // dessinée : « ✓ » n'est pas garanti dans les polices d'Android.
                     Label {
                         anchors.centerIn: parent
                         visible: model.count > 0
                         text: model.count
-                        color: "#FFFFFF"   // accentDim est foncé dans les deux thèmes
+                        color: "#FFFFFF"
                         font.pixelSize: 17
                         font.weight: Font.DemiBold
                     }
@@ -359,9 +311,7 @@ Item {
                                  : model.count + " à acheter sur " + model.total)
                     }
 
-                    // Avec qui la liste est partagée. « Pas encore partagée » tant que
-                    // personne d'autre n'a envoyé de modification : c'est honnête, on
-                    // ne compte que les participants réellement vus.
+                    // Avec qui la liste est partagée.
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: 1
@@ -404,36 +354,39 @@ Item {
                     }
                 }
 
-                // Poignée de déplacement, seulement en mode Réorganiser. Motif doc Qt :
-                // `held` posé à l'appui active le drag et fait remporter le geste sur
-                // tactile (+ ListView non défilable en réorganisation, voir plus haut).
-                MouseArea {
-                    id: listDragHandle
-                    Layout.rightMargin: 6
-                    Layout.alignment: Qt.AlignVCenter
-                    Layout.preferredWidth: visible ? 34 : 0
-                    Layout.preferredHeight: Theme.touchTarget
+                // Réorganisation : deux flèches pour monter / descendre la liste d'un
+                // cran (un tap, fiable au doigt). Franchir un groupe y range la liste.
+                ToolButton {
                     visible: root.reorderMode
-                    drag.target: wrapper.held ? card : undefined
-                    drag.axis: Drag.YAxis
-                    cursorShape: Qt.SizeVerCursor
-                    preventStealing: true
-                    onPressed: wrapper.held = true
-                    onReleased: wrapper.held = false
-                    onCanceled: wrapper.held = false
-
-                    Icon {
+                    Layout.preferredWidth: visible ? 40 : 0
+                    Layout.preferredHeight: Theme.touchTarget
+                    Layout.alignment: Qt.AlignVCenter
+                    enabled: index > 0
+                    opacity: enabled ? 1 : 0.3
+                    contentItem: Icon {
                         anchors.centerIn: parent
-                        name: "grip"
-                        color: Theme.textDim
-                        size: 16
+                        name: "chevron-up"; color: Theme.text; size: 18
                     }
+                    onClicked: AppController.moveList(index, index - 1)
+                }
+                ToolButton {
+                    visible: root.reorderMode
+                    Layout.preferredWidth: visible ? 40 : 0
+                    Layout.preferredHeight: Theme.touchTarget
+                    Layout.rightMargin: 4
+                    Layout.alignment: Qt.AlignVCenter
+                    enabled: index < listView.count - 1
+                    opacity: enabled ? 1 : 0.3
+                    contentItem: Icon {
+                        anchors.centerIn: parent
+                        name: "chevron-down"; color: Theme.text; size: 18
+                    }
+                    onClicked: AppController.moveList(index, index + 1)
                 }
             }
 
-            // En réorganisation, le tap ne fait rien (on glisse par la poignée).
+            // En réorganisation, le tap ne fait rien (on range par les flèches).
             onClicked: if (!root.reorderMode) AppController.openList(model.listId)
-            }
         }
     }
 

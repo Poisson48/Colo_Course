@@ -22,9 +22,9 @@ Item {
     // que l'affichage, il ne supprime ni ne désynchronise rien.
     property bool searchOpen: false
 
-    // Mode Réorganiser : les poignées de glissement apparaissent, le tap et le swipe
-    // sont mis en pause. On y entre par le menu, on en sort par « Terminer ». Garder
-    // la poignée hors du repos, c'est ce qui allège la ligne au quotidien.
+    // Mode Réorganiser : des flèches ↑/↓ apparaissent sur chaque ligne, le tap et le
+    // swipe sont mis en pause. On y entre par le menu, on en sort par « Terminer ».
+    // Les flèches hors du repos, c'est ce qui allège la ligne au quotidien.
     property bool reorderMode: false
 
     readonly property string pageTitle: selectionMode
@@ -241,7 +241,7 @@ Item {
 
             Label {
                 anchors.centerIn: parent
-                text: "Glissez les articles par la poignée pour les réordonner"
+                text: "Rangez les articles avec les flèches ↑↓"
                 color: Theme.textDim
                 font.pixelSize: 12
             }
@@ -357,15 +357,10 @@ Item {
 
         ListView {
             id: items
-            objectName: "itemsList"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
             model: AppController.items
-            // En réorganisation, la vue ne défile pas : le défilement se disputerait le
-            // geste vertical avec la poignée. Avec ça + l'état `held` posé à l'appui, le
-            // glissement au doigt est fiable (les deux sont nécessaires).
-            interactive: !root.reorderMode
             topMargin: Theme.gap
             bottomMargin: Theme.gap
             spacing: 6
@@ -396,71 +391,18 @@ Item {
 
             // Ce qui reste à acheter est en haut de son rayon (tri du modèle) ; une
             // fois coché, l'article descend et s'estompe au lieu de disparaître.
-            //
-            // Le délégué est un conteneur immobile (la place de la ligne dans la vue,
-            // et sa zone de dépôt) contenant la ligne elle-même, qui se détache sous le
-            // doigt pendant un glissement. Sans cette séparation, la ligne glissée
-            // suivrait le conteneur qui bouge sous elle, et le geste sauterait.
-            delegate: Item {
-                id: wrapper
-                width: items.width
-                height: root.shoppingMode ? 68 : 60
-
-                // Surtout PAS `required property int index` : déclarer une propriété
-                // requise fait basculer le délégué en mode « propriétés requises », et
-                // Qt cesse alors d'injecter le contexte du modèle — tous les `model.xxx`
-                // de la ligne deviennent introuvables, et la liste s'affiche vide.
-                // On recopie donc l'index du contexte dans une propriété ordinaire, que
-                // la zone de dépôt peut lire sur la ligne qu'on lui glisse.
-                property int rowIndex: index
-
-                // État « saisi », piloté explicitement par la poignée (motif de la doc
-                // Qt : drag.target et Drag.active dépendent de `held`). Sur écran
-                // tactile, poser cet état dès l'appui fait remporter le geste à la
-                // poignée avant que le défilement ne l'interprète comme un flick.
-                property bool held: false
-                readonly property bool dragging: held
-
-                z: dragging ? 2 : 1
-
-                DropArea {
-                    anchors.fill: parent
-                    onEntered: function (drag) {
-                        const source = drag.source
-                        if (!source || source === wrapper)
-                            return
-                        // Franchir une frontière de rayon range l'article dans ce rayon :
-                        // c'est le modèle qui en décide (moveItem), pas la vue.
-                        AppController.items.moveItem(source.rowIndex, wrapper.rowIndex)
-                    }
-                }
-
-            SwipeDelegate {
+            delegate: SwipeDelegate {
                 id: row
-                width: wrapper.width - 2 * Theme.gap
+                width: items.width - 2 * Theme.gap
                 x: Theme.gap
-                height: wrapper.height
+                height: root.shoppingMode ? 68 : 60
                 padding: 0
 
                 readonly property bool selected: root.isSelected(model.itemId)
 
-                Drag.active: wrapper.dragging
-                Drag.source: wrapper
-                Drag.hotSpot.x: width / 2
-                Drag.hotSpot.y: height / 2
-
-                opacity: wrapper.dragging ? 0.85 : 1.0
-
-                // Pendant le glissement, la ligne quitte son conteneur pour la vue :
-                // elle reste sous le doigt pendant que les autres se réorganisent.
-                states: State {
-                    when: wrapper.dragging
-                    ParentChange { target: row; parent: items }
-                }
-
                 // Le swipe supprime : désactivé en sélection (conflit avec le geste), en
                 // mode Courses (un geste de travers effacerait l'article des autres) et
-                // en réorganisation (le glissement sert à déplacer).
+                // en réorganisation (les flèches suffisent).
                 swipe.enabled: !root.selectionMode && !root.shoppingMode && !root.reorderMode
 
                 background: Rectangle {
@@ -520,7 +462,7 @@ Item {
                                     parts.push(model.qty)
                                 if (model.note && model.note.length > 0)
                                     parts.push(model.note)
-                                return parts.join(" · ")
+                                return parts.join(" \u00b7 ")
                             }
                             color: Theme.textDim
                             font.pixelSize: 13
@@ -528,48 +470,49 @@ Item {
                         }
                     }
 
-                    // Poignée de déplacement, seulement en mode « Réorganiser » : au repos,
-                    // une ligne se limite à case + nom + quantité. La date de l'article et
-                    // sa suppression se trouvent en le touchant (dialogue), le glissement
-                    // le supprime aussi.
-                    MouseArea {
-                        id: dragHandle
+                    // Réorganisation : deux flèches pour monter / descendre l'article d'un
+                    // cran. Un simple tap, fiable au doigt — pas de glissement qui se
+                    // battrait avec le défilement ou la sélection. Grisées aux extrémités.
+                    ToolButton {
+                        id: upButton
+                        visible: root.reorderMode
+                        Layout.preferredWidth: visible ? 40 : 0
+                        Layout.preferredHeight: Theme.touchTarget
+                        Layout.alignment: Qt.AlignVCenter
+                        enabled: index > 0
+                        opacity: enabled ? 1 : 0.3
+                        contentItem: Icon {
+                            anchors.centerIn: parent
+                            name: "chevron-up"; color: Theme.text; size: 18
+                        }
+                        onClicked: AppController.items.moveItem(index, index - 1)
+                    }
+                    ToolButton {
+                        id: downButton
+                        visible: root.reorderMode
+                        Layout.preferredWidth: visible ? 40 : 0
+                        Layout.preferredHeight: Theme.touchTarget
                         Layout.rightMargin: 2
                         Layout.alignment: Qt.AlignVCenter
-                        Layout.preferredWidth: visible ? 34 : 0
-                        Layout.preferredHeight: Theme.touchTarget
-                        visible: root.reorderMode
-
-                        // Motif de la doc Qt (dynamicview3) : la poignée pose `held` à
-                        // l'appui, et c'est `held` qui active le drag de la ligne. Poser
-                        // l'état dès `onPressed` (au lieu d'attendre que Qt détecte un
-                        // glissement) fait remporter le geste à la poignée sur tactile.
-                        drag.target: wrapper.held ? row : undefined
-                        drag.axis: Drag.YAxis
-                        cursorShape: Qt.SizeVerCursor
-                        preventStealing: true
-                        onPressed: wrapper.held = true
-                        onReleased: wrapper.held = false
-                        onCanceled: wrapper.held = false
-
-                        Icon {
+                        enabled: index < AppController.items.count - 1
+                        opacity: enabled ? 1 : 0.3
+                        contentItem: Icon {
                             anchors.centerIn: parent
-                            name: "grip"
-                            color: Theme.textDim
-                            size: 16
+                            name: "chevron-down"; color: Theme.text; size: 18
                         }
+                        onClicked: AppController.items.moveItem(index, index + 1)
                     }
                 }
 
                 // Appui long : entrer en sélection multiple — sauf en mode Courses (on
-                // ne fait que cocher) ou Réorganiser (on ne fait que glisser).
+                // ne fait que cocher) ou Réorganiser (on range par les flèches).
                 onPressAndHold: {
                     if (!root.shoppingMode && !root.reorderMode)
                         root.toggleSelection(model.itemId)
                 }
                 // Mode Courses : toute la ligne est la case à cocher. Sinon, éditer —
                 // ou étendre la sélection si elle est déjà commencée. En réorganisation,
-                // le tap ne fait rien (on glisse par la poignée).
+                // le tap ne fait rien (on range par les flèches).
                 onClicked: {
                     if (root.reorderMode) {
                         return
@@ -610,7 +553,6 @@ Item {
                     }
                 }
             }   // SwipeDelegate
-            }   // wrapper (conteneur immobile + zone de dépôt)
         }
 
         // État vide. Une liste vide et une recherche sans résultat ne se disent pas

@@ -442,7 +442,7 @@ private slots:
     }
 
     // L'écran des listes se charge sans erreur de binding, y compris en mode
-    // Réorganiser (bandeau + poignées). Ne rend pas les délégués (offscreen), mais
+    // Réorganiser (bandeau + flèches). Ne rend pas les délégués (offscreen), mais
     // valide le niveau supérieur : bandeau, menu, propriété reorderMode.
     void test_listsPageLoadsCleanly() {
         g_warnings.clear();
@@ -457,15 +457,6 @@ private slots:
 
         QVERIFY(page != nullptr);
         QVERIFY2(g_warnings.isEmpty(), qPrintable(g_warnings.join(QStringLiteral("\n"))));
-
-        // Comme l'écran d'une liste : en réorganisation, la vue des listes ne défile
-        // plus (moitié vérifiable du correctif du glisser tactile ; reorderMode déjà à
-        // true ci-dessus).
-        auto *list = qobject_cast<QQuickItem *>(page)->findChild<QQuickItem *>(QStringLiteral("listsList"));
-        QVERIFY(list);
-        QVERIFY(!list->property("interactive").toBool());
-        page->setProperty("reorderMode", false);
-        QVERIFY(list->property("interactive").toBool());
         delete page;
     }
 
@@ -544,24 +535,38 @@ private slots:
         delete page;
     }
 
-    // Le mode Réorganiser rend la ListView non défilable. C'est la moitié vérifiable
-    // du correctif du glisser tactile : sans ça, le défilement se dispute le geste
-    // vertical avec la poignée (avec l'autre moitié — l'état `held` posé à l'appui, motif
-    // doc Qt dynamicview3 — le drag au doigt part enfin). Test déterministe : le glisser
-    // tactile synthétique lui-même est trop instable en headless pour servir de garde.
-    void test_reorderMode_disablesListFlick() {
-        QObject *page = load(QStringLiteral("ListPage.qml"),
-                             { {"listId", "list-1"}, {"listTitle", "Courses"} });
-        QVERIFY(page);
-        auto *list = page->findChild<QQuickItem *>(QStringLiteral("itemsList"));
-        QVERIFY(list);
+    // Réordonnancement des listes par les flèches ↑/↓ : elles appellent moveList sur
+    // des index adjacents. On vérifie ici cette mécanique (un tap = un cran), de façon
+    // déterministe, au niveau du modèle exposé à l'UI.
+    void test_moveList_adjacent() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        store::Database &db = m_ctrl.db();
+        QVERIFY(db.open(dir.filePath("movelistadj.db")));
 
-        QVERIFY(list->property("interactive").toBool());     // défile normalement
-        page->setProperty("reorderMode", true);
-        QVERIFY(!list->property("interactive").toBool());     // figée en réorganisation
-        page->setProperty("reorderMode", false);
-        QVERIFY(list->property("interactive").toBool());     // et redevient défilable
-        delete page;
+        auto makeList = [&](const std::string &id, const std::string &title, int64_t created) {
+            core::ListMeta mm; mm.listId = id; mm.key = std::vector<uint8_t>(32, 1);
+            mm.title = title; mm.titleVer = {1, "dev-A"}; mm.lamport = 1; mm.created = created;
+            QVERIFY(db.createList(mm));
+        };
+        makeList("l-a", "A", 100);
+        makeList("l-b", "B", 200);
+        makeList("l-c", "C", 300);
+        auto *lists = qobject_cast<app::ListsModel *>(m_ctrl.lists());
+        QVERIFY(lists);
+        lists->reload(db, "dev-A");
+        const auto nameAt = [&](int r){
+            return lists->data(lists->index(r), app::ListsModel::NameRole).toString();
+        };
+
+        // Flèche ↓ sur A (index 0) → A passe en 2e position : B, A, C.
+        m_ctrl.moveList(0, 1);
+        QCOMPARE(nameAt(0), QStringLiteral("B"));
+        QCOMPARE(nameAt(1), QStringLiteral("A"));
+        // Flèche ↑ sur A (index 1) → il remonte : A, B, C.
+        m_ctrl.moveList(1, 0);
+        QCOMPARE(nameAt(0), QStringLiteral("A"));
+        QCOMPARE(nameAt(1), QStringLiteral("B"));
     }
 
     // Importer le contenu d'une liste dans une autre : la destination reçoit les
