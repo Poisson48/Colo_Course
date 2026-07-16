@@ -357,10 +357,15 @@ Item {
 
         ListView {
             id: items
+            objectName: "itemsList"
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
             model: AppController.items
+            // En réorganisation, la vue ne défile pas : le défilement se disputerait le
+            // geste vertical avec la poignée. Avec ça + l'état `held` posé à l'appui, le
+            // glissement au doigt est fiable (les deux sont nécessaires).
+            interactive: !root.reorderMode
             topMargin: Theme.gap
             bottomMargin: Theme.gap
             spacing: 6
@@ -409,7 +414,12 @@ Item {
                 // la zone de dépôt peut lire sur la ligne qu'on lui glisse.
                 property int rowIndex: index
 
-                readonly property bool dragging: dragHandle.drag.active
+                // État « saisi », piloté explicitement par la poignée (motif de la doc
+                // Qt : drag.target et Drag.active dépendent de `held`). Sur écran
+                // tactile, poser cet état dès l'appui fait remporter le geste à la
+                // poignée avant que le défilement ne l'interprète comme un flick.
+                property bool held: false
+                readonly property bool dragging: held
 
                 z: dragging ? 2 : 1
 
@@ -530,13 +540,17 @@ Item {
                         Layout.preferredHeight: Theme.touchTarget
                         visible: root.reorderMode
 
-                        drag.target: visible ? row : undefined
+                        // Motif de la doc Qt (dynamicview3) : la poignée pose `held` à
+                        // l'appui, et c'est `held` qui active le drag de la ligne. Poser
+                        // l'état dès `onPressed` (au lieu d'attendre que Qt détecte un
+                        // glissement) fait remporter le geste à la poignée sur tactile.
+                        drag.target: wrapper.held ? row : undefined
                         drag.axis: Drag.YAxis
                         cursorShape: Qt.SizeVerCursor
-                        // Sans ça, sur écran tactile la ListView vole le geste vertical
-                        // (elle le prend pour un défilement) et le glissement de la
-                        // poignée ne démarre jamais : le réordonnancement au doigt est mort.
                         preventStealing: true
+                        onPressed: wrapper.held = true
+                        onReleased: wrapper.held = false
+                        onCanceled: wrapper.held = false
 
                         Icon {
                             anchors.centerIn: parent

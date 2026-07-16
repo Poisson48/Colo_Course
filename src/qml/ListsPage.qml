@@ -185,6 +185,7 @@ Item {
 
     ListView {
         id: listView
+        objectName: "listsList"
         anchors.top: reorderBanner.bottom
         anchors.left: parent.left
         anchors.right: parent.right
@@ -195,6 +196,9 @@ Item {
         spacing: Theme.gap
         clip: true
         model: AppController.lists
+        // En réorganisation, la vue ne défile pas (sinon elle disputerait le geste à la
+        // poignée sur tactile) — nécessaire avec l'état `held` pour un drag fiable.
+        interactive: !root.reorderMode
 
         // Sections par groupe. Les en-têtes n'apparaissent que si des groupes existent :
         // qui ne s'en sert pas voit la même liste plate qu'avant.
@@ -253,7 +257,10 @@ Item {
             // Pas de `required property int index` : cela couperait l'injection du
             // contexte du modèle dans le délégué (voir l'écran d'une liste).
             property int rowIndex: index
-            readonly property bool dragging: listDragHandle.drag.active
+            // État « saisi » posé à l'appui par la poignée (motif doc Qt) : indispensable
+            // pour que le glissement l'emporte sur le tactile (voir l'écran d'une liste).
+            property bool held: false
+            readonly property bool dragging: held
             z: dragging ? 2 : 1
 
             DropArea {
@@ -397,9 +404,9 @@ Item {
                     }
                 }
 
-                // Poignée de déplacement, seulement en mode Réorganiser. preventStealing :
-                // sans lui, la ListView prend le glissement vertical pour un défilement et
-                // le réordonnancement au doigt ne démarre jamais.
+                // Poignée de déplacement, seulement en mode Réorganiser. Motif doc Qt :
+                // `held` posé à l'appui active le drag et fait remporter le geste sur
+                // tactile (+ ListView non défilable en réorganisation, voir plus haut).
                 MouseArea {
                     id: listDragHandle
                     Layout.rightMargin: 6
@@ -407,10 +414,13 @@ Item {
                     Layout.preferredWidth: visible ? 34 : 0
                     Layout.preferredHeight: Theme.touchTarget
                     visible: root.reorderMode
-                    drag.target: visible ? card : undefined
+                    drag.target: wrapper.held ? card : undefined
                     drag.axis: Drag.YAxis
                     cursorShape: Qt.SizeVerCursor
                     preventStealing: true
+                    onPressed: wrapper.held = true
+                    onReleased: wrapper.held = false
+                    onCanceled: wrapper.held = false
 
                     Icon {
                         anchors.centerIn: parent

@@ -457,6 +457,15 @@ private slots:
 
         QVERIFY(page != nullptr);
         QVERIFY2(g_warnings.isEmpty(), qPrintable(g_warnings.join(QStringLiteral("\n"))));
+
+        // Comme l'écran d'une liste : en réorganisation, la vue des listes ne défile
+        // plus (moitié vérifiable du correctif du glisser tactile ; reorderMode déjà à
+        // true ci-dessus).
+        auto *list = qobject_cast<QQuickItem *>(page)->findChild<QQuickItem *>(QStringLiteral("listsList"));
+        QVERIFY(list);
+        QVERIFY(!list->property("interactive").toBool());
+        page->setProperty("reorderMode", false);
+        QVERIFY(list->property("interactive").toBool());
         delete page;
     }
 
@@ -532,6 +541,26 @@ private slots:
         QCOMPARE(page->property("selectionMode").toBool(), false);
         QCOMPARE(page->property("shoppingMode").toBool(), true);  // toujours en courses
 
+        delete page;
+    }
+
+    // Le mode Réorganiser rend la ListView non défilable. C'est la moitié vérifiable
+    // du correctif du glisser tactile : sans ça, le défilement se dispute le geste
+    // vertical avec la poignée (avec l'autre moitié — l'état `held` posé à l'appui, motif
+    // doc Qt dynamicview3 — le drag au doigt part enfin). Test déterministe : le glisser
+    // tactile synthétique lui-même est trop instable en headless pour servir de garde.
+    void test_reorderMode_disablesListFlick() {
+        QObject *page = load(QStringLiteral("ListPage.qml"),
+                             { {"listId", "list-1"}, {"listTitle", "Courses"} });
+        QVERIFY(page);
+        auto *list = page->findChild<QQuickItem *>(QStringLiteral("itemsList"));
+        QVERIFY(list);
+
+        QVERIFY(list->property("interactive").toBool());     // défile normalement
+        page->setProperty("reorderMode", true);
+        QVERIFY(!list->property("interactive").toBool());     // figée en réorganisation
+        page->setProperty("reorderMode", false);
+        QVERIFY(list->property("interactive").toBool());     // et redevient défilable
         delete page;
     }
 
