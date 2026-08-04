@@ -47,8 +47,9 @@ d'affichage des rayons est un parcours de magasin, codé côté client — il ne
 glisser au milieu de l'intervalle entre ses deux futurs voisins, sans renuméroter les
 autres — donc sans faire entrer en conflit des articles qu'on n'a pas touchés. Comme
 tout champ LWW, deux personnes qui réordonnent en même temps convergent (le dernier
-gagne) au lieu de diverger. Tri d'affichage : rayon, puis à acheter avant pris, puis
-`order` — un article coché descend au bas de SON rayon, pas au bas de la liste.
+gagne) au lieu de diverger. Tri d'affichage : rayon, puis `order` — l'état pris/à
+acheter n'entre pas dans le tri : cocher ne déplace jamais l'article, ni chez soi ni
+chez les autres (on fait les courses à plusieurs ; un article pris s'estompe sur place).
 
 Plus des métadonnées non versionnées : `created` (ms epoch, fixé à la création, sert au
 tri d'affichage), `by` (deviceId créateur), et `doneAt` (ms epoch du cochage, 0 si à
@@ -224,7 +225,7 @@ Dépendances : Qt 6 (Core, Quick, Sql, WebSockets), libsodium, un encodeur/déco
 (qzxing ou équivalent — le codeur de la tâche choisit et le note ici).
 
 - `core/` ne dépend que de la STL : les tests CRDT tournent sans display.
-- UI : tri des items = non cochés d'abord, puis `created` croissant. Cocher = tap ;
+- UI : tri des items = rayon puis position manuelle ; cocher ne déplace pas. Cocher = tap ;
   supprimer = swipe ; champ d'ajout rapide en bas.
 
 ## 8. Notifications & cycle de vie Android (décision v1)
