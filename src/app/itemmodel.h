@@ -11,7 +11,7 @@
 namespace app {
 
 // ItemModel: QAbstractListModel for the items of a single list.
-// Sorting (§7 SPEC): unchecked first, then by created ascending.
+// Tri (§7 SPEC) : rayon puis position manuelle — cocher ne déplace jamais la ligne.
 // Deleted items (del=true) are hidden (tombstone filter).
 class ItemModel : public QAbstractListModel {
     Q_OBJECT
@@ -131,10 +131,10 @@ private:
     // Find visible row index by itemId (-1 if not found).
     int findRow(const QString &itemId) const;
 
-    // Tri d'affichage. En mode rayon : rayon (ordre du magasin), puis à acheter avant
-    // pris, puis position manuelle — un article coché descend au bas de SON rayon, on
-    // parcourt le magasin rayon par rayon. En mode manuel : le rayon est ignoré, tri
-    // par à-acheter/pris puis position manuelle sur toute la liste.
+    // Tri d'affichage. En mode rayon : rayon (ordre du magasin) puis position
+    // manuelle. En mode manuel : position manuelle seule, sur toute la liste.
+    // L'état pris/à acheter n'entre pas dans le tri : cocher ne déplace pas la ligne,
+    // ni ici ni sur le téléphone des autres — on fait les courses à plusieurs.
     static bool rowLessThan(const Row &a, const Row &b, bool manual);
 
     // Rang du rayon dans le parcours. Rayon inconnu ou vide → après tous les autres.
@@ -146,9 +146,8 @@ private:
     bool matchesFilter(const core::Item &item) const;
 
     // Ré-espace les positions d'un groupe quand l'intervalle entre deux voisins est
-    // épuisé. Le groupe = même état (pris / à acheter) et, en mode rayon, même rayon ;
-    // en mode manuel, tous rayons confondus.
-    void renumber(const std::string &aisle, bool done);
+    // épuisé. Le groupe = le rayon en mode rayon ; toute la liste en mode manuel.
+    void renumber(const std::string &aisle);
 
     store::Database *m_db     = nullptr;
     std::string      m_listId;

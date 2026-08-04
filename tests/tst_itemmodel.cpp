@@ -86,7 +86,8 @@ private slots:
         QVERIFY(items[1].nameVer.lamport < items[2].nameVer.lamport);
     }
 
-    // 3. toggleDone → item moves to bottom group, correct re-ordering.
+    // 3. toggleDone → l'article change d'état SANS bouger : cocher ne réorganise pas
+    // la liste (ni chez soi ni, via la synchro, chez les autres).
     void test_toggleDone_reorder() {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
@@ -103,21 +104,21 @@ private slots:
 
         QCOMPARE(model.rowCount(), 3);
 
-        // Toggle first item (A) → it should move to the bottom.
+        // Cocher le premier article (A) : il reste à sa place, coché.
         const QString idA = model.data(model.index(0), ItemModel::ItemIdRole).toString();
         model.toggleDone(idA);
 
         QCOMPARE(model.rowCount(), 3);
-        // A is now done → must be last.
-        QCOMPARE(model.data(model.index(2), ItemModel::ItemIdRole).toString(), idA);
-        QCOMPARE(model.data(model.index(2), ItemModel::DoneRole).toBool(), true);
+        QCOMPARE(model.data(model.index(0), ItemModel::ItemIdRole).toString(), idA);
+        QCOMPARE(model.data(model.index(0), ItemModel::DoneRole).toBool(), true);
 
-        // B and C still unchecked, in order.
-        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(), "B");
-        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(), "C");
+        // B et C n'ont pas bougé non plus.
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(), "B");
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(), "C");
 
-        // Toggle A again → should come back to the top.
+        // Décocher A : toujours à sa place.
         model.toggleDone(idA);
+        QCOMPARE(model.data(model.index(0), ItemModel::ItemIdRole).toString(), idA);
         QCOMPARE(model.data(model.index(0), ItemModel::DoneRole).toBool(), false);
 
         // Verify done field in DB has doneVer with lamport > 0.
@@ -205,13 +206,12 @@ private slots:
             model.addItem("Beta",    "");
             model.addItem("Gamma",   "2");
 
-            // toggle Beta (row 1)
+            // toggle Beta (row 1) — cocher ne déplace pas : l'ordre reste
+            // Alpha(0), Beta(1), Gamma(2)
             const QString idBeta = model.data(model.index(1), ItemModel::ItemIdRole).toString();
             model.toggleDone(idBeta);
 
-            // remove Gamma (now row 1 = Gamma since Beta moved to bottom)
-            // After toggle: Alpha(0), Gamma(1), Beta(2)
-            const QString idGamma = model.data(model.index(1), ItemModel::ItemIdRole).toString();
+            const QString idGamma = model.data(model.index(2), ItemModel::ItemIdRole).toString();
             model.removeItem(idGamma);
         }
 
@@ -354,8 +354,12 @@ private slots:
         model.addItem("Lait", "");
         model.addItem("Pain", "");
 
-        model.toggleDone(model.data(model.index(0), ItemModel::ItemIdRole).toString());
-        model.toggleDone(model.data(model.index(0), ItemModel::ItemIdRole).toString());
+        // `toggleDone` ne déplace pas la ligne : on bascule les deux articles
+        // explicitement, sans dépendre d'un éventuel changement d'index.
+        const QString idLait = model.data(model.index(0), ItemModel::ItemIdRole).toString();
+        const QString idPain = model.data(model.index(1), ItemModel::ItemIdRole).toString();
+        model.toggleDone(idLait);
+        model.toggleDone(idPain);
         QCOMPARE(model.doneCount(), 2);
 
         QSignalSpy localSpy(&model, &ItemModel::localChanged);
@@ -526,16 +530,16 @@ private slots:
 
         QCOMPARE(model.aisleCount(), 4);
 
-        // Un article coché descend au bas de SON rayon, pas au bas de la liste : on
-        // parcourt le magasin rayon par rayon.
+        // Un article coché ne bouge pas : le tri ignore l'état pris/à acheter, et
+        // ne dépend que du rayon (en mode rayon) puis de la position manuelle.
         model.addItem("Carottes", "", "", "Fruits & légumes");
         const QString pommes = model.data(model.index(0), ItemModel::ItemIdRole).toString();
         model.toggleDone(pommes);
 
         QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
-                 QStringLiteral("Carottes"));   // reste à prendre
+                 QStringLiteral("Pommes"));     // reste à prendre, mais devient coché
         QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
-                 QStringLiteral("Pommes"));     // pris, mais toujours dans son rayon
+                 QStringLiteral("Carottes"));  // reste non coché
         QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(),
                  QStringLiteral("Beurre"));     // le rayon suivant n'a pas bougé
     }

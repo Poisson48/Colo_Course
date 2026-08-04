@@ -98,11 +98,9 @@ bool ItemModel::rowLessThan(const Row &a, const Row &b, bool manual) {
             return a.item.aisle < b.item.aisle;
     }
 
-    // Ce qui reste à prendre avant ce qui est déjà dans le panier (dans le rayon en
-    // mode rayon, sur toute la liste en mode manuel).
-    if (a.item.done != b.item.done)
-        return !a.item.done; // false < true
-
+    // L'état pris/à acheter n'entre PAS dans le tri : cocher ne déplace rien, ni chez
+    // soi ni chez les autres. À plusieurs en magasin, une liste qui se réorganise à
+    // chaque cochage est illisible ; un article pris s'estompe, il ne bouge pas.
     if (a.item.order != b.item.order)
         return a.item.order < b.item.order;
     return a.item.itemId < b.item.itemId;   // départage stable
@@ -382,41 +380,13 @@ void ItemModel::toggleDone(const QString &itemId) {
     emit localChanged(m_listId);
     emit aisleNamesChanged();
 
-    // Find current position in visible rows.
-    const int oldPos = findRow(itemId);
-    if (oldPos < 0) return;
-
-    // Compute new position.
-    Row updatedRow{ *it };
-    // Remove from old position to compute new position.
-    std::vector<Row> scratch = m_rows;
-    scratch.erase(scratch.begin() + oldPos);
-
-    const bool manual = m_manualSort;
-    const auto less = [manual](const Row &a, const Row &b){ return rowLessThan(a, b, manual); };
-    auto newIt = std::upper_bound(scratch.begin(), scratch.end(), updatedRow, less);
-    int newPos = static_cast<int>(newIt - scratch.begin());
-
-    if (oldPos == newPos) {
-        // Position unchanged — just update data.
-        m_rows[static_cast<size_t>(oldPos)].item = *it;
-        const QModelIndex idx = index(oldPos);
-        emit dataChanged(idx, idx, { DoneRole, DoneAtRole });
-    } else {
-        // Move row.
-        // Qt's beginMoveRows destination is the row BEFORE which we insert.
-        // If moving down: destination = newPos + 1 (in original indexing).
-        int dest = (oldPos < newPos) ? newPos + 1 : newPos;
-        beginMoveRows({}, oldPos, oldPos, {}, dest);
-        m_rows.erase(m_rows.begin() + oldPos);
-        // Re-insert at correct position (scratch newPos may shift by 1).
-        m_rows.insert(m_rows.begin() + newPos, updatedRow);
-        endMoveRows();
-
-        // Update done flag in newly positioned row.
-        const QModelIndex idx = index(newPos);
-        emit dataChanged(idx, idx, { DoneRole, DoneAtRole });
-    }
+    // Cocher ne déplace pas la ligne : l'état pris/à acheter ne fait pas partie du
+    // tri (rowLessThan). La ligne change d'apparence, pas de place.
+    const int pos = findRow(itemId);
+    if (pos < 0) return;
+    m_rows[static_cast<size_t>(pos)].item = *it;
+    const QModelIndex idx = index(pos);
+    emit dataChanged(idx, idx, { DoneRole, DoneAtRole });
 
     // Le nombre de lignes n'a pas bougé, mais la progression du mode Courses si :
     // c'est le seul moment où elle avance.
@@ -540,12 +510,11 @@ void ItemModel::moveItem(int from, int to) {
         ? moved.aisle
         : (hovered ? hovered->item.aisle : moved.aisle);
 
-    // Les voisins qui comptent pour la position sont ceux du même groupe : même état
-    // (à acheter / pris), et — en mode rayon seulement — même rayon. Le tri les sépare
-    // avant de regarder la position.
+    // Les voisins qui comptent pour la position sont ceux du même groupe : même rayon
+    // en mode rayon, toute la liste en mode manuel. Le tri les sépare avant de
+    // regarder la position. L'état pris/à acheter ne compte pas : il n'est pas trié.
     const auto sameGroup = [&](const Row *r) {
-        return r && r->item.done == moved.done
-            && (m_manualSort || r->item.aisle == targetAisle);
+        return r && (m_manualSort || r->item.aisle == targetAisle);
     };
     const int64_t lo = sameGroup(before) ? before->item.order : 0;
     const int64_t hi = sameGroup(after)  ? after->item.order  : 0;
@@ -563,7 +532,7 @@ void ItemModel::moveItem(int from, int to) {
     // Intervalle épuisé (des milliers de déplacements au même endroit) : renuméroter
     // le groupe à grands pas plutôt que d'écraser silencieusement l'ordre voulu.
     if (lo && hi && (order == lo || order == hi)) {
-        renumber(targetAisle, moved.done);
+        renumber(targetAisle);
         moveItem(from, to);   // les positions sont ré-espacées : rejouer le geste
         return;
     }
@@ -610,8 +579,9 @@ void ItemModel::moveItem(int from, int to) {
     emit dataChanged(idx, idx, { AisleRole });
 }
 
-// Ré-espace les positions d'un groupe (même rayon, même état) par pas de 1000.
-void ItemModel::renumber(const std::string &aisle, bool done) {
+// Ré-espace les positions d'un groupe (même rayon ; toute la liste en mode manuel)
+// par pas de 1000.
+void ItemModel::renumber(const std::string &aisle) {
     if (!m_db) return;
 
     const int64_t lamport = m_db->bumpLamport(m_listId);
@@ -619,8 +589,8 @@ void ItemModel::renumber(const std::string &aisle, bool done) {
 
     int64_t next = 1000;
     for (auto &row : m_rows) {
-        // En mode manuel le rayon ne délimite pas le groupe : seul l'état compte.
-        if (row.item.done != done || (!m_manualSort && row.item.aisle != aisle))
+        // En mode manuel le rayon ne délimite pas le groupe : tout est renuméroté.
+        if (!m_manualSort && row.item.aisle != aisle)
             continue;
         auto it = std::find_if(m_items.begin(), m_items.end(),
                                [&](const core::Item &i){ return i.itemId == row.item.itemId; });

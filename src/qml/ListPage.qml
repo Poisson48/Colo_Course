@@ -338,6 +338,23 @@ Item {
             // mode manuel, aucune section : la liste est une seule séquence à la main.
             section.property: AppController.items.manualSort ? "" : "aisle"
             section.criteria: ViewSection.FullString
+
+            // Un changement reçu d'un autre téléphone recharge le modèle en bloc
+            // (reset), ce qui renvoie la vue tout en haut. À deux en magasin, chaque
+            // cochage de l'autre ferait perdre sa place. On mémorise la position juste
+            // avant le reset et on la rétablit juste après (bornée si la liste a
+            // raccourci).
+            property real savedContentY: 0
+            Connections {
+                target: AppController.items
+                function onModelAboutToBeReset() { items.savedContentY = items.contentY }
+                function onModelReset() {
+                    Qt.callLater(function() {
+                        items.contentY = items.savedContentY
+                        items.returnToBounds()
+                    })
+                }
+            }
             section.delegate: Item {
                 required property string section
                 width: items.width
@@ -357,8 +374,8 @@ Item {
                 }
             }
 
-            // Ce qui reste à acheter est en haut de son rayon (tri du modèle) ; une
-            // fois coché, l'article descend et s'estompe au lieu de disparaître.
+            // Un article coché ne bouge pas (le tri du modèle ignore l'état pris) :
+            // il s'estompe sur place — la liste ne se réorganise pas sous les doigts.
             //
             // Conteneur immobile (place dans la vue + zone de dépôt) contenant la ligne,
             // qui se détache sous le doigt pendant un glissement.
