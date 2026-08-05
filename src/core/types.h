@@ -51,6 +51,12 @@ struct Item {
     int64_t order = 0;
     Ver     orderVer;
 
+    // Photos de l'article : shas256 hex des blobs JPEG, séparés par des espaces
+    // ("" = aucune). Champ LWW comme les autres ; les blobs circulent dans des
+    // événements « img » séparés et vivent dans la table images.
+    std::string image;
+    Ver         imageVer;
+
     bool done = false;
     Ver  doneVer;
     // Date de cochage (ms epoch, 0 si à acheter). Satellite de `done` : pas de version

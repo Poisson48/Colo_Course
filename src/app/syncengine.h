@@ -63,6 +63,11 @@ public:
     void registerItemModel(const std::string& listId, ItemModel* model);
     void unregisterItemModel(const std::string& listId);
 
+    // Publie le blob d'une photo (événement « img » chiffré, à part des deltas).
+    // Appelé à l'ajout d'une photo, et au snapshot pour re-semer les blobs
+    // référencés (rétention limitée des relais).
+    void publishImage(const std::string& listId, const std::string& sha);
+
     // Called by AppController/ItemModel after a local modification.
     // Schedules a debounced publish for listId.
     void onLocalChange(const std::string& listId);
@@ -79,6 +84,10 @@ signals:
 
     // Le titre de listId a été renommé par un autre appareil (merge LWW gagné).
     void listTitleChanged(const QString& listId, const QString& title);
+
+    // Le blob d'une photo vient d'arriver d'un relais : l'UI peut maintenant
+    // l'afficher (les vignettes se rechargent via le compteur de révision).
+    void imageArrived(const QString& listId, const QString& sha);
 
     // La file d'attente d'envoi a bougé (ajout, ou accusé de réception d'un relais).
     void outboxChanged();
@@ -127,7 +136,9 @@ private:
     void resetDeltaCounter(const std::string& listId);
 
     // Show a system notification (tray if available, otherwise qDebug).
-    void showNotification(const QString& title, const QString& body);
+    // whenMs > 0 : horodatage affiché = heure de la modification (touched),
+    // pas l'heure de réception de la notif.
+    void showNotification(const QString& title, const QString& body, qint64 whenMs = 0);
 
     store::Database* m_db     = nullptr;
     net::RelayPool*  m_pool   = nullptr;

@@ -637,6 +637,48 @@ private slots:
         Database again;
         QVERIFY(again.open(path));
         QCOMPARE(again.getItems("list-A").size(), size_t(1));
+
+        // La migration a aussi ajouté les colonnes image : écrivables tout de suite.
+        core::Item withNew = again.getItems("list-A").front();
+        withNew.image    = "sha-1";
+        withNew.imageVer = {6, "dev-A"};
+        QVERIFY(again.upsertItem(withNew));
+        QCOMPARE(again.getItems("list-A").front().image, std::string("sha-1"));
+    }
+
+    // Blobs de photos adressés par contenu, purgeables quand plus rien ne les référence.
+    void test_images() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(db.open(dir.filePath("img.db")));
+        QVERIFY(db.createList(makeList()));
+
+        core::Item item = makeItem("list-A", "i1", "Lait");
+        item.image    = "sha-abc";
+        item.imageVer = {3, "dev-A"};
+        QVERIFY(db.upsertItem(item));
+
+        const QByteArray blob("\xFF\xD8\xFF fake jpeg data", 18);
+        QVERIFY(!db.hasImage("sha-abc"));
+        QVERIFY(db.putImage("sha-abc", blob));
+        QVERIFY(db.putImage("sha-abc", blob));
+        QVERIFY(db.hasImage("sha-abc"));
+        QCOMPARE(db.getImage("sha-abc"), blob);
+
+        QCOMPARE(db.imagesReferenced("list-A").size(), size_t(1));
+
+        QVERIFY(db.putImage("sha-orpheline", QByteArray("x")));
+        QVERIFY(db.purgeOrphanImages());
+        QVERIFY(db.hasImage("sha-abc"));
+        QVERIFY(!db.hasImage("sha-orpheline"));
+
+        core::Item gone = item;
+        gone.del    = true;
+        gone.delVer = {9, "dev-A"};
+        QVERIFY(db.upsertItem(gone));
+        QVERIFY(db.purgeOrphanImages());
+        QVERIFY(!db.hasImage("sha-abc"));
     }
 };
 

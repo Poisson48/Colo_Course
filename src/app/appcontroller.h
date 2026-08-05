@@ -81,6 +81,10 @@ class AppController : public QObject {
     Q_PROPERTY(QAbstractListModel* lists READ lists CONSTANT)
     // Articles de la liste ouverte. Chargé par openList(), branché au SyncEngine.
     Q_PROPERTY(app::ItemModel* items READ items CONSTANT)
+    // Compteur d'invalidation des vignettes : incrémenté quand le blob d'une photo
+    // arrive d'un relais. Les vues l'ajoutent à l'URL du provider ("?r=N") pour
+    // forcer un rechargement — sans lui, une vignette d'abord absente resterait vide.
+    Q_PROPERTY(int imageRevision READ imageRevision NOTIFY imageRevisionChanged)
     Q_PROPERTY(bool online READ online NOTIFY onlineChanged)
     // Modifications écrites localement mais pas encore accusées par un relais. Zéro =
     // tout le monde a reçu. Sans ça, rien ne dit à l'utilisateur si ses ajouts sont
@@ -110,6 +114,11 @@ public:
     ItemModel *items();
     bool online() const;
     int  pendingChanges() const;
+    int  imageRevision() const { return m_imageRevision; }
+
+    // Chemin de la base (partagé avec le provider d'images, qui ouvre sa propre
+    // connexion : les requêtes d'images arrivent d'un thread de rendu).
+    static QString databasePath();
 
     QString deviceId() const;
     QString displayName() const;
@@ -134,6 +143,22 @@ public slots:
     QVariantList otherLists(const QString &exceptListId);
     // openList is called from QML to open a list; emits listOpened.
     void openList(const QString &listId);
+
+    // --- Photos d'un article (plusieurs) ---
+    // Ajoute une image : lecture, réduction (JPEG ≤ ~30 Ko pour passer les relais),
+    // stockage local, ajout à la liste du champ CRDT et publication du blob. false
+    // si le fichier est illisible.
+    bool setItemImage(const QString &itemId, const QUrl &fileUrl);
+    // Retire UNE photo de l'article (les autres restent).
+    void removeItemImage(const QString &itemId, const QString &sha);
+    // Chemin temporaire pour une capture caméra (fichier local, prêt pour setItemImage).
+    Q_INVOKABLE QString tempPhotoPath() const;
+
+    // --- Historique (local) : ce qui a déjà été coché dans une liste ---
+    // [{ name, aisle, doneAt, byName }, …], le plus récent d'abord.
+    QVariantList history(const QString &listId);
+    void clearHistory(const QString &listId);
+
     // Parse URI → create list with provided key → true on success
     bool joinList(const QString &uri);
     // Build pairing URI for an existing list
@@ -218,6 +243,7 @@ signals:
     void listRenamed(const QString &listId, const QString &title);
     // Message court à afficher en bas de l'écran (snackbar).
     void toast(const QString &message);
+    void imageRevisionChanged();
 
 private slots:
     void onSyncOnlineChanged(bool online);
@@ -248,6 +274,7 @@ private:
     QString          m_displayName;
     bool             m_hasDisplayName = false;
     std::string      m_openListId;   // liste actuellement chargée dans m_itemModel
+    int              m_imageRevision = 0;
 };
 
 } // namespace app

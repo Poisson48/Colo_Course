@@ -217,8 +217,27 @@ void SyncEngine::publishSnap(const std::string& listId)
     const std::string json = core::serializePayload(p);
     buildAndPublish(listId, json);
 
+    // Re-semer les blobs des photos encore référencées : les relais ont une
+    // rétention limitée, le snap protège l'état — les images doivent l'être aussi,
+    // sinon un pair qui rejoint tard verrait des articles aux photos manquantes.
+    for (const std::string& sha : m_db->imagesReferenced(listId))
+        publishImage(listId, sha);
+
     // Reset counter + timestamp.
     resetDeltaCounter(listId);
+}
+
+void SyncEngine::publishImage(const std::string& listId, const std::string& sha)
+{
+    if (!m_db || sha.empty()) return;
+
+    const QByteArray blob = m_db->getImage(sha);
+    if (blob.isEmpty()) return;   // blob jamais reçu : rien à re-semer
+
+    std::vector<uint8_t> data(blob.constData(), blob.constData() + blob.size());
+    const std::string json = core::serializeImagePayload(
+        listId, m_deviceId.toStdString(), sha, data);
+    buildAndPublish(listId, json);
 }
 
 std::string SyncEngine::buildAndPublish(const std::string& listId,
@@ -335,6 +354,19 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
     const core::Payload& payload = *payloadOpt;
     if (payload.listId != listId) return; // Mismatch — ignore.
 
+    // Blob d'une photo : le ranger, prévenir l'UI, c'est tout. Aucun item à merger —
+    // le champ `image` des articles arrive par les deltas, dans n'importe quel ordre.
+    if (payload.type == core::Payload::Type::image) {
+        if (payload.imageSha.empty() || payload.imageData.empty()) return;
+        const QByteArray blob(reinterpret_cast<const char*>(payload.imageData.data()),
+                              static_cast<int>(payload.imageData.size()));
+        m_db->putImage(payload.imageSha, blob);
+        m_db->updateLastSync(listId, ev.created_at * 1000);
+        emit imageArrived(QString::fromStdString(listId),
+                          QString::fromStdString(payload.imageSha));
+        return;
+    }
+
     // Advance Lamport clock to observe remote values (§1, §2.3).
     // Find max lamport in received items.
     int64_t maxLamport = 0;
@@ -344,6 +376,7 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
                                item.qtyVer.lamport,
                                item.noteVer.lamport,
                                item.aisleVer.lamport,
+                               item.imageVer.lamport,
                                item.orderVer.lamport,
                                item.doneVer.lamport,
                                item.delVer.lamport});
@@ -360,13 +393,23 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
     std::map<std::string, core::Item> localMap;
     for (auto& it : localItems) localMap[it.itemId] = it;
 
+    // État « fait » d'avant merge : c'est la transition (pas l'état) qui alimente
+    // l'historique — un article déjà connu pris ne doit pas s'y consigner deux fois.
+    std::map<std::string, bool> wasDone;
+    for (const auto& [iid, it] : localMap) wasDone[iid] = it.done;
+
     const auto changedIds = core::mergeItems(localMap, payload.items);
 
-    // Upsert changed items in DB.
+    // Upsert changed items in DB. touched = heure de publication de l'événement
+    // (pas l'horloge locale à la réception) : la notif affiche « modifié à 10h »
+    // plutôt que « il y a 1 min ».
+    const int64_t eventMs = ev.created_at * 1000;
     for (const auto& iid : changedIds) {
         auto mit = localMap.find(iid);
-        if (mit != localMap.end())
+        if (mit != localMap.end()) {
+            mit->second.touched = eventMs;
             m_db->upsertItem(mit->second);
+        }
     }
 
     // Merge title if present.
@@ -427,20 +470,44 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
     }
     if (authorName.isEmpty()) authorName = QStringLiteral("Quelqu'un");
 
+    // Historique : les articles passés à « pris » par ce merge.
+    // Notre propre événement revenu du relais est ignoré (déjà consigné au cochage
+    // local — et la clé (item, date) dédoublonne de toute façon).
+    if (!ownEvent) {
+        for (const auto& iid : changedIds) {
+            const auto mit = localMap.find(iid);
+            if (mit == localMap.end()) continue;
+            const core::Item& it = mit->second;
+            if (!it.done || it.del || it.doneAt <= 0) continue;
+            const auto old = wasDone.find(iid);
+            if (old != wasDone.end() && old->second) continue;   // déjà pris avant
+            m_db->appendHistory(listId,
+                { it.itemId, it.name, it.aisle, it.doneAt, authorName.toStdString() });
+        }
+    }
+
     const int count = static_cast<int>(changedIds.size());
     if (count > 0)
         emit remoteChanges(QString::fromStdString(listId), count, authorName);
 
     if (count > 0 && !ownEvent) {
-        // System notification.
+        // System notification — horodatée sur la dernière modif (touched), pas
+        // sur l'heure de réception (sinon « il y a 1 min » pour un truc de ce matin).
         auto metaOpt3 = m_db->getList(listId);
         const QString listTitle = metaOpt3
             ? QString::fromStdString(metaOpt3->title)
             : QString::fromStdString(listId);
 
+        qint64 whenMs = 0;
+        for (const auto& iid : changedIds) {
+            const auto mit = localMap.find(iid);
+            if (mit == localMap.end()) continue;
+            whenMs = std::max(whenMs, static_cast<qint64>(mit->second.touched));
+        }
+
         const QString body = QString("%1 article(s) modifié(s) par %2")
                                  .arg(count).arg(authorName);
-        showNotification(listTitle, body);
+        showNotification(listTitle, body, whenMs);
     }
 }
 
@@ -599,10 +666,10 @@ void SyncEngine::resetDeltaCounter(const std::string& listId)
     m_db->setSetting(std::string(kLastSnapKey) + listId, std::to_string(nowMs));
 }
 
-void SyncEngine::showNotification(const QString& title, const QString& body)
+void SyncEngine::showNotification(const QString& title, const QString& body, qint64 whenMs)
 {
     // Android : notification système via JNI. Ailleurs : no-op, on retombe sur le tray.
-    if (platformNotify(title, body))
+    if (platformNotify(title, body, whenMs))
         return;
 
 #if QT_FEATURE_systemtrayicon == 1 && defined(QT_WIDGETS_LIB)

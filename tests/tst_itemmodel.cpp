@@ -1055,6 +1055,63 @@ private slots:
             if (it.del) ++tombstones;
         QCOMPARE(tombstones, 2);
     }
+
+    // Photos : liste de shas dans le champ LWW `image`.
+    void test_itemImages() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Lait", "");
+        const QString id = model.data(model.index(0), ItemModel::ItemIdRole).toString();
+
+        model.addItemImage(id, "sha-avant");
+        model.addItemImage(id, "sha-apres");
+        QCOMPARE(model.data(model.index(0), ItemModel::ImageRole).toString(),
+                 QStringLiteral("sha-avant sha-apres"));
+        QCOMPARE(model.itemImage(id), QStringLiteral("sha-avant sha-apres"));
+
+        model.removeItemImage(id, "sha-avant");
+        QCOMPARE(model.itemImage(id), QStringLiteral("sha-apres"));
+    }
+
+    // L'historique consigne chaque article coché — et survit à son retrait.
+    void test_history() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        model.addItem("Lait", "", "", "Crèmerie");
+        const QString id = model.data(model.index(0), ItemModel::ItemIdRole).toString();
+
+        model.toggleDone(id);
+        auto hist = db.getHistory(listId, 10);
+        QCOMPARE(hist.size(), size_t(1));
+        QCOMPARE(hist.front().name,   std::string("Lait"));
+        QCOMPARE(hist.front().aisle,  std::string("Crèmerie"));
+        QCOMPARE(hist.front().byName, std::string("vous"));
+        QVERIFY(hist.front().doneAt > 0);
+
+        model.toggleDone(id);              // décoché
+        QCOMPARE(db.getHistory(listId, 10).size(), size_t(1));
+        QTest::qWait(2);
+        model.toggleDone(id);              // recoché
+        QCOMPARE(db.getHistory(listId, 10).size(), size_t(2));
+
+        model.removeItem(id);
+        QCOMPARE(db.getHistory(listId, 10).size(), size_t(2));
+
+        QVERIFY(db.clearHistory(listId));
+        QCOMPARE(db.getHistory(listId, 10).size(), size_t(0));
+    }
 };
 
 QTEST_GUILESS_MAIN(ItemModelTest)

@@ -99,6 +99,7 @@ bool Database::createSchema()
             "  qty  TEXT,  qty_l  INT,  qty_d  TEXT,"
             "  note TEXT,  note_l INT,  note_d TEXT,"
             "  aisle TEXT, aisle_l INT, aisle_d TEXT,"
+            "  image TEXT, image_l INT, image_d TEXT,"
             // « order » est un mot réservé SQL : la colonne s'appelle sort_order.
             "  sort_order INT, sort_order_l INT, sort_order_d TEXT,"
             "  done INT,   done_l INT,  done_d TEXT,"
@@ -106,6 +107,26 @@ bool Database::createSchema()
             "  del  INT,   del_l  INT,  del_d  TEXT,"
             "  touched INT,"
             "  PRIMARY KEY(list_id, item_id)"
+            ")"),
+        QStringLiteral(
+            // Blobs des photos d'articles, adressés par contenu (sha256 hex). Partagés
+            // entre listes et entre articles : le champ image des items s'y réfère.
+            "CREATE TABLE IF NOT EXISTS images ("
+            "  sha TEXT PRIMARY KEY,"
+            "  data BLOB,"
+            "  created INT"
+            ")"),
+        QStringLiteral(
+            // Historique local des articles cochés. Survit au retrait de l'article et au
+            // GC des tombstones ; jamais synchronisé (chaque appareil garde sa trace).
+            "CREATE TABLE IF NOT EXISTS history ("
+            "  list_id TEXT,"
+            "  item_id TEXT,"
+            "  name TEXT,"
+            "  aisle TEXT,"
+            "  done_at INT,"
+            "  by_name TEXT,"
+            "  PRIMARY KEY(list_id, item_id, done_at)"
             ")"),
         QStringLiteral(
             "CREATE TABLE IF NOT EXISTS members ("
@@ -195,6 +216,11 @@ bool Database::migrateSchema()
         { QStringLiteral("sort_order"),   QStringLiteral("sort_order INT DEFAULT 0") },
         { QStringLiteral("sort_order_l"), QStringLiteral("sort_order_l INT DEFAULT 0") },
         { QStringLiteral("sort_order_d"), QStringLiteral("sort_order_d TEXT DEFAULT ''") },
+        // Photos : absentes des bases antérieures. '' = pas d'image, en version
+        // {0,''} — toute valeur réelle les bat au merge.
+        { QStringLiteral("image"),   QStringLiteral("image TEXT DEFAULT ''") },
+        { QStringLiteral("image_l"), QStringLiteral("image_l INT DEFAULT 0") },
+        { QStringLiteral("image_d"), QStringLiteral("image_d TEXT DEFAULT ''") },
     };
 
     const bool hadOrder = existing.contains(QStringLiteral("sort_order"));
@@ -659,7 +685,11 @@ bool Database::upsertItem(const core::Item& item)
     }
 
     QSqlQuery q(m_db);
-    const int64_t nowMs = QDateTime::currentMSecsSinceEpoch();
+    // Preferer item.touched (posé par l'appelant) : pour un merge distant, c'est
+    // l'heure de publication — pas l'heure de réception locale.
+    const int64_t touchMs = item.touched > 0
+        ? item.touched
+        : QDateTime::currentMSecsSinceEpoch();
     q.prepare(QStringLiteral(
         "INSERT INTO items"
         " (list_id, item_id, created, by,"
@@ -667,16 +697,18 @@ bool Database::upsertItem(const core::Item& item)
         "  qty,  qty_l,  qty_d,"
         "  note, note_l, note_d,"
         "  aisle, aisle_l, aisle_d,"
+        "  image, image_l, image_d,"
         "  sort_order, sort_order_l, sort_order_d,"
         "  done, done_l, done_d, done_at,"
         "  del,  del_l,  del_d,"
         "  touched)"
-        " VALUES (?,?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?,?, ?,?,?, ?)"
+        " VALUES (?,?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?,?, ?,?,?, ?)"
         " ON CONFLICT(list_id, item_id) DO UPDATE SET"
         "  name   = excluded.name,   name_l = excluded.name_l,   name_d = excluded.name_d,"
         "  qty    = excluded.qty,    qty_l  = excluded.qty_l,    qty_d  = excluded.qty_d,"
         "  note   = excluded.note,   note_l = excluded.note_l,   note_d = excluded.note_d,"
         "  aisle  = excluded.aisle,  aisle_l = excluded.aisle_l, aisle_d = excluded.aisle_d,"
+        "  image  = excluded.image,  image_l = excluded.image_l, image_d = excluded.image_d,"
         "  sort_order   = excluded.sort_order,"
         "  sort_order_l = excluded.sort_order_l,"
         "  sort_order_d = excluded.sort_order_d,"
@@ -700,6 +732,9 @@ bool Database::upsertItem(const core::Item& item)
     q.addBindValue(qs(item.aisle));
     q.addBindValue(ll(item.aisleVer.lamport));
     q.addBindValue(qs(item.aisleVer.deviceId));
+    q.addBindValue(qs(item.image));
+    q.addBindValue(ll(item.imageVer.lamport));
+    q.addBindValue(qs(item.imageVer.deviceId));
     q.addBindValue(ll(item.order));
     q.addBindValue(ll(item.orderVer.lamport));
     q.addBindValue(qs(item.orderVer.deviceId));
@@ -710,7 +745,7 @@ bool Database::upsertItem(const core::Item& item)
     q.addBindValue(item.del ? 1 : 0);
     q.addBindValue(ll(item.delVer.lamport));
     q.addBindValue(qs(item.delVer.deviceId));
-    q.addBindValue(ll(nowMs));
+    q.addBindValue(ll(touchMs));
 
     if (!q.exec()) {
         qWarning() << "upsertItem error:" << q.lastError().text();
@@ -736,6 +771,7 @@ std::vector<core::Item> Database::getItems(const std::string& listId)
         "  qty,  qty_l,  qty_d,"
         "  note, note_l, note_d,"
         "  aisle, aisle_l, aisle_d,"
+        "  image, image_l, image_d,"
         "  sort_order, sort_order_l, sort_order_d,"
         "  done, done_l, done_d, done_at,"
         "  del,  del_l,  del_d,"
@@ -760,14 +796,16 @@ std::vector<core::Item> Database::getItems(const std::string& listId)
         it.noteVer     = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
         it.aisle       = ss(q.value(12).toString());
         it.aisleVer    = verFromCols(q.value(13).toLongLong(), q.value(14).toString());
-        it.order       = q.value(15).toLongLong();
-        it.orderVer    = verFromCols(q.value(16).toLongLong(), q.value(17).toString());
-        it.done        = q.value(18).toInt() != 0;
-        it.doneVer     = verFromCols(q.value(19).toLongLong(), q.value(20).toString());
-        it.doneAt      = q.value(21).toLongLong();
-        it.del         = q.value(22).toInt() != 0;
-        it.delVer      = verFromCols(q.value(23).toLongLong(), q.value(24).toString());
-        it.touched     = q.value(25).toLongLong();
+        it.image       = ss(q.value(15).toString());
+        it.imageVer    = verFromCols(q.value(16).toLongLong(), q.value(17).toString());
+        it.order       = q.value(18).toLongLong();
+        it.orderVer    = verFromCols(q.value(19).toLongLong(), q.value(20).toString());
+        it.done        = q.value(21).toInt() != 0;
+        it.doneVer     = verFromCols(q.value(22).toLongLong(), q.value(23).toString());
+        it.doneAt      = q.value(24).toLongLong();
+        it.del         = q.value(25).toInt() != 0;
+        it.delVer      = verFromCols(q.value(26).toLongLong(), q.value(27).toString());
+        it.touched     = q.value(28).toLongLong();
 
         // Base d'avant la position manuelle, ou article créé par un pair qui l'ignore :
         // la date de création fait une position de départ cohérente avec l'affichage.
@@ -776,6 +814,133 @@ std::vector<core::Item> Database::getItems(const std::string& listId)
         result.push_back(std::move(it));
     }
     return result;
+}
+
+// --- Historique ---
+
+bool Database::appendHistory(const std::string& listId, const HistoryEntry& e)
+{
+    if (e.name.empty() || e.doneAt <= 0) return false;
+    QSqlQuery q(m_db);
+    // OR IGNORE : le même cochage revenu d'un second relais ne fait pas de doublon
+    // (clé = liste + item + date de cochage).
+    q.prepare(QStringLiteral(
+        "INSERT OR IGNORE INTO history (list_id, item_id, name, aisle, done_at, by_name)"
+        " VALUES (?, ?, ?, ?, ?, ?)"));
+    q.addBindValue(qs(listId));
+    q.addBindValue(qs(e.itemId));
+    q.addBindValue(qs(e.name));
+    q.addBindValue(qs(e.aisle));
+    q.addBindValue(ll(e.doneAt));
+    q.addBindValue(qs(e.byName));
+    if (!q.exec()) {
+        qWarning() << "appendHistory error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+std::vector<Database::HistoryEntry> Database::getHistory(const std::string& listId, int limit)
+{
+    std::vector<HistoryEntry> out;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "SELECT item_id, name, aisle, done_at, by_name FROM history"
+        " WHERE list_id = ? ORDER BY done_at DESC LIMIT ?"));
+    q.addBindValue(qs(listId));
+    q.addBindValue(limit);
+    if (!q.exec()) {
+        qWarning() << "getHistory error:" << q.lastError().text();
+        return out;
+    }
+    while (q.next()) {
+        HistoryEntry e;
+        e.itemId = ss(q.value(0).toString());
+        e.name   = ss(q.value(1).toString());
+        e.aisle  = ss(q.value(2).toString());
+        e.doneAt = q.value(3).toLongLong();
+        e.byName = ss(q.value(4).toString());
+        out.push_back(std::move(e));
+    }
+    return out;
+}
+
+bool Database::clearHistory(const std::string& listId)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("DELETE FROM history WHERE list_id = ?"));
+    q.addBindValue(qs(listId));
+    if (!q.exec()) {
+        qWarning() << "clearHistory error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+// --- Images ---
+
+bool Database::putImage(const std::string& sha, const QByteArray& data)
+{
+    if (sha.empty() || data.isEmpty()) return false;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "INSERT OR IGNORE INTO images (sha, data, created) VALUES (?, ?, ?)"));
+    q.addBindValue(qs(sha));
+    q.addBindValue(data);
+    q.addBindValue(ll(QDateTime::currentMSecsSinceEpoch()));
+    if (!q.exec()) {
+        qWarning() << "putImage error:" << q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+QByteArray Database::getImage(const std::string& sha)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT data FROM images WHERE sha = ?"));
+    q.addBindValue(qs(sha));
+    if (q.exec() && q.next())
+        return q.value(0).toByteArray();
+    return {};
+}
+
+bool Database::hasImage(const std::string& sha)
+{
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("SELECT 1 FROM images WHERE sha = ?"));
+    q.addBindValue(qs(sha));
+    return q.exec() && q.next();
+}
+
+// Le champ `image` d'un item est une liste de shas séparés par des espaces :
+// l'appartenance se teste sur la liste bordée d'espaces, pas par égalité.
+std::vector<std::string> Database::imagesReferenced(const std::string& listId)
+{
+    std::vector<std::string> out;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral(
+        "SELECT b.sha FROM images b WHERE EXISTS ("
+        "  SELECT 1 FROM items i WHERE i.list_id = ? AND i.del = 0 AND i.image <> ''"
+        "  AND instr(' ' || i.image || ' ', ' ' || b.sha || ' ') > 0)"));
+    q.addBindValue(qs(listId));
+    if (q.exec())
+        while (q.next())
+            out.push_back(ss(q.value(0).toString()));
+    return out;
+}
+
+bool Database::purgeOrphanImages()
+{
+    QSqlQuery q(m_db);
+    if (!q.exec(QStringLiteral(
+            "DELETE FROM images WHERE NOT EXISTS ("
+            "  SELECT 1 FROM items i WHERE i.del = 0 AND i.image <> ''"
+            "  AND instr(' ' || i.image || ' ', ' ' || images.sha || ' ') > 0)"))) {
+        qWarning() << "purgeOrphanImages error:" << q.lastError().text();
+        return false;
+    }
+    return true;
 }
 
 // --- Members ---
@@ -858,6 +1023,7 @@ bool Database::deleteList(const std::string& listId)
         QStringLiteral("DELETE FROM items   WHERE list_id = ?"),
         QStringLiteral("DELETE FROM members WHERE list_id = ?"),
         QStringLiteral("DELETE FROM outbox  WHERE list_id = ?"),
+        QStringLiteral("DELETE FROM history WHERE list_id = ?"),
         QStringLiteral("DELETE FROM lists   WHERE list_id = ?"),
     };
 

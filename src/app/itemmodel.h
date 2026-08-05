@@ -45,6 +45,9 @@ public:
         // Nom du participant qui a ajouté l'article ("vous" pour soi, vide si inconnu).
         ByNameRole,
         AisleRole,
+        // Photos de l'article : shas256 hex des blobs, séparés par des espaces
+        // ("" = pas d'image). L'ordre est celui d'ajout.
+        ImageRole,
     };
 
     // Rayons d'origine, dans l'ordre où on traverse un magasin. C'est cet ordre qui trie
@@ -82,6 +85,10 @@ public:
     // espaces), ou chaîne vide. Sert à prévenir avant d'ajouter un doublon.
     Q_INVOKABLE QString existingName(const QString &name) const;
 
+    // Champ `image` courant (shas séparés par des espaces), pour rafraîchir
+    // le dialogue d'édition après un ajout / retrait de photo.
+    Q_INVOKABLE QString itemImage(const QString &itemId) const;
+
 public slots:
     void addItem(const QString &name, const QString &qty,
                  const QString &note = {}, const QString &aisle = {});
@@ -104,6 +111,12 @@ public slots:
     void editItem(const QString &itemId, const QString &name,
                   const QString &qty, const QString &note, const QString &aisle);
 
+    // Photos de l'article : le champ LWW `image` porte la liste des shas (séparés
+    // par des espaces), dans l'ordre d'ajout. Les blobs sont déjà en base
+    // (l'appelant s'en charge). Chaque écriture publie.
+    void addItemImage(const QString &itemId, const QString &sha);
+    void removeItemImage(const QString &itemId, const QString &sha);
+
     // Fin de course : tout remettre à acheter (la liste se refait), ou retirer ce qui
     // a été pris (la liste se vide de ce qui est fait). Sans ces deux-là, un article
     // coché reste barré à l'écran pour toujours, et il faut le traiter un par un.
@@ -121,6 +134,8 @@ signals:
     void itemAdded();
     // Emitted after any local write (addItem, toggleDone, removeItem, editItem).
     void localChanged(const std::string& listId);
+    // Le contenu a été rechargé ou modifié : l'historique / l'édition relisent.
+    void refreshed();
 
 private:
     // Sorted visible rows (del=false only, sorted as §7).
@@ -148,6 +163,10 @@ private:
     // Ré-espace les positions d'un groupe quand l'intervalle entre deux voisins est
     // épuisé. Le groupe = le rayon en mode rayon ; toute la liste en mode manuel.
     void renumber(const std::string &aisle);
+
+    // Liste des photos d'un article, et écriture de la liste complète (champ LWW).
+    QStringList imageList(const QString &itemId) const;
+    void writeImageList(const QString &itemId, const QStringList &shas);
 
     store::Database *m_db     = nullptr;
     std::string      m_listId;

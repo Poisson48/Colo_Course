@@ -91,6 +91,36 @@ public:
     bool upsertItem(const core::Item& item);
     std::vector<core::Item> getItems(const std::string& listId);
 
+    // --- Historique (local : trace durable de ce qui a été pris) ---
+    // Journal purement local, jamais synchronisé ni purgé par le GC des tombstones :
+    // un article retiré de la liste reste dans l'historique de l'appareil.
+    struct HistoryEntry {
+        std::string itemId;
+        std::string name;
+        std::string aisle;
+        int64_t     doneAt = 0;   // ms epoch
+        std::string byName;       // nom affiché de qui l'a coché ("" = inconnu)
+    };
+    // Consigne un article coché. Idempotent par (item, date) : le même événement
+    // revenu d'un relais ne crée pas de doublon.
+    bool appendHistory(const std::string& listId, const HistoryEntry& e);
+    // Les plus récentes d'abord.
+    std::vector<HistoryEntry> getHistory(const std::string& listId, int limit);
+    bool clearHistory(const std::string& listId);
+
+    // --- Images (blobs des photos d'articles, adressés par contenu) ---
+    // Stocke un blob JPEG sous son sha256 hex. Idempotent (le contenu ne change pas
+    // pour un sha donné) : ré-insérer le même blob est sans effet.
+    bool putImage(const std::string& sha, const QByteArray& data);
+    // Blob d'une image, ou tableau vide si absente (pas encore reçue du relais).
+    QByteArray getImage(const std::string& sha);
+    bool hasImage(const std::string& sha);
+    // Empreintes des images encore référencées par un item vivant de la liste —
+    // celles qu'un snapshot doit republier (rétention limitée des relais).
+    std::vector<std::string> imagesReferenced(const std::string& listId);
+    // Purge les blobs que plus aucun item (toutes listes) ne référence.
+    bool purgeOrphanImages();
+
     // --- Members ---
     // member: (listId, deviceId, name, ver)
     bool upsertMember(const std::string& listId,

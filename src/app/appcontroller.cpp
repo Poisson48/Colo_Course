@@ -1,11 +1,14 @@
 #include "appcontroller.h"
 #include "platform.h"
 
+#include <QBuffer>
 #include <QClipboard>
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QGuiApplication>
+#include <QImage>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QUuid>
@@ -239,15 +242,20 @@ AppController::AppController(QObject *parent)
 
 AppController::~AppController() = default;
 
-bool AppController::init() {
-    // --- DB path ---
+QString AppController::databasePath() {
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataDir);
-    const QString dbPath = dataDir + QStringLiteral("/colocourse.db");
+    return dataDir + QStringLiteral("/colocourse.db");
+}
 
-    if (!m_db.open(dbPath)) {
+bool AppController::init() {
+    // --- DB path ---
+    if (!m_db.open(databasePath())) {
         return false;
     }
+
+    // Blobs orphelins (photo retirée, liste quittée…) : les purger au démarrage.
+    m_db.purgeOrphanImages();
 
     // --- deviceId / displayName ---
     QSettings settings;
@@ -315,6 +323,12 @@ bool AppController::init() {
             this,          &AppController::onRemoteTitleChanged);
     connect(&m_syncEngine, &SyncEngine::outboxChanged,
             this,          &AppController::onOutboxChanged);
+    // Un blob de photo vient d'arriver : invalider le cache des vignettes.
+    connect(&m_syncEngine, &SyncEngine::imageArrived,
+            this, [this](const QString&, const QString&) {
+        ++m_imageRevision;
+        emit imageRevisionChanged();
+    });
 
     // Des modifications peuvent dormir dans l'outbox depuis la session précédente
     // (app fermée hors ligne) : l'état de départ n'est pas forcément « à jour ».
@@ -493,6 +507,9 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
         item.noteVer = ver;
         item.aisle    = src.aisle;
         item.aisleVer = ver;
+        // La photo suit : le blob est adressé par contenu, il est déjà en base.
+        item.image    = src.image;
+        item.imageVer = ver;
         item.order    = src.order;   // la copie garde le classement de l'originale
         item.orderVer = ver;
         item.done    = false;
@@ -554,6 +571,8 @@ void AppController::importListInto(const QString &destListId, const QString &sou
         item.noteVer = ver;
         item.aisle    = src.aisle;
         item.aisleVer = ver;
+        item.image    = src.image;   // blob adressé par contenu, déjà en base
+        item.imageVer = ver;
         item.order    = now + copied;  // à la suite des articles déjà dans la destination
         item.orderVer = ver;
         item.done    = false;          // recopiés « à acheter »
@@ -1026,6 +1045,104 @@ void AppController::vibrate(int ms) {
 
 void AppController::setKeepScreenOn(bool on) {
     app::platformKeepScreenOn(on);
+}
+
+// ---------------------------------------------------------------------------
+// Photo d'un article
+// ---------------------------------------------------------------------------
+
+namespace {
+// Réduit une image en JPEG ≤ ~30 Ko. Le blob subit deux couches de base64 (payload
+// puis contenu chiffré de l'événement), soit ×1,8 : au-delà, les relais publics
+// (limite courante ~64 Ko par événement) refuseraient la photo.
+QByteArray compressItemImage(const QString &path) {
+    QImage img(path);
+    if (img.isNull()) return {};
+    constexpr int kMaxBytes = 30000;
+
+    int side = 1024;
+    for (;;) {
+        const QImage scaled = (img.width() > side || img.height() > side)
+            ? img.scaled(side, side, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+            : img;
+        for (const int quality : { 80, 70, 60, 50, 40 }) {
+            QByteArray out;
+            QBuffer buf(&out);
+            buf.open(QIODevice::WriteOnly);
+            scaled.save(&buf, "JPEG", quality);
+            if (out.size() > 0 && out.size() <= kMaxBytes)
+                return out;
+        }
+        if (side <= 320)
+            return {};   // image irréductible (pathologique) : on renonce proprement
+        side = side * 2 / 3;
+    }
+}
+} // namespace
+
+QString AppController::tempPhotoPath() const {
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    QDir().mkpath(dir);
+    return QDir(dir).filePath(
+        QStringLiteral("colocourse-%1.jpg").arg(QDateTime::currentMSecsSinceEpoch()));
+}
+
+bool AppController::setItemImage(const QString &itemId, const QUrl &fileUrl) {
+    if (m_openListId.empty()) return false;
+
+    const QString path = fileUrl.isLocalFile() ? fileUrl.toLocalFile() : fileUrl.toString();
+    const QByteArray jpeg = compressItemImage(path);
+    if (jpeg.isEmpty()) {
+        emit toast(QStringLiteral("Impossible de lire cette image"));
+        return false;
+    }
+
+    const QString sha = QString::fromLatin1(
+        QCryptographicHash::hash(jpeg, QCryptographicHash::Sha256).toHex());
+
+    if (!m_db.putImage(sha.toStdString(), jpeg)) {
+        emit toast(QStringLiteral("Échec de l'enregistrement de l'image"));
+        return false;
+    }
+
+    // Champ CRDT d'abord (delta débouncé), blob ensuite (événement img direct).
+    // L'ordre d'arrivée chez les pairs est indifférent : la vignette s'affiche dès
+    // que le blob ET le champ sont là.
+    m_itemModel.addItemImage(itemId, sha);
+    m_syncEngine.publishImage(m_openListId, sha.toStdString());
+
+    ++m_imageRevision;
+    emit imageRevisionChanged();
+    return true;
+}
+
+void AppController::removeItemImage(const QString &itemId, const QString &sha) {
+    // La photo sort de la liste (LWW) ; le blob orphelin sera purgé au démarrage.
+    m_itemModel.removeItemImage(itemId, sha);
+}
+
+// ---------------------------------------------------------------------------
+// Historique
+// ---------------------------------------------------------------------------
+
+QVariantList AppController::history(const QString &listId) {
+    QVariantList out;
+    if (!m_db.isOpen()) return out;
+    // 500 : bien au-delà d'un an de courses quotidiennes, sans jamais peser à l'écran.
+    for (const auto &e : m_db.getHistory(listId.toStdString(), 500)) {
+        QVariantMap m;
+        m.insert(QStringLiteral("name"),   QString::fromStdString(e.name));
+        m.insert(QStringLiteral("aisle"),  QString::fromStdString(e.aisle));
+        m.insert(QStringLiteral("doneAt"), static_cast<qlonglong>(e.doneAt));
+        m.insert(QStringLiteral("byName"), QString::fromStdString(e.byName));
+        out.append(m);
+    }
+    return out;
+}
+
+void AppController::clearHistory(const QString &listId) {
+    if (m_db.clearHistory(listId.toStdString()))
+        emit toast(QStringLiteral("Historique effacé"));
 }
 
 bool AppController::shareText(const QString &text) {

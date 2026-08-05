@@ -80,6 +80,7 @@ set(APPLIB_SOURCES
     app/permissions.cpp
     app/platform.cpp
     app/qrimageprovider.cpp
+    app/itemimageprovider.cpp
     app/syncengine.cpp
     app/theme.cpp
     app/updater.cpp
@@ -126,6 +127,7 @@ set(COLO_QML_FILES
     qml/Main.qml
     qml/ListsPage.qml
     qml/ListPage.qml
+    qml/HistoryPage.qml
     qml/ShareSheet.qml
     qml/ColoDialog.qml
     qml/ColoMenu.qml
@@ -135,7 +137,7 @@ set(COLO_QML_FILES
     qml/FilePickers.qml
 )
 if(COLO_HAS_CAMERA)
-    list(APPEND COLO_QML_FILES qml/ScanPage.qml)
+    list(APPEND COLO_QML_FILES qml/ScanPage.qml qml/PhotoCapture.qml)
 endif()
 
 qt_add_qml_module(colocourse

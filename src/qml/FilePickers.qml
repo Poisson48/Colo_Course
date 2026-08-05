@@ -21,6 +21,11 @@ Item {
     function openImport() {
         importDialog.open()
     }
+    // Photo d'un article : sélecteur d'images du système (galerie sur Android).
+    function openPhoto(itemId) {
+        photoDialog.itemId = itemId
+        photoDialog.open()
+    }
 
     FileDialog {
         id: exportCsvDialog
@@ -46,5 +51,14 @@ Item {
         fileMode: FileDialog.OpenFile
         nameFilters: ["Listes (*.csv *.zip)", "Tous les fichiers (*)"]
         onAccepted: AppController.importFile(selectedFile)
+    }
+
+    // La photo est réduite et rattachée à l'article par le C++ (setItemImage).
+    FileDialog {
+        id: photoDialog
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["Images (*.jpg *.jpeg *.png *.webp *.bmp)", "Tous les fichiers (*)"]
+        property string itemId: ""
+        onAccepted: AppController.setItemImage(itemId, selectedFile)
     }
 }

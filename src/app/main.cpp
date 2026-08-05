@@ -11,6 +11,7 @@
 #include "permissions.h"
 #include "platform.h"
 #include "qrimageprovider.h"
+#include "itemimageprovider.h"
 #include "theme.h"
 #include "updater.h"
 #ifdef COLO_HAS_CAMERA
@@ -66,6 +67,10 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("qr"), new app::QrImageProvider());
+    // Photos d'articles, servies depuis la base (le provider ouvre ses propres
+    // connexions : les requêtes d'images arrivent d'un thread de chargement).
+    engine.addImageProvider(QStringLiteral("itemimg"),
+                            new app::ItemImageProvider(app::AppController::databasePath()));
     engine.rootContext()->setContextProperty(QStringLiteral("AppController"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("Theme"), &theme);
     engine.rootContext()->setContextProperty(QStringLiteral("Updater"), &updater);

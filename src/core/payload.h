@@ -10,9 +10,9 @@
 
 namespace core {
 
-// §4 — Parsed representation of a delta or snap payload.
+// §4 — Parsed representation of a delta, snap, or img payload.
 struct Payload {
-    enum class Type { delta, snap };
+    enum class Type { delta, snap, image };
 
     Type        type = Type::delta;
     std::string listId;
@@ -35,6 +35,13 @@ struct Payload {
 
     // deviceId -> (displayName, ver)
     std::map<std::string, std::pair<std::string, Ver>> members;
+
+    // img-only : blob JPEG d'une photo d'article, adressé par contenu. `imageSha` est
+    // le sha256 hex du blob — le même que porte le champ `image` des items. Le blob
+    // voyage à part des deltas pour ne pas les alourdir ; l'ordre d'arrivée est
+    // indifférent (l'UI affiche la photo dès que le blob est là).
+    std::string          imageSha;
+    std::vector<uint8_t> imageData;
 };
 
 // Deserialize a JSON string into a Payload.
@@ -45,5 +52,12 @@ std::optional<Payload> parsePayload(const std::string& json);
 
 // Serialize a Payload to compact JSON.
 std::string serializePayload(const Payload& p);
+
+// Sérialise un événement « img » : {"v":1,"t":"img","list":…,"by":…,"sha":…,
+// "data":base64}. Le blob est le JPEG compressé tel qu'il sera stocké chez les pairs.
+std::string serializeImagePayload(const std::string& listId,
+                                  const std::string& by,
+                                  const std::string& sha,
+                                  const std::vector<uint8_t>& data);
 
 } // namespace core

@@ -30,12 +30,7 @@ Item {
         ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
         : listTitle
 
-    // Dans un rayon, on tient le téléphone sans le toucher pendant des minutes :
-    // l'écran ne doit pas s'éteindre au milieu de la liste.
-    onShoppingModeChanged: AppController.setKeepScreenOn(shoppingMode)
-    // Quitter la page en mode Courses laisserait le drapeau posé, et l'écran allumé
-    // pour toujours.
-    Component.onDestruction: AppController.setKeepScreenOn(false)
+    // L'écran reste allumé pour toute l'app (Main.qml), pas seulement en mode Courses.
 
     function closeSearch() {
         searchOpen = false
@@ -172,6 +167,12 @@ Item {
         MenuItem {
             text: "Rechercher"
             onTriggered: root.searchOpen = true
+        }
+        // Ce qui a déjà été pris, et par qui — y compris les articles retirés depuis.
+        MenuItem {
+            text: "Historique"
+            onTriggered: root.StackView.view.push(historyPageComponent,
+                                                  { listId: root.listId })
         }
         // Fin de course : sans ces deux-là, les articles cochés restent barrés à
         // l'écran pour toujours, et il faut les traiter un par un.
@@ -382,7 +383,7 @@ Item {
             delegate: Item {
                 id: wrapper
                 width: items.width
-                height: root.shoppingMode ? 68 : 60
+                height: row.height
 
                 // Pas de `required property int index` (couperait le contexte du modèle).
                 property int rowIndex: index
@@ -408,7 +409,9 @@ Item {
                     id: row
                     width: wrapper.width - 2 * Theme.gap
                     x: Theme.gap
-                    height: wrapper.height
+                    // S'adapte au nom enroulé (WordWrap) : une ligne courte reste compacte.
+                    height: Math.max(root.shoppingMode ? 68 : 60,
+                                     contentItem.implicitHeight + 8)
                     padding: 0
 
                     readonly property bool selected: root.isSelected(model.itemId)
@@ -471,7 +474,7 @@ Item {
                                 color: model.done ? Theme.textDim : Theme.text
                                 font.pixelSize: 16
                                 font.strikeout: model.done
-                                elide: Text.ElideRight
+                                wrapMode: Text.WordWrap
                             }
 
                             // Quantité et description sur une ligne : « 2 \u00b7 sans sucre ».
@@ -490,6 +493,24 @@ Item {
                                 font.pixelSize: 13
                                 elide: Text.ElideRight
                             }
+                        }
+
+                        // Vignette de la première photo, si l'article en a et que le
+                        // blob est déjà arrivé (sinon rien, jusqu'à la prochaine révision).
+                        Image {
+                            Layout.preferredWidth: visible ? 40 : 0
+                            Layout.preferredHeight: 40
+                            Layout.rightMargin: visible ? 4 : 0
+                            Layout.alignment: Qt.AlignVCenter
+                            visible: model.image.length > 0 && status === Image.Ready
+                            source: model.image.length > 0
+                                    ? "image://itemimg/" + model.image.split(" ")[0]
+                                      + "?r=" + AppController.imageRevision
+                                    : ""
+                            sourceSize.width: 80
+                            sourceSize.height: 80
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
                         }
 
                         // Poignée de déplacement, toujours visible (hors sélection et
@@ -918,12 +939,17 @@ Item {
         property real   createdMs: 0
         property real   doneAtMs: 0
         property string author: ""
+        property string image: ""
+
+        readonly property var photoShas: image.length > 0
+            ? image.split(" ").filter(s => s.length > 0) : []
 
         function openFor(item) {
             itemId    = item.itemId
             createdMs = item.created
             doneAtMs  = item.doneAt
             author    = item.byName
+            image     = item.image || ""
             editName.text = item.name
             editQty.text  = item.qty
             editNote.text = item.note
@@ -931,6 +957,23 @@ Item {
             open()
             editName.forceActiveFocus()
             editName.selectAll()
+        }
+
+        function pickPhoto() {
+            if (!photoPickers.item)
+                photoPickers.active = true
+            if (photoPickers.item)
+                photoPickers.item.openPhoto(editDialog.itemId)
+            else
+                AppController.toast("Sélecteur de fichiers indisponible")
+        }
+
+        function capturePhoto() {
+            // PhotoCapture.qml n'est embarqué que si COLO_HAS_CAMERA (comme ScanPage).
+            cameraCapture.source = "PhotoCapture.qml"
+            cameraCapture.active = true
+            if (cameraCapture.status === Loader.Error)
+                AppController.toast("Caméra indisponible sur cet appareil")
         }
 
         ColoTextField {
@@ -959,6 +1002,112 @@ Item {
             Layout.fillWidth: true
         }
 
+        // Photos : vignettes + ajout / retrait, sans page détail séparée.
+        Flow {
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            spacing: 8
+            visible: editDialog.photoShas.length > 0
+
+            Repeater {
+                model: editDialog.photoShas
+                delegate: Item {
+                    width: 72
+                    height: 72
+                    required property string modelData
+
+                    Image {
+                        id: thumb
+                        anchors.fill: parent
+                        source: "image://itemimg/" + modelData
+                                + "?r=" + AppController.imageRevision
+                        sourceSize.width: 144
+                        sourceSize.height: 144
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: thumb.status !== Image.Ready
+                        color: Theme.surfaceHigh
+                        radius: 8
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: photoViewer.openFor(modelData)
+                    }
+
+                    ToolButton {
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        width: 28
+                        height: 28
+                        contentItem: Icon {
+                            name: "close"
+                            color: Theme.text
+                            size: 14
+                        }
+                        background: Rectangle {
+                            radius: 14
+                            color: Qt.rgba(0, 0, 0, 0.45)
+                        }
+                        onClicked: {
+                            AppController.removeItemImage(editDialog.itemId, modelData)
+                            editDialog.image = AppController.items.itemImage(editDialog.itemId)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Toujours proposer une photo de plus : caméra ou galerie.
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            Button {
+                Layout.fillWidth: true
+                flat: true
+                implicitHeight: Theme.touchTarget
+                contentItem: Label {
+                    text: "Prendre une photo"
+                    color: Theme.accent
+                    font.pixelSize: 14
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: 10
+                    color: parent.pressed ? Theme.surfaceHigh : "transparent"
+                    border.color: Theme.outline
+                    border.width: 1
+                }
+                onClicked: editDialog.capturePhoto()
+            }
+
+            Button {
+                Layout.fillWidth: true
+                flat: true
+                implicitHeight: Theme.touchTarget
+                contentItem: Label {
+                    text: "Choisir dans la galerie"
+                    color: Theme.accent
+                    font.pixelSize: 14
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: 10
+                    color: parent.pressed ? Theme.surfaceHigh : "transparent"
+                    border.color: Theme.outline
+                    border.width: 1
+                }
+                onClicked: editDialog.pickPhoto()
+            }
+        }
+
         Label {
             Layout.fillWidth: true
             Layout.topMargin: 4
@@ -969,8 +1118,6 @@ Item {
                 const lines = []
                 const added = root.formatStamp(editDialog.createdMs)
                 if (added.length > 0) {
-                    // L'app sait qui a ajouté quoi (chaque article porte son auteur) :
-                    // autant le dire, c'est une liste partagée.
                     lines.push(editDialog.author.length > 0
                                ? "Ajouté par " + editDialog.author + " " + added
                                : "Ajouté " + added)
@@ -981,8 +1128,6 @@ Item {
             }
         }
 
-        // Supprimer depuis le détail : le geste de glissement n'est pas le seul chemin
-        // (la croix par ligne a été retirée pour alléger l'affichage).
         Button {
             Layout.fillWidth: true
             Layout.topMargin: 4
@@ -1014,6 +1159,80 @@ Item {
                                                  editQty.text.trim(),
                                                  editNote.text.trim(),
                                                  editAisle.aisle)
+    }
+
+    // Sélecteur d'images, chargé au premier besoin seulement.
+    Loader {
+        id: photoPickers
+        active: false
+        source: "FilePickers.qml"
+    }
+
+    // Capture caméra (PhotoCapture.qml) : chargé dynamiquement ; absent si
+    // COLO_HAS_CAMERA est off (desktop).
+    Loader {
+        id: cameraCapture
+        anchors.fill: parent
+        z: 20
+        active: false
+        visible: status === Loader.Ready
+        onLoaded: {
+            item.itemId = editDialog.itemId
+            item.captured.connect(function(path) {
+                AppController.setItemImage(editDialog.itemId, "file://" + path)
+            })
+            item.closeRequested.connect(function() {
+                cameraCapture.active = false
+                cameraCapture.source = ""
+            })
+        }
+    }
+
+    Connections {
+        target: AppController.items
+        function onRefreshed() {
+            if (editDialog.opened && editDialog.itemId.length > 0)
+                editDialog.image = AppController.items.itemImage(editDialog.itemId)
+        }
+    }
+
+    // Photo en plein écran (depuis le dialogue d'édition).
+    Popup {
+        id: photoViewer
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        width: parent.width
+        height: parent.height
+        modal: true
+        padding: 0
+        property string sha: ""
+        function openFor(shaHex) {
+            sha = shaHex
+            open()
+        }
+        background: Rectangle { color: "#CC000000" }
+        contentItem: Item {
+            Image {
+                anchors.centerIn: parent
+                width: parent.width
+                height: parent.height
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                source: photoViewer.sha.length > 0
+                        ? "image://itemimg/" + photoViewer.sha
+                          + "?r=" + AppController.imageRevision
+                        : ""
+            }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: photoViewer.close()
+            }
+        }
+    }
+
+    Component {
+        id: historyPageComponent
+        HistoryPage {}
     }
 
     ColoDialog {

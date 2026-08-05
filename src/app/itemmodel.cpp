@@ -190,6 +190,7 @@ void ItemModel::rebuildRows() {
     emit doneCountChanged();
     // Un merge distant peut apporter un rayon qu'on ne connaissait pas.
     emit aisleNamesChanged();
+    emit refreshed();
 }
 
 int ItemModel::rowCount(const QModelIndex &parent) const {
@@ -210,6 +211,7 @@ QVariant ItemModel::data(const QModelIndex &index, int role) const {
     case DoneAtRole:  return static_cast<qlonglong>(row.item.doneAt);
     case CreatedRole: return static_cast<qlonglong>(row.item.created);
     case AisleRole:   return QString::fromStdString(row.item.aisle);
+    case ImageRole:   return QString::fromStdString(row.item.image);
     case ByNameRole: {
         if (row.item.by.empty())
             return QString{};
@@ -235,6 +237,7 @@ QHash<int, QByteArray> ItemModel::roleNames() const {
         { CreatedRole, "created" },
         { ByNameRole,  "byName"  },
         { AisleRole,   "aisle"   },
+        { ImageRole,   "image"   },
     };
 }
 
@@ -261,6 +264,15 @@ QString ItemModel::existingName(const QString &name) const {
         const QString existing = QString::fromStdString(item.name).trimmed();
         if (existing.compare(needle, Qt::CaseInsensitive) == 0)
             return existing;
+    }
+    return {};
+}
+
+QString ItemModel::itemImage(const QString &itemId) const {
+    const std::string id = itemId.toStdString();
+    for (const auto &item : m_items) {
+        if (item.itemId == id && !item.del)
+            return QString::fromStdString(item.image);
     }
     return {};
 }
@@ -354,6 +366,7 @@ void ItemModel::addItem(const QString &name, const QString &qty,
     endInsertRows();
     emit countChanged();
     emit doneCountChanged();
+    emit refreshed();
 }
 
 void ItemModel::toggleDone(const QString &itemId) {
@@ -370,12 +383,21 @@ void ItemModel::toggleDone(const QString &itemId) {
     const core::Ver ver{ lamport, m_deviceId };
     const int64_t now = QDateTime::currentMSecsSinceEpoch();
 
-    it->done    = !it->done;
+    const bool newDone = !it->done;
+    it->done    = newDone;
     it->doneVer = ver;
-    it->doneAt  = it->done ? now : 0;  // décoché → plus de date de cochage
+    it->doneAt  = newDone ? now : 0;  // décoché → plus de date de cochage
     it->touched = now;
 
     if (!m_db->upsertItem(*it)) return;
+
+    // Historique : chaque article coché ici laisse une trace locale durable — elle
+    // survivra à « Retirer les articles pris ». « vous » : c'est ce que l'UI affiche
+    // pour soi-même partout ailleurs.
+    if (newDone) {
+        m_db->appendHistory(m_listId,
+                            { it->itemId, it->name, it->aisle, now, "vous" });
+    }
 
     emit localChanged(m_listId);
     emit aisleNamesChanged();
@@ -391,6 +413,7 @@ void ItemModel::toggleDone(const QString &itemId) {
     // Le nombre de lignes n'a pas bougé, mais la progression du mode Courses si :
     // c'est le seul moment où elle avance.
     emit doneCountChanged();
+    emit refreshed();
 }
 
 void ItemModel::editItem(const QString &itemId, const QString &name,
@@ -446,8 +469,62 @@ void ItemModel::editItem(const QString &itemId, const QString &name,
     if (pos >= 0) {
         m_rows[static_cast<size_t>(pos)].item = *it;
         const QModelIndex idx = index(pos);
-        emit dataChanged(idx, idx, { NameRole, QtyRole, NoteRole });
+        emit dataChanged(idx, idx, { NameRole, QtyRole, NoteRole, AisleRole });
     }
+    emit refreshed();
+}
+
+// Écrit la nouvelle liste de photos (LWW sur le champ entier : deux ajouts
+// simultanés sur deux appareils → le dernier gagne, comme pour tout champ).
+void ItemModel::writeImageList(const QString &itemId, const QStringList &shas) {
+    const std::string id     = itemId.toStdString();
+    const std::string joined = shas.join(QLatin1Char(' ')).toStdString();
+
+    auto it = std::find_if(m_items.begin(), m_items.end(),
+                           [&](const core::Item &i){ return i.itemId == id; });
+    if (it == m_items.end() || it->image == joined) return;
+
+    const int64_t lamport = m_db->bumpLamport(m_listId);
+    it->image    = joined;
+    it->imageVer = { lamport, m_deviceId };
+    it->touched  = QDateTime::currentMSecsSinceEpoch();
+
+    if (!m_db->upsertItem(*it)) return;
+
+    emit localChanged(m_listId);
+
+    // Les photos n'entrent pas dans le tri : la ligne ne bouge pas.
+    const int pos = findRow(itemId);
+    if (pos >= 0) {
+        m_rows[static_cast<size_t>(pos)].item = *it;
+        const QModelIndex idx = index(pos);
+        emit dataChanged(idx, idx, { ImageRole });
+    }
+    emit refreshed();
+}
+
+QStringList ItemModel::imageList(const QString &itemId) const {
+    const std::string id = itemId.toStdString();
+    const auto it = std::find_if(m_items.begin(), m_items.end(),
+                                 [&](const core::Item &i){ return i.itemId == id; });
+    if (it == m_items.end()) return {};
+    return QString::fromStdString(it->image)
+        .split(QLatin1Char(' '), Qt::SkipEmptyParts);
+}
+
+void ItemModel::addItemImage(const QString &itemId, const QString &sha) {
+    if (!m_db || sha.trimmed().isEmpty()) return;
+    QStringList shas = imageList(itemId);
+    if (shas.contains(sha)) return;   // même contenu → même photo, rien à faire
+    shas.append(sha);
+    writeImageList(itemId, shas);
+}
+
+void ItemModel::removeItemImage(const QString &itemId, const QString &sha) {
+    if (!m_db) return;
+    QStringList shas = imageList(itemId);
+    if (!shas.removeAll(sha)) return;
+    writeImageList(itemId, shas);
 }
 
 void ItemModel::removeItems(const QStringList &itemIds) {

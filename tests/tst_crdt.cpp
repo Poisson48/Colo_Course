@@ -647,6 +647,40 @@ static void test_MergeAisleAndOrder() {
     EXPECT_EQ(local.order, 3000);
 }
 
+// La photo est un champ LWW comme les autres : la plus récente gagne, un pair qui
+// ignore le champ (version {0,""}) ne l'efface pas.
+static void test_MergeImage() {
+    Item local;
+    local.itemId   = "i1";
+    local.image    = "";
+    local.imageVer = makeVer(0, "");
+
+    Item remote = local;
+    remote.image    = "sha-recente";
+    remote.imageVer = makeVer(5, "devB");
+
+    EXPECT_TRUE(mergeItem(local, remote));
+    EXPECT_EQ(local.image, "sha-recente");
+
+    Item stale = local;
+    stale.image    = "sha-vieille";
+    stale.imageVer = makeVer(3, "devC");
+    EXPECT_FALSE(mergeItem(local, stale));
+    EXPECT_EQ(local.image, "sha-recente");
+
+    Item removal = local;
+    removal.image    = "";
+    removal.imageVer = makeVer(8, "devA");
+    EXPECT_TRUE(mergeItem(local, removal));
+    EXPECT_EQ(local.image, "");
+
+    Item legacy = local;
+    legacy.image    = "sha-fantome";
+    legacy.imageVer = makeVer(0, "");
+    EXPECT_FALSE(mergeItem(local, legacy));
+    EXPECT_EQ(local.image, "");
+}
+
 static void test_MergeMember() {
     std::map<std::string, std::pair<std::string, Ver>> members;
 
@@ -712,6 +746,7 @@ int main() {
     test_MergeNote();
     test_MergeDoneAt();
     test_MergeAisleAndOrder();
+    test_MergeImage();
     test_MergeMember();
     test_Associativity();
 

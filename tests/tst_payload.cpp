@@ -230,6 +230,40 @@ static void test_SortModeRoundTrip() {
     EXPECT_FALSE(parsedQ->sortMode.has_value());
 }
 
+// Photo (image) et événement img font l'aller-retour.
+static void test_ImageRoundTrip() {
+    Payload p;
+    p.type   = Payload::Type::delta;
+    p.listId = "l";
+
+    Item item;
+    item.listId   = "l";
+    item.itemId   = "i1";
+    item.created  = 1721000000000LL;
+    item.by       = "devA";
+    item.name     = "Lait";
+    item.nameVer  = makeVer(1, "devA");
+    item.image    = "abc123def456";
+    item.imageVer = makeVer(3, "devA");
+    p.items.push_back(item);
+
+    auto parsed = parsePayload(serializePayload(p));
+    EXPECT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->items.size(), size_t(1));
+    EXPECT_EQ(parsed->items[0].image, "abc123def456");
+    EXPECT_EQ(parsed->items[0].imageVer.lamport, int64_t(3));
+
+    std::vector<uint8_t> blob;
+    for (int i = 0; i < 20; ++i)
+        blob.push_back(static_cast<uint8_t>(i * 7 % 256));
+    const std::string json = serializeImagePayload("list-1", "devA", "deadbeef", blob);
+    auto img = parsePayload(json);
+    EXPECT_TRUE(img.has_value());
+    EXPECT_EQ(img->type, Payload::Type::image);
+    EXPECT_EQ(img->imageSha, "deadbeef");
+    EXPECT_TRUE(img->imageData == blob);
+}
+
 static void test_MalformedJson() {
     EXPECT_FALSE(parsePayload("{not valid json").has_value());
     EXPECT_FALSE(parsePayload("null").has_value());
@@ -332,6 +366,7 @@ int main() {
     test_LegacyPayloadWithoutNewFields();
     test_SnapRoundTrip();
     test_SortModeRoundTrip();
+    test_ImageRoundTrip();
     test_MalformedJson();
     test_WrongVersion();
     test_UnknownTypeRejected();
