@@ -289,7 +289,7 @@ ApplicationWindow {
                         if (Updater.readyToInstall)
                             Updater.install()
                         else if (Updater.releaseNotes.length > 0)
-                            notesDialog.open()
+                            changelogDialog.openPending()
                         else
                             Updater.download()
                     }
@@ -327,36 +327,20 @@ ApplicationWindow {
         }
     }
 
-    // Ce que la mise à jour apporte. Personne n'installe de bon cœur une version dont
-    // il ne sait rien — et les notes sont déjà dans la release, il suffisait de les lire.
-    ColoDialog {
-        id: notesDialog
-        title: "Nouveautés — " + Updater.latestVersion
-        acceptText: "Mettre à jour"
-
-        Flickable {
-            Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(notes.implicitHeight, 320)
-            contentHeight: notes.implicitHeight
-            clip: true
-            boundsBehavior: Flickable.StopAtBounds
-            ScrollIndicator.vertical: ScrollIndicator {}
-
-            Label {
-                id: notes
-                width: parent.width
-                text: Updater.releaseNotes
-                color: Theme.textDim
-                font.pixelSize: 14
-                wrapMode: Text.WordWrap
-                lineHeight: 1.25
-            }
+    Connections {
+        target: Updater
+        function onChangelogChanged() {
+            if (Updater.hasWhatsNew && !Updater.updateAvailable
+                    && !whatsNewDialog.opened && !changelogDialog.opened)
+                Qt.callLater(function() { whatsNewDialog.openWhatsNew() })
         }
-
-        onAccepted: Updater.download()
     }
 
-    // Snackbar : retour visuel court (lien copié, liste rejointe, erreur…).
+    ChangelogDialog { id: changelogDialog }
+    ChangelogDialog { id: whatsNewDialog }
+
+    function openChangelog() { changelogDialog.openHistory() }
+
     Popup {
         id: snackbar
         y: parent.height - height - 24
