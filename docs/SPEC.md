@@ -47,9 +47,13 @@ d'affichage des rayons est un parcours de magasin, codé côté client — il ne
 glisser au milieu de l'intervalle entre ses deux futurs voisins, sans renuméroter les
 autres — donc sans faire entrer en conflit des articles qu'on n'a pas touchés. Comme
 tout champ LWW, deux personnes qui réordonnent en même temps convergent (le dernier
-gagne) au lieu de diverger. Tri d'affichage : rayon, puis `order` — l'état pris/à
-acheter n'entre pas dans le tri : cocher ne déplace jamais l'article, ni chez soi ni
-chez les autres (on fait les courses à plusieurs ; un article pris s'estompe sur place).
+gagne) au lieu de diverger. Le champ `order` n'est écrit que lors d'un glisser-déposer
+(modes `aisle` et `manual`) : passer d'un mode de tri à un autre ne le réécrit jamais.
+
+Tri d'affichage (**local par appareil et par liste**, jamais synchronisé) — voir §2.2.1.
+L'état pris/à acheter n'entre pas dans le tri : cocher ne déplace jamais l'article, ni
+chez soi ni chez les autres (on fait les courses à plusieurs ; un article pris s'estompe
+sur place).
 
 Plus des métadonnées non versionnées : `created` (ms epoch, fixé à la création, sert au
 tri d'affichage), `by` (deviceId créateur), et `doneAt` (ms epoch du cochage, 0 si à
@@ -63,6 +67,30 @@ vaut 0 — « coché, date inconnue », pas une date inventée.
 - Registre `members` : map `deviceId → displayName` versionné par entrée (LWW). Chaque
   appareil n'écrit que sa propre entrée. Purement informatif (affichage "ajouté par Léo") —
   l'appartenance réelle = possession de la clé.
+- **`kind`** (immuable à la création, non versionné) : `""` / `"shopping"` = liste de
+  courses (défaut) ; `"recipe"` = recette (bibliothèque d'ingrédients). Porté dans les
+  payloads `snap` / `delta` pour que le pair qui rejoint range la liste au bon endroit.
+  Même canal Nostr, même appairage QR/URI, mêmes items CRDT. Une recette n'a pas de mode
+  Courses ; « Ajouter à une liste de courses » copie les ingrédients (items neufs,
+  `done=false`) vers une liste shopping.
+- **`sortMode` répliqué (déprécié)** : ancien champ LWW (`aisle` / `manual`). Les clients
+  récents ne l'écrivent plus et ne l'utilisent plus pour l'UI. Le merge distant reste
+  accepté (forward-compat) sans effet d'affichage. Voir §2.2.1.
+
+### 2.2.1 Mode de classement (local)
+
+Préférence **par appareil et par liste**, stockée dans `settings["sortMode/" + listId]` :
+
+| Valeur | Tri | Sections rayon | Glisser-déposer |
+|---|---|---|---|
+| `aisle` (défaut) | rang rayon, puis `order` | oui | oui (peut changer le rayon) |
+| `manual` | `order` seul | non | oui (sans changer le rayon) |
+| `name` | nom (locale, casse repliée), puis `created` | non | non |
+| `created` | `created` croissant | non | non |
+
+Migration : si aucune clé locale et qu'un ancien `ListMeta.sortMode` répliqué vaut
+`"manual"`, l'importer une fois en local puis ignorer le champ distant. Changer de mode
+ne mute jamais `order`.
 
 ### 2.3 Règle de merge (unique et universelle)
 
@@ -150,6 +178,12 @@ Le `delta` porte toujours `"title":["Courses",[3,"<devA>"]]` (le titre est un ch
 comme un autre : ne l'émettre qu'au snapshot retarderait un renommage de plusieurs jours)
 et l'entrée `members` de son émetteur.
 
+`"kind":"recipe"` (optionnel) : présent sur les payloads d'une recette. Absent ou toute
+autre valeur = liste de courses. Immuable : un pair qui reçoit un `kind` différent de
+celui déjà stocké pour ce `listId` ignore le champ reçu (la première valeur vue gagne).
+L'ancien champ optionnel `"sortMode"` peut encore apparaître chez d'anciens clients ;
+il est lu pour merge LWW mais n'influence plus l'affichage (§2.2.1).
+
 `"by"` au niveau du payload nomme l'émetteur : c'est lui qui permet de retrouver son
 entrée `members`, donc d'écrire « 3 articles ajoutés par Marie » — et de ne pas se notifier
 de son propre événement quand le relais nous le renvoie. Un payload sans `"by"` (version
@@ -180,7 +214,8 @@ Base unique `colocourse.db`, une seule connexion, WAL activé.
 ```sql
 lists(list_id TEXT PK, key BLOB, title TEXT, title_ver_l INT, title_ver_d TEXT,
       lamport INT, last_sync INT, created INT,
-      group_id TEXT);   -- groupe local, '' = non rangé ; jamais synchronisé
+      group_id TEXT,   -- groupe local, '' = non rangé ; jamais synchronisé
+      kind TEXT);      -- '' / 'shopping' = courses ; 'recipe' = recette (§2.2)
 -- Groupes locaux (organisation propre à l'appareil, hors protocole) :
 groups(group_id TEXT PK, name TEXT, sort_order INT, created INT);
 items(list_id TEXT, item_id TEXT, created INT, by TEXT,
@@ -199,7 +234,8 @@ members(list_id TEXT, device_id TEXT, name TEXT, ver_l INT, ver_d TEXT,
         PRIMARY KEY(list_id, device_id));
 outbox(rowid, list_id TEXT, event_json TEXT, created INT);
 seen_events(event_id TEXT PK, seen INT);   -- purge des entrées > 30 jours
-settings(key TEXT PK, value TEXT);         -- deviceId, displayName, relays…
+settings(key TEXT PK, value TEXT);         -- deviceId, displayName, relays,
+                                           -- sortMode/<listId> (§2.2.1)…
 ```
 
 Toute application d'un merge + mise à jour de `lamport`/`last_sync` est transactionnelle.
@@ -225,8 +261,9 @@ Dépendances : Qt 6 (Core, Quick, Sql, WebSockets), libsodium, un encodeur/déco
 (qzxing ou équivalent — le codeur de la tâche choisit et le note ici).
 
 - `core/` ne dépend que de la STL : les tests CRDT tournent sans display.
-- UI : tri des items = rayon puis position manuelle ; cocher ne déplace pas. Cocher = tap ;
-  supprimer = swipe ; champ d'ajout rapide en bas.
+- UI : tri local des items (§2.2.1) ; cocher ne déplace pas. Cocher = tap ; supprimer =
+  swipe ; champ d'ajout rapide en bas. Recettes : bibliothèque séparée, partage identique
+  aux listes, import des ingrédients vers une liste de courses.
 
 ## 8. Notifications & cycle de vie Android (décision v1)
 
