@@ -230,7 +230,7 @@ std::optional<Payload> parsePayload(const std::string& jsonStr) {
         }
     }
 
-    // Parse optional sortMode (mode de classement répliqué)
+    // Parse optional sortMode (mode de classement répliqué, déprécié)
     if (j.contains("sortMode")) {
         std::string mode;
         Ver         ver;
@@ -239,6 +239,10 @@ std::optional<Payload> parsePayload(const std::string& jsonStr) {
             p.sortModeVer = ver;
         }
     }
+
+    // Parse optional kind (immuable : recipe vs shopping)
+    if (j.contains("kind") && j["kind"].is_string())
+        p.kind = j["kind"].get<std::string>();
 
     // Parse optional members
     if (j.contains("members") && j["members"].is_object()) {
@@ -312,6 +316,9 @@ std::string serializePayload(const Payload& p) {
     if (p.sortMode.has_value() && p.sortModeVer.has_value()) {
         j["sortMode"] = json::array({*p.sortMode, verToJson(*p.sortModeVer)});
     }
+
+    if (p.kind.has_value() && !p.kind->empty())
+        j["kind"] = *p.kind;
 
     if (!p.members.empty()) {
         json members;

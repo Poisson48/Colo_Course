@@ -9,6 +9,9 @@ Item {
     required property string listId
     required property string listTitle
 
+    // Recette : pas de mode Courses, action « Ajouter à une liste ».
+    readonly property bool isRecipe: AppController.isRecipe(listId)
+
     // Sélection multiple : vide = mode normal. Un appui long sur une ligne y entre.
     property var selectedIds: []
     readonly property bool selectionMode: selectedIds.length > 0
@@ -16,6 +19,7 @@ Item {
     // Mode Courses : on est dans le magasin, une main sur le caddie. Plus rien à
     // faire que cocher ce qu'on prend — pas d'ajout, pas de suppression, pas
     // d'édition ouverte par mégarde, et toute la ligne devient la case à cocher.
+    // Masqué pour les recettes.
     property bool shoppingMode: false
 
     // Barre de recherche ouverte. Le filtre vit dans le modèle (C++) : il ne masque
@@ -115,11 +119,11 @@ Item {
         }
 
         // Le mode du magasin est celui qu'on ouvre le plus souvent : il mérite un
-        // bouton, pas une ligne de menu.
+        // bouton, pas une ligne de menu. Pas sur une recette.
         ToolButton {
             width: 90
             height: Theme.touchTarget
-            visible: !root.selectionMode && !root.shoppingMode
+            visible: !root.selectionMode && !root.shoppingMode && !root.isRecipe
             contentItem: Label {
                 text: "Courses"
                 color: Theme.accent
@@ -171,6 +175,7 @@ Item {
         // Ce qui a déjà été pris, et par qui — y compris les articles retirés depuis.
         MenuItem {
             text: "Historique"
+            visible: !root.isRecipe
             onTriggered: root.StackView.view.push(historyPageComponent,
                                                   { listId: root.listId })
         }
@@ -178,35 +183,59 @@ Item {
         // l'écran pour toujours, et il faut les traiter un par un.
         MenuItem {
             text: "Tout remettre à acheter"
+            visible: !root.isRecipe
             enabled: AppController.items.doneCount > 0
             onTriggered: uncheckDialog.open()
         }
         MenuItem {
             text: "Retirer les articles pris"
+            visible: !root.isRecipe
             enabled: AppController.items.doneCount > 0
             onTriggered: clearDoneDialog.open()
         }
-        MenuSeparator {}
-        // Classement (partagé avec les autres participants) : un seul interrupteur, pour
-        // qu'il y ait toujours un mode actif (coché = manuel, décoché = par rayon). Deux
-        // cases séparées permettaient de tout décocher et de se retrouver sans mode.
+        MenuSeparator { visible: !root.isRecipe }
+        // Classement local (par appareil) : un seul mode actif. Changer de mode ne
+        // perd jamais l'ordre manuel (`order` reste intact).
         MenuItem {
-            text: "Classement manuel"
+            text: "Par rayons"
             checkable: true
-            checked: AppController.items.manualSort
-            onTriggered: AppController.items.manualSort = checked
+            checked: AppController.items.sortMode === "aisle"
+            onTriggered: AppController.items.sortMode = "aisle"
+        }
+        MenuItem {
+            text: "Manuel (glisser)"
+            checkable: true
+            checked: AppController.items.sortMode === "manual"
+            onTriggered: AppController.items.sortMode = "manual"
+        }
+        MenuItem {
+            text: "Alphabétique"
+            checkable: true
+            checked: AppController.items.sortMode === "name"
+            onTriggered: AppController.items.sortMode = "name"
+        }
+        MenuItem {
+            text: "Date d'ajout"
+            checkable: true
+            checked: AppController.items.sortMode === "created"
+            onTriggered: AppController.items.sortMode = "created"
         }
         MenuSeparator {}
         MenuItem {
-            text: "Partager la liste"
+            text: "Ajouter à une liste…"
+            visible: root.isRecipe
+            onTriggered: recipeImportPicker.open()
+        }
+        MenuItem {
+            text: "Partager " + (root.isRecipe ? "la recette" : "la liste")
             onTriggered: shareSheet.openFor(root.listId, root.listTitle)
         }
         MenuItem {
-            text: "Renommer la liste"
+            text: root.isRecipe ? "Renommer la recette" : "Renommer la liste"
             onTriggered: renameDialog.open()
         }
         MenuItem {
-            text: "Dupliquer la liste"
+            text: root.isRecipe ? "Dupliquer la recette" : "Dupliquer la liste"
             onTriggered: duplicateDialog.open()
         }
     }
@@ -334,10 +363,8 @@ Item {
             bottomMargin: Theme.gap
             spacing: 6
 
-            // Sections par rayon. Elles n'apparaissent que si les articles sont
-            // effectivement classés : qui ne s'en sert pas ne voit aucun en-tête. En
-            // mode manuel, aucune section : la liste est une seule séquence à la main.
-            section.property: AppController.items.manualSort ? "" : "aisle"
+            // Sections par rayon uniquement en mode aisle. Sinon une seule séquence.
+            section.property: AppController.items.sortMode === "aisle" ? "aisle" : ""
             section.criteria: ViewSection.FullString
 
             // Un changement reçu d'un autre téléphone recharge le modèle en bloc
@@ -448,6 +475,8 @@ Item {
                             Layout.alignment: Qt.AlignVCenter
                             implicitWidth: Theme.touchTarget
                             implicitHeight: Theme.touchTarget
+                            // Sur une recette hors sélection : pas de cochage « pris ».
+                            visible: root.selectionMode || !root.isRecipe
                             // En mode sélection, la case coche la ligne ; sinon elle
                             // marque l'article comme acheté.
                             checked: root.selectionMode ? row.selected : model.done
@@ -523,6 +552,7 @@ Item {
                             Layout.preferredWidth: visible ? 34 : 0
                             Layout.preferredHeight: Theme.touchTarget
                             visible: !root.selectionMode && !root.shoppingMode
+                                     && AppController.items.canReorder
                             drag.target: wrapper.held ? row : undefined
                             drag.axis: Drag.YAxis
                             cursorShape: Qt.SizeVerCursor
@@ -1233,6 +1263,60 @@ Item {
     Component {
         id: historyPageComponent
         HistoryPage {}
+    }
+
+    // Recette → liste de courses : choisir la destination, importer les ingrédients.
+    ColoDialog {
+        id: recipeImportPicker
+        title: "Ajouter à une liste"
+        showAccept: false
+
+        property var destinations: []
+
+        onAboutToShow: destinations = AppController.shoppingLists()
+
+        Label {
+            Layout.fillWidth: true
+            visible: recipeImportPicker.destinations.length > 0
+            text: "Les ingrédients de « " + root.listTitle
+                  + " » seront ajoutés à la liste, à acheter."
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: recipeImportPicker.destinations.length === 0
+            text: "Aucune liste de courses. Créez-en une d'abord."
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 15
+        }
+
+        Repeater {
+            model: recipeImportPicker.destinations
+            delegate: Button {
+                required property var modelData
+                Layout.fillWidth: true
+                flat: true
+                implicitHeight: 46
+                contentItem: Label {
+                    text: modelData.name
+                    color: Theme.text
+                    font.pixelSize: 15
+                    verticalAlignment: Text.AlignVCenter
+                }
+                background: Rectangle {
+                    radius: 10
+                    color: parent.pressed ? Theme.surfaceHigh : "transparent"
+                }
+                onClicked: {
+                    AppController.importListInto(modelData.id, root.listId)
+                    recipeImportPicker.close()
+                }
+            }
+        }
     }
 
     ColoDialog {

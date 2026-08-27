@@ -28,10 +28,13 @@ struct Payload {
     std::optional<std::string> title;
     std::optional<Ver>         titleVer;
 
-    // Mode de classement répliqué (voir ListMeta::sortMode). Optionnel : absent des
-    // payloads des versions antérieures, et omis tant que personne ne l'a choisi.
+    // Mode de classement répliqué (déprécié pour l'UI). Optionnel : absent des
+    // payloads des versions antérieures / récentes qui n'écrivent plus le champ.
     std::optional<std::string> sortMode;
     std::optional<Ver>         sortModeVer;
+
+    // kind immuable (« recipe »). Absent = liste de courses. Première valeur vue gagne.
+    std::optional<std::string> kind;
 
     // deviceId -> (displayName, ver)
     std::map<std::string, std::pair<std::string, Ver>> members;

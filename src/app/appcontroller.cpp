@@ -38,6 +38,17 @@ ListsModel::ListsModel(QObject *parent)
     : QAbstractListModel(parent)
 {}
 
+void ListsModel::setKindFilter(const QString &kind) {
+    m_kindFilter = kind;
+}
+
+bool ListsModel::matchesKind(const std::string &kind) const {
+    const bool recipe = (kind == "recipe");
+    if (m_kindFilter == QLatin1String("recipe"))
+        return recipe;
+    return !recipe;  // shopping : '' / shopping / autre
+}
+
 int ListsModel::rowCount(const QModelIndex &parent) const {
     if (parent.isValid()) return 0;
     return static_cast<int>(m_rows.size());
@@ -56,6 +67,7 @@ QVariant ListsModel::data(const QModelIndex &index, int role) const {
     case GroupNameRole:  return row.groupName;
     case MembersRole:    return row.members;
     case MemberCountRole:return row.memberCount;
+    case KindRole:       return row.kind;
     default:             return {};
     }
 }
@@ -70,6 +82,7 @@ QHash<int, QByteArray> ListsModel::roleNames() const {
         { GroupNameRole,  "groupName"   },
         { MembersRole,    "members"     },
         { MemberCountRole,"memberCount" },
+        { KindRole,       "kind"        },
     };
 }
 
@@ -84,6 +97,9 @@ void ListsModel::reload(store::Database &db, const std::string &deviceId) {
         groups[g.groupId] = { QString::fromStdString(g.name), g.sortOrder };
 
     for (const auto &meta : db.getLists()) {
+        if (!matchesKind(meta.kind))
+            continue;
+
         int unchecked = 0;
         int total     = 0;
         for (const auto &item : db.getItems(meta.listId)) {
@@ -109,6 +125,7 @@ void ListsModel::reload(store::Database &db, const std::string &deviceId) {
         row.listOrder   = meta.listOrder;
         row.members     = names.join(QStringLiteral(", "));
         row.memberCount = static_cast<int>(names.size());
+        row.kind        = QString::fromStdString(meta.kind);
 
         const auto git = groups.find(meta.groupId);
         if (!meta.groupId.empty() && git != groups.end()) {
@@ -236,9 +253,12 @@ void ListsModel::renumberGroup(store::Database &db, const QString &groupId) {
 AppController::AppController(QObject *parent)
     : QObject(parent)
     , m_listsModel(new ListsModel(this))
+    , m_recipesModel(new ListsModel(this))
     , m_relayPool(this)
     , m_syncEngine(this)
-{}
+{
+    m_recipesModel->setKindFilter(QStringLiteral("recipe"));
+}
 
 AppController::~AppController() = default;
 
@@ -294,6 +314,7 @@ bool AppController::init() {
 
     // --- Load lists ---
     m_listsModel->reload(m_db, m_deviceId.toStdString());
+    m_recipesModel->reload(m_db, m_deviceId.toStdString());
 
     // --- Setup relay pool ---
     // Load relay URLs from settings (or use defaults).
@@ -321,6 +342,10 @@ bool AppController::init() {
             this,          &AppController::onRemoteChanges);
     connect(&m_syncEngine, &SyncEngine::listTitleChanged,
             this,          &AppController::onRemoteTitleChanged);
+    connect(&m_syncEngine, &SyncEngine::listMetaChanged, this, [this](const QString &) {
+        m_listsModel->reload(m_db, m_deviceId.toStdString());
+        m_recipesModel->reload(m_db, m_deviceId.toStdString());
+    });
     connect(&m_syncEngine, &SyncEngine::outboxChanged,
             this,          &AppController::onOutboxChanged);
     // Un blob de photo vient d'arriver : invalider le cache des vignettes.
@@ -351,6 +376,10 @@ bool AppController::init() {
 
 QAbstractListModel *AppController::lists() const {
     return m_listsModel;
+}
+
+QAbstractListModel *AppController::recipes() const {
+    return m_recipesModel;
 }
 
 ItemModel *AppController::items() {
@@ -384,6 +413,7 @@ void AppController::onLocalItemChange(const std::string& listId) {
     m_syncEngine.onLocalChange(listId);
     // Les compteurs de l'écran des listes ("2 sur 7") dépendent des items.
     m_listsModel->reload(m_db, m_deviceId.toStdString());
+    m_recipesModel->reload(m_db, m_deviceId.toStdString());
 }
 
 void AppController::onSyncOnlineChanged(bool online) {
@@ -395,10 +425,12 @@ void AppController::onSyncOnlineChanged(bool online) {
 void AppController::onRemoteChanges(const QString& /*listId*/, int /*count*/, const QString& /*authorName*/) {
     // Refresh the lists model so counts update.
     m_listsModel->reload(m_db, m_deviceId.toStdString());
+    m_recipesModel->reload(m_db, m_deviceId.toStdString());
 }
 
 void AppController::onRemoteTitleChanged(const QString& listId, const QString& title) {
     m_listsModel->rename(listId, title);
+    m_recipesModel->rename(listId, title);
     emit listRenamed(listId, title);
 }
 
@@ -433,10 +465,40 @@ void AppController::createList(const QString &title) {
 
     if (m_db.createList(meta)) {
         m_listsModel->reload(m_db, m_deviceId.toStdString());
+        m_recipesModel->reload(m_db, m_deviceId.toStdString());
         // Souscrire tout de suite : sans ça, la liste n'est écoutée qu'au prochain
         // lancement et les modifications des autres n'arrivent jamais.
         m_syncEngine.onListJoined(meta.listId);
     }
+}
+
+void AppController::createRecipe(const QString &title) {
+    core::ListMeta meta;
+    meta.listId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    meta.key      = net::generateListKey();
+    meta.title    = title.toStdString();
+    meta.titleVer = core::Ver{ 1, m_deviceId.toStdString() };
+    meta.lamport  = 1;
+    meta.created  = QDateTime::currentMSecsSinceEpoch();
+    meta.kind     = "recipe";
+
+    if (meta.key.size() != 32) {
+        emit toast(QStringLiteral("Échec de la génération de la clé de chiffrement"));
+        return;
+    }
+
+    if (m_db.createList(meta)) {
+        m_listsModel->reload(m_db, m_deviceId.toStdString());
+        m_recipesModel->reload(m_db, m_deviceId.toStdString());
+        m_syncEngine.onListJoined(meta.listId);
+        emit toast(QStringLiteral("Recette créée"));
+    }
+}
+
+bool AppController::isRecipe(const QString &listId) {
+    if (!m_db.isOpen()) return false;
+    auto meta = m_db.getList(listId.toStdString());
+    return meta && meta->isRecipe();
 }
 
 void AppController::renameList(const QString &listId, const QString &title) {
@@ -455,6 +517,7 @@ void AppController::renameList(const QString &listId, const QString &title) {
     if (!m_db.updateListTitle(id, trimmed.toStdString(), ver)) return;
 
     m_listsModel->rename(listId, trimmed);
+    m_recipesModel->rename(listId, trimmed);
     emit listRenamed(listId, trimmed);
     m_syncEngine.onLocalChange(id);
 }
@@ -476,6 +539,7 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
     copy.titleVer = core::Ver{ 1, m_deviceId.toStdString() };
     copy.lamport  = 1;
     copy.created  = QDateTime::currentMSecsSinceEpoch();
+    copy.kind     = srcOpt->kind;
 
     if (copy.key.size() != 32) {
         emit toast(QStringLiteral("Échec de la génération de la clé de chiffrement"));
@@ -523,6 +587,7 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
     }
 
     m_listsModel->reload(m_db, m_deviceId.toStdString());
+    m_recipesModel->reload(m_db, m_deviceId.toStdString());
     m_syncEngine.onListJoined(copy.listId);
     // Publier le contenu : sans ça, quelqu'un qui rejoindrait la copie par lien
     // trouverait un canal vide tant que personne n'y touche.
@@ -569,7 +634,10 @@ void AppController::importListInto(const QString &destListId, const QString &sou
         item.qtyVer  = ver;
         item.note    = src.note;
         item.noteVer = ver;
-        item.aisle    = src.aisle;
+        // Rayon de la source, ou suggestion locale si vide (import de recette → courses).
+        item.aisle    = src.aisle.empty()
+            ? m_db.suggestAisleForName(src.name)
+            : src.aisle;
         item.aisleVer = ver;
         item.image    = src.image;   // blob adressé par contenu, déjà en base
         item.imageVer = ver;
@@ -590,6 +658,7 @@ void AppController::importListInto(const QString &destListId, const QString &sou
         m_itemModel.load(m_db, destOpt->listId, m_deviceId.toStdString());
 
     m_listsModel->reload(m_db, m_deviceId.toStdString());
+    m_recipesModel->reload(m_db, m_deviceId.toStdString());
     m_syncEngine.onLocalChange(destOpt->listId);  // publier les ajouts aux autres pairs
 
     emit toast(copied > 0
@@ -603,7 +672,20 @@ QVariantList AppController::otherLists(const QString &exceptListId) {
     if (!m_db.isOpen()) return out;
     const std::string except = exceptListId.toStdString();
     for (const auto &meta : m_db.getLists()) {
-        if (meta.listId == except) continue;
+        if (meta.listId == except || meta.isRecipe()) continue;
+        QVariantMap m;
+        m.insert(QStringLiteral("id"),   QString::fromStdString(meta.listId));
+        m.insert(QStringLiteral("name"), QString::fromStdString(meta.title));
+        out.append(m);
+    }
+    return out;
+}
+
+QVariantList AppController::shoppingLists() {
+    QVariantList out;
+    if (!m_db.isOpen()) return out;
+    for (const auto &meta : m_db.getLists()) {
+        if (meta.isRecipe()) continue;
         QVariantMap m;
         m.insert(QStringLiteral("id"),   QString::fromStdString(meta.listId));
         m.insert(QStringLiteral("name"), QString::fromStdString(meta.title));
@@ -826,6 +908,7 @@ QString AppController::importFile(const QUrl &fileUrl) {
     }
 
     m_listsModel->reload(m_db, m_deviceId.toStdString());
+    m_recipesModel->reload(m_db, m_deviceId.toStdString());
 
     const QString msg = (lists > 1)
         ? QStringLiteral("%1 listes importées (%2 articles)").arg(lists).arg(items)
@@ -845,6 +928,7 @@ QString AppController::createGroup(const QString &name) {
         return {};
 
     m_listsModel->reload(m_db, m_deviceId.toStdString());
+    m_recipesModel->reload(m_db, m_deviceId.toStdString());
     return groupId;
 }
 
@@ -853,12 +937,14 @@ void AppController::renameGroup(const QString &groupId, const QString &name) {
     if (groupId.isEmpty() || trimmed.isEmpty()) return;
     if (m_db.renameGroup(groupId.toStdString(), trimmed.toStdString()))
         m_listsModel->reload(m_db, m_deviceId.toStdString());
+        m_recipesModel->reload(m_db, m_deviceId.toStdString());
 }
 
 void AppController::deleteGroup(const QString &groupId) {
     if (groupId.isEmpty()) return;
     if (m_db.deleteGroup(groupId.toStdString())) {
         m_listsModel->reload(m_db, m_deviceId.toStdString());
+        m_recipesModel->reload(m_db, m_deviceId.toStdString());
         emit toast(QStringLiteral("Groupe supprimé — les listes sont conservées"));
     }
 }
@@ -866,6 +952,7 @@ void AppController::deleteGroup(const QString &groupId) {
 void AppController::setListGroup(const QString &listId, const QString &groupId) {
     if (m_db.setListGroup(listId.toStdString(), groupId.toStdString()))
         m_listsModel->reload(m_db, m_deviceId.toStdString());
+        m_recipesModel->reload(m_db, m_deviceId.toStdString());
 }
 
 QVariantList AppController::groups() {
@@ -994,12 +1081,16 @@ void AppController::removeFavorite(const QString &name) {
 
 void AppController::leaveList(const QString &listId) {
     const std::string id = listId.toStdString();
+    const bool recipe = isRecipe(listId);
     m_syncEngine.unregisterItemModel(id);
     if (m_openListId == id)
         m_openListId.clear();
     if (m_db.deleteList(id)) {
         m_listsModel->remove(listId);
-        emit toast(QStringLiteral("Liste supprimée de cet appareil"));
+        m_recipesModel->remove(listId);
+        emit toast(recipe
+            ? QStringLiteral("Recette supprimée de cet appareil")
+            : QStringLiteral("Liste supprimée de cet appareil"));
     }
 }
 
@@ -1188,6 +1279,7 @@ bool AppController::joinList(const QString &uri)
     bool created = m_db.createList(meta);
     if (created) {
         m_listsModel->reload(m_db, m_deviceId.toStdString());
+        m_recipesModel->reload(m_db, m_deviceId.toStdString());
     }
     // Subscribe to catch up full history (SPEC §3.4).
     m_syncEngine.onListJoined(info.listId);

@@ -84,10 +84,34 @@ QStringList ItemModel::aisleNames() const {
     return names + custom;
 }
 
-bool ItemModel::rowLessThan(const Row &a, const Row &b, bool manual) {
+bool ItemModel::isValidSortMode(const QString &mode) {
+    return mode == QLatin1String("aisle")
+        || mode == QLatin1String("manual")
+        || mode == QLatin1String("name")
+        || mode == QLatin1String("created");
+}
+
+bool ItemModel::rowLessThan(const Row &a, const Row &b, const QString &mode) {
+    if (mode == QLatin1String("name")) {
+        const int cmp = QString::localeAwareCompare(
+            QString::fromStdString(a.item.name).toCaseFolded(),
+            QString::fromStdString(b.item.name).toCaseFolded());
+        if (cmp != 0)
+            return cmp < 0;
+        if (a.item.created != b.item.created)
+            return a.item.created < b.item.created;
+        return a.item.itemId < b.item.itemId;
+    }
+
+    if (mode == QLatin1String("created")) {
+        if (a.item.created != b.item.created)
+            return a.item.created < b.item.created;
+        return a.item.itemId < b.item.itemId;
+    }
+
     // Mode rayon : on regroupe d'abord par rayon (ordre du magasin). En mode manuel,
     // le rayon ne compte pas — la liste est une seule séquence ordonnée à la main.
-    if (!manual) {
+    if (mode != QLatin1String("manual")) {
         const int rankA = aisleRank(a.item.aisle);
         const int rankB = aisleRank(b.item.aisle);
         if (rankA != rankB)
@@ -123,35 +147,52 @@ void ItemModel::load(store::Database &db, const std::string &listId, const std::
     for (const auto &[devId, name] : db.getMembers(listId))
         m_memberNames[devId] = QString::fromStdString(name);
 
-    // Mode de classement de la liste (répliqué). "manual" = manuel seul, sinon rayon.
-    const bool manual = [&]{
-        auto meta = db.getList(listId);
-        return meta && meta->sortMode == "manual";
-    }();
-    if (manual != m_manualSort) {
-        m_manualSort = manual;
-        emit manualSortChanged();
+    const QString mode = loadLocalSortMode();
+    if (mode != m_sortMode) {
+        m_sortMode = mode;
+        emit sortModeChanged();
     }
 
     m_items = db.getItems(listId);
     rebuildRows();
 }
 
-void ItemModel::setManualSort(bool manual) {
-    if (!m_db || manual == m_manualSort) return;
+QString ItemModel::loadLocalSortMode() const {
+    if (!m_db || m_listId.empty())
+        return QStringLiteral("aisle");
 
-    // Écriture locale = tick du Lamport de la liste : la nouvelle version bat celle
-    // qu'on connaissait et gagne le merge LWW chez les autres participants. Repasser
-    // en mode rayon écrit "aisle" (et non "") pour battre un "manual" distant.
-    const int64_t lamport = m_db->bumpLamport(m_listId);
-    const core::Ver ver{ lamport, m_deviceId };
-    m_db->updateListSortMode(m_listId, manual ? "manual" : "aisle", ver);
+    const std::string key = "sortMode/" + m_listId;
+    auto local = m_db->getSetting(key);
+    if (local && isValidSortMode(QString::fromStdString(*local)))
+        return QString::fromStdString(*local);
 
-    m_manualSort = manual;
-    emit manualSortChanged();
+    // Migration : importer une seule fois l'ancien sortMode répliqué s'il vaut "manual".
+    auto meta = m_db->getList(m_listId);
+    QString migrated = QStringLiteral("aisle");
+    if (meta && meta->sortMode == "manual")
+        migrated = QStringLiteral("manual");
+    m_db->setSetting(key, migrated.toStdString());
+    return migrated;
+}
+
+void ItemModel::saveLocalSortMode(const QString &mode) {
+    if (!m_db || m_listId.empty()) return;
+    m_db->setSetting("sortMode/" + m_listId, mode.toStdString());
+}
+
+void ItemModel::setSortMode(const QString &mode) {
+    if (!isValidSortMode(mode) || mode == m_sortMode) return;
+    // Préférence locale uniquement : pas de bump Lamport, pas de publication.
+    // Changer de mode ne mute jamais `order`.
+    saveLocalSortMode(mode);
+    m_sortMode = mode;
+    emit sortModeChanged();
     rebuildRows();
-    // Publier le changement de mode (comme un renommage : c'est un champ de liste).
-    emit localChanged(m_listId);
+}
+
+bool ItemModel::canReorder() const {
+    return m_sortMode == QLatin1String("aisle")
+        || m_sortMode == QLatin1String("manual");
 }
 
 // Filtre d'affichage : nom, quantité ou description. Insensible à la casse — on tape
@@ -182,9 +223,9 @@ void ItemModel::rebuildRows() {
             m_rows.push_back(Row{ item });
         }
     }
-    const bool manual = m_manualSort;
+    const QString mode = m_sortMode;
     std::stable_sort(m_rows.begin(), m_rows.end(),
-                     [manual](const Row &a, const Row &b){ return rowLessThan(a, b, manual); });
+                     [mode](const Row &a, const Row &b){ return rowLessThan(a, b, mode); });
     endResetModel();
     emit countChanged();
     emit doneCountChanged();
@@ -242,9 +283,9 @@ QHash<int, QByteArray> ItemModel::roleNames() const {
 }
 
 int ItemModel::aisleCount() const {
-    // En mode manuel la liste n'a pas de sections : un seul « rayon » du point de vue
-    // de la vue, pour que les en-têtes disparaissent.
-    if (m_manualSort) return 1;
+    // Hors mode rayon, la liste n'a pas de sections : un seul « rayon » du point de
+    // vue de la vue, pour que les en-têtes disparaissent.
+    if (m_sortMode != QLatin1String("aisle")) return 1;
     std::set<std::string> distinct;
     for (const auto &row : m_rows)
         distinct.insert(row.item.aisle);
@@ -356,8 +397,8 @@ void ItemModel::addItem(const QString &name, const QString &qty,
 
     // Find sorted insertion position (upper_bound to append after equals).
     Row newRow{ item };
-    const bool manual = m_manualSort;
-    const auto less = [manual](const Row &a, const Row &b){ return rowLessThan(a, b, manual); };
+    const QString mode = m_sortMode;
+    const auto less = [mode](const Row &a, const Row &b){ return rowLessThan(a, b, mode); };
     auto it = std::upper_bound(m_rows.begin(), m_rows.end(), newRow, less);
     const int pos = static_cast<int>(it - m_rows.begin());
 
@@ -456,9 +497,11 @@ void ItemModel::editItem(const QString &itemId, const QString &name,
     emit localChanged(m_listId);
     emit aisleNamesChanged();
 
-    // Le rayon est la première clé de tri : l'article change de section, la ligne se
-    // déplace. De même sous filtre, où l'édition peut la faire sortir de la recherche.
-    if (aisleChanged || !m_filter.isEmpty()) {
+    // Le rayon / le nom peuvent entrer dans le tri : rebuild si le mode le demande.
+    if (aisleChanged || nameChanged
+        || m_sortMode == QLatin1String("aisle")
+        || m_sortMode == QLatin1String("name")
+        || !m_filter.isEmpty()) {
         rebuildRows();
         return;
     }
@@ -562,7 +605,7 @@ void ItemModel::setAisle(const QString &itemId, const QString &aisle) {
 // destination ; c'est un simple champ LWW de plus, donc deux personnes qui réordonnent
 // en même temps convergent (le dernier gagne) au lieu de se marcher dessus.
 void ItemModel::moveItem(int from, int to) {
-    if (!m_db) return;
+    if (!m_db || !canReorder()) return;
     const int n = static_cast<int>(m_rows.size());
     if (from < 0 || from >= n || to < 0 || to >= n || from == to) return;
 
@@ -582,8 +625,9 @@ void ItemModel::moveItem(int from, int to) {
     // poser APRÈS elle (elle est donc `before`) ; en montant, on vient prendre sa place
     // (elle est donc `after`). En mode manuel, glisser NE reclasse pas : le rayon ne
     // bouge pas, on ne fait que déplacer dans la séquence unique.
+    const bool manual = (m_sortMode == QLatin1String("manual"));
     const Row *hovered = (from < to) ? before : after;
-    const std::string targetAisle = m_manualSort
+    const std::string targetAisle = manual
         ? moved.aisle
         : (hovered ? hovered->item.aisle : moved.aisle);
 
@@ -591,7 +635,7 @@ void ItemModel::moveItem(int from, int to) {
     // en mode rayon, toute la liste en mode manuel. Le tri les sépare avant de
     // regarder la position. L'état pris/à acheter ne compte pas : il n'est pas trié.
     const auto sameGroup = [&](const Row *r) {
-        return r && (m_manualSort || r->item.aisle == targetAisle);
+        return r && (manual || r->item.aisle == targetAisle);
     };
     const int64_t lo = sameGroup(before) ? before->item.order : 0;
     const int64_t hi = sameGroup(after)  ? after->item.order  : 0;
@@ -667,7 +711,7 @@ void ItemModel::renumber(const std::string &aisle) {
     int64_t next = 1000;
     for (auto &row : m_rows) {
         // En mode manuel le rayon ne délimite pas le groupe : tout est renuméroté.
-        if (!m_manualSort && row.item.aisle != aisle)
+        if (m_sortMode != QLatin1String("manual") && row.item.aisle != aisle)
             continue;
         auto it = std::find_if(m_items.begin(), m_items.end(),
                                [&](const core::Item &i){ return i.itemId == row.item.itemId; });

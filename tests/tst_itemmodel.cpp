@@ -3,6 +3,7 @@
 #include <QTemporaryDir>
 #include <QSignalSpy>
 #include <QUrl>
+#include <map>
 
 #include "../src/store/database.h"
 #include "../src/core/types.h"
@@ -928,9 +929,9 @@ private slots:
         }
     }
 
-    // Mode manuel : le tri ignore les rayons (une seule séquence), glisser réordonne
-    // sans reclasser, et le mode est persisté (répliqué comme le titre).
-    void test_manualSort() {
+    // Modes de tri locaux : aisle / manual / name / created. Changer de mode ne mute
+    // jamais `order`. Préférence locale (settings), pas répliquée.
+    void test_localSortModes() {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         Database db;
@@ -939,61 +940,179 @@ private slots:
 
         ItemModel model;
         model.load(db, listId, "dev-A");
-        QVERIFY(!model.manualSort());   // défaut = par rayon
+        QCOMPARE(model.sortMode(), QStringLiteral("aisle"));
+        QVERIFY(model.canReorder());
 
-        // Ajoutés dans le désordre des rayons : Crèmerie (rang 2) avant Fruits (rang 0).
         model.addItem("Beurre", "", "", "Crèmerie");
         model.addItem("Pommes", "", "", "Fruits & légumes");
+        model.addItem("Ananas", "", "", "Fruits & légumes");
 
-        // En mode rayon, le tri remonte Fruits avant Crèmerie malgré l'ordre d'ajout.
+        // En mode rayon : Fruits (ordre d'ajout Pommes puis Ananas) puis Crèmerie.
         QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
                  QStringLiteral("Pommes"));
         QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Ananas"));
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(),
                  QStringLiteral("Beurre"));
 
-        // Passage en manuel : le rayon ne trie plus, on retrouve l'ordre d'ajout.
-        QSignalSpy modeSpy(&model, &ItemModel::manualSortChanged);
-        model.setManualSort(true);
+        std::map<std::string, int64_t> ordersBefore;
+        for (const auto &it : db.getItems(listId))
+            ordersBefore[it.name] = it.order;
+
+        QSignalSpy modeSpy(&model, &ItemModel::sortModeChanged);
+        model.setSortMode(QStringLiteral("manual"));
         QCOMPARE(modeSpy.count(), 1);
-        QVERIFY(model.manualSort());
-        QCOMPARE(model.aisleCount(), 1);   // pas de sections en manuel
+        QCOMPARE(model.sortMode(), QStringLiteral("manual"));
+        QCOMPARE(model.aisleCount(), 1);
         QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
                  QStringLiteral("Beurre"));
         QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
                  QStringLiteral("Pommes"));
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(),
+                 QStringLiteral("Ananas"));
 
-        // Le mode est persisté et versionné (répliqué).
-        auto meta = db.getList(listId);
-        QVERIFY(meta.has_value());
-        QCOMPARE(meta->sortMode, std::string("manual"));
-        QVERIFY(meta->sortModeVer.lamport > 0);
+        auto local = db.getSetting("sortMode/" + listId);
+        QVERIFY(local.has_value());
+        QCOMPARE(*local, std::string("manual"));
+        QCOMPARE(db.getList(listId)->sortModeVer.lamport, int64_t(0));
 
-        // Glisser en manuel réordonne SANS changer le rayon : Pommes remonte au-dessus
-        // de Beurre, mais garde « Fruits & légumes ».
+        model.setSortMode(QStringLiteral("name"));
+        QVERIFY(!model.canReorder());
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Ananas"));
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Beurre"));
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(),
+                 QStringLiteral("Pommes"));
+        model.moveItem(2, 0);
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Ananas"));
+
+        model.setSortMode(QStringLiteral("created"));
+        QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
+                 QStringLiteral("Beurre"));
+        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
+                 QStringLiteral("Pommes"));
+        QCOMPARE(model.data(model.index(2), ItemModel::NameRole).toString(),
+                 QStringLiteral("Ananas"));
+
+        for (const auto &it : db.getItems(listId))
+            QCOMPARE(it.order, ordersBefore[it.name]);
+
+        model.setSortMode(QStringLiteral("manual"));
         model.moveItem(1, 0);
         QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
                  QStringLiteral("Pommes"));
         QCOMPARE(model.data(model.index(0), ItemModel::AisleRole).toString(),
-                 QStringLiteral("Fruits & légumes"));   // rayon intact
-        for (const auto &it : db.getItems(listId))
-            if (it.name == "Pommes")
-                QCOMPARE(it.aisle, std::string("Fruits & légumes"));
+                 QStringLiteral("Fruits & légumes"));
 
-        // Retour en mode rayon : "aisle" est écrit (pas ""), pour battre un "manual"
-        // distant au merge. L'ordre par rayon revient.
-        model.setManualSort(false);
-        QVERIFY(!model.manualSort());
-        QCOMPARE(db.getList(listId)->sortMode, std::string("aisle"));
+        model.setSortMode(QStringLiteral("aisle"));
         QCOMPARE(model.data(model.index(0), ItemModel::NameRole).toString(),
-                 QStringLiteral("Pommes"));   // Fruits d'abord
-        QCOMPARE(model.data(model.index(1), ItemModel::NameRole).toString(),
-                 QStringLiteral("Beurre"));
+                 QStringLiteral("Pommes"));
 
-        // Le mode survit à un rechargement (relu depuis la base).
-        model.setManualSort(true);
+        model.setSortMode(QStringLiteral("name"));
         ItemModel reloaded;
         reloaded.load(db, listId, "dev-A");
-        QVERIFY(reloaded.manualSort());
+        QCOMPARE(reloaded.sortMode(), QStringLiteral("name"));
+    }
+
+    void test_sortModeMigration() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+        const auto listId = makeList(db);
+        db.updateListSortMode(listId, "manual", {5, "dev-A"});
+
+        ItemModel model;
+        model.load(db, listId, "dev-A");
+        QCOMPARE(model.sortMode(), QStringLiteral("manual"));
+        auto local = db.getSetting("sortMode/" + listId);
+        QVERIFY(local && *local == "manual");
+    }
+
+    void test_recipes() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        Database db;
+        QVERIFY(openDb(db, dir));
+
+        core::ListMeta shopping;
+        shopping.listId = "shop-1";
+        shopping.key.assign(32, 1);
+        shopping.title = "Courses";
+        shopping.created = 1000;
+        QVERIFY(db.createList(shopping));
+
+        core::ListMeta recipe;
+        recipe.listId = "rec-1";
+        recipe.key.assign(32, 2);
+        recipe.title = "Pâtes";
+        recipe.created = 2000;
+        recipe.kind = "recipe";
+        QVERIFY(db.createList(recipe));
+
+        ListsModel shops;
+        shops.reload(db, "dev-A");
+        QCOMPARE(shops.rowCount(), 1);
+        QCOMPARE(shops.data(shops.index(0), ListsModel::ListIdRole).toString(),
+                 QStringLiteral("shop-1"));
+
+        ListsModel recipes;
+        recipes.setKindFilter(QStringLiteral("recipe"));
+        recipes.reload(db, "dev-A");
+        QCOMPARE(recipes.rowCount(), 1);
+        QCOMPARE(recipes.data(recipes.index(0), ListsModel::ListIdRole).toString(),
+                 QStringLiteral("rec-1"));
+        QCOMPARE(recipes.data(recipes.index(0), ListsModel::KindRole).toString(),
+                 QStringLiteral("recipe"));
+
+        QVERIFY(db.setListKindIfEmpty("rec-1", "shopping"));
+        QCOMPARE(db.getList("rec-1")->kind, std::string("recipe"));
+        QVERIFY(db.setListKindIfEmpty("shop-1", "recipe"));
+        QCOMPARE(db.getList("shop-1")->kind, std::string("recipe"));
+    }
+
+    void test_importRecipeSuggestsAisle() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        AppController ctrl;
+        QVERIFY(ctrl.db().open(dir.filePath("imp.db")));
+
+        core::ListMeta shop;
+        shop.listId = "shop"; shop.key.assign(32, 1); shop.title = "S";
+        shop.created = 1; shop.lamport = 1;
+        QVERIFY(ctrl.db().createList(shop));
+
+        core::ListMeta rec;
+        rec.listId = "rec"; rec.key.assign(32, 2); rec.title = "R";
+        rec.created = 2; rec.lamport = 1; rec.kind = "recipe";
+        QVERIFY(ctrl.db().createList(rec));
+
+        QVERIFY(ctrl.db().recordAisleForName("Lait", "Crèmerie", 1000));
+
+        core::Item ing;
+        ing.listId = "rec"; ing.itemId = "i1"; ing.created = 10; ing.by = "dev-A";
+        ing.name = "Lait"; ing.nameVer = {1, "dev-A"};
+        ing.qtyVer = {1, "dev-A"}; ing.noteVer = {1, "dev-A"};
+        ing.aisleVer = {1, "dev-A"};
+        ing.order = 10; ing.orderVer = {1, "dev-A"};
+        ing.doneVer = {1, "dev-A"}; ing.delVer = {1, "dev-A"};
+        QVERIFY(ctrl.db().upsertItem(ing));
+
+        ctrl.importListInto(QStringLiteral("shop"), QStringLiteral("rec"));
+
+        bool found = false;
+        for (const auto &it : ctrl.db().getItems("shop")) {
+            if (it.name == "Lait") {
+                found = true;
+                QCOMPARE(it.aisle, std::string("Crèmerie"));
+                QVERIFY(!it.done);
+            }
+        }
+        QVERIFY(found);
+        QVERIFY(ctrl.isRecipe(QStringLiteral("rec")));
+        QVERIFY(!ctrl.isRecipe(QStringLiteral("shop")));
     }
 
     // Ranger un article depuis le dialogue d'édition le fait changer de section.

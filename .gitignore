@@ -1,5 +1,6 @@
 # Build
 build*/
+.deps/
 CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles/

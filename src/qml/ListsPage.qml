@@ -129,6 +129,11 @@ Item {
         }
         MenuSeparator {}
         MenuItem {
+            text: "Recettes"
+            onTriggered: root.StackView.view.push(recipesPageComponent)
+        }
+        MenuSeparator {}
+        MenuItem {
             text: "Importer une liste…"
             onTriggered: { const p = root.usePickers(); if (p) p.openImport() }
         }
@@ -157,6 +162,44 @@ Item {
         model: AppController.lists
         // La vue ne se fige QUE pendant qu'une poignée est tenue (sinon elle défile).
         interactive: !root.rowDragging
+
+        header: ItemDelegate {
+            width: listView.width - 2 * Theme.gap
+            height: 56
+            padding: 0
+
+            background: Rectangle {
+                radius: Theme.radius
+                color: parent.pressed ? Theme.surfaceHigh : Theme.surface
+                border.color: Theme.outline
+                border.width: 1
+            }
+
+            contentItem: RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.pad
+                anchors.rightMargin: Theme.pad
+                spacing: Theme.gap
+
+                Label {
+                    Layout.fillWidth: true
+                    text: "Recettes"
+                    color: Theme.text
+                    font.pixelSize: 16
+                    font.weight: Font.DemiBold
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                Label {
+                    text: "›"
+                    color: Theme.textDim
+                    font.pixelSize: 22
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            onClicked: root.StackView.view.push(recipesPageComponent)
+        }
 
         // Sections par groupe. Les en-têtes n'apparaissent que si des groupes existent :
         // qui ne s'en sert pas voit la même liste plate qu'avant.
@@ -1057,5 +1100,10 @@ Item {
         }
 
         onAccepted: AppController.deleteAisle(aisleDeleteDialog.aisle)
+    }
+
+    Component {
+        id: recipesPageComponent
+        RecipesPage {}
     }
 }

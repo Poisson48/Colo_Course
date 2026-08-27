@@ -230,6 +230,25 @@ static void test_SortModeRoundTrip() {
     EXPECT_FALSE(parsedQ->sortMode.has_value());
 }
 
+static void test_KindRoundTrip() {
+    Payload p;
+    p.type   = Payload::Type::snap;
+    p.listId = "r";
+    p.kind   = "recipe";
+
+    auto parsed = parsePayload(serializePayload(p));
+    EXPECT_TRUE(parsed.has_value());
+    EXPECT_TRUE(parsed->kind.has_value());
+    EXPECT_EQ(*parsed->kind, "recipe");
+
+    Payload q;
+    q.type   = Payload::Type::delta;
+    q.listId = "l";
+    auto parsedQ = parsePayload(serializePayload(q));
+    EXPECT_TRUE(parsedQ.has_value());
+    EXPECT_FALSE(parsedQ->kind.has_value());
+}
+
 // Photo (image) et événement img font l'aller-retour.
 static void test_ImageRoundTrip() {
     Payload p;
@@ -366,6 +385,7 @@ int main() {
     test_LegacyPayloadWithoutNewFields();
     test_SnapRoundTrip();
     test_SortModeRoundTrip();
+    test_KindRoundTrip();
     test_ImageRoundTrip();
     test_MalformedJson();
     test_WrongVersion();

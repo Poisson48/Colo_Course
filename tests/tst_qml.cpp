@@ -441,9 +441,7 @@ private slots:
         delete page;
     }
 
-    // Le classement est un interrupteur unique « Classement manuel » : coché = manuel,
-    // décoché = par rayon. Impossible de se retrouver sans mode (c'était le bug des deux
-    // cases). Son état reflète le modèle (répliqué), y compris sur changement distant.
+    // Quatre modes de classement locaux dans le menu : un seul coché à la fois.
     void test_sortModeMenuToggle() {
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
@@ -452,7 +450,7 @@ private slots:
         core::ListMeta m; m.listId = "list-1"; m.key = std::vector<uint8_t>(32, 1);
         m.title = "Courses"; m.titleVer = {1, "dev-A"}; m.lamport = 1; m.created = 100;
         QVERIFY(db.createList(m));
-        m_ctrl.items()->load(db, "list-1", "dev-A");   // manualSort = false au départ
+        m_ctrl.items()->load(db, "list-1", "dev-A");
 
         QObject *page = load(QStringLiteral("ListPage.qml"),
                              { {"listId", "list-1"}, {"listTitle", "Courses"} });
@@ -460,25 +458,38 @@ private slots:
         QObject *menu = page->findChild<QObject *>(QStringLiteral("pageMenu"));
         QVERIFY(menu);
 
-        QQuickItem *toggle = nullptr;
-        const int cnt = menu->property("count").toInt();
-        for (int i = 0; i < cnt; ++i) {
-            QQuickItem *it = nullptr;
-            QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, it), Q_ARG(int, i));
-            if (it && it->property("text").toString() == QStringLiteral("Classement manuel"))
-                toggle = it;
-        }
-        QVERIFY(toggle);
-        QVERIFY(toggle->property("checkable").toBool());
+        auto findItem = [&](const QString &text) -> QQuickItem * {
+            const int cnt = menu->property("count").toInt();
+            for (int i = 0; i < cnt; ++i) {
+                QQuickItem *it = nullptr;
+                QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, it),
+                                          Q_ARG(int, i));
+                if (it && it->property("text").toString() == text)
+                    return it;
+            }
+            return nullptr;
+        };
 
-        // Décoché quand la liste est par rayon.
-        QVERIFY(!toggle->property("checked").toBool());
-        // Passe en manuel (via le modèle) → l'interrupteur se coche.
-        m_ctrl.items()->setManualSort(true);
-        QVERIFY(toggle->property("checked").toBool());
-        // Retour par rayon → décoché.
-        m_ctrl.items()->setManualSort(false);
-        QVERIFY(!toggle->property("checked").toBool());
+        QQuickItem *aisle   = findItem(QStringLiteral("Par rayons"));
+        QQuickItem *manual  = findItem(QStringLiteral("Manuel (glisser)"));
+        QQuickItem *alpha   = findItem(QStringLiteral("Alphabétique"));
+        QQuickItem *created = findItem(QStringLiteral("Date d'ajout"));
+        QVERIFY(aisle && manual && alpha && created);
+        QVERIFY(aisle->property("checked").toBool());
+        QVERIFY(!manual->property("checked").toBool());
+
+        m_ctrl.items()->setSortMode(QStringLiteral("manual"));
+        QVERIFY(manual->property("checked").toBool());
+        QVERIFY(!aisle->property("checked").toBool());
+
+        m_ctrl.items()->setSortMode(QStringLiteral("name"));
+        QVERIFY(alpha->property("checked").toBool());
+
+        m_ctrl.items()->setSortMode(QStringLiteral("created"));
+        QVERIFY(created->property("checked").toBool());
+
+        m_ctrl.items()->setSortMode(QStringLiteral("aisle"));
+        QVERIFY(aisle->property("checked").toBool());
         delete page;
     }
 

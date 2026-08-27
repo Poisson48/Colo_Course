@@ -18,6 +18,7 @@ namespace app {
 
 // ListsModel: exposes the list-of-lists to QML.
 // Roles: listId, name, count (unchecked items).
+// Filtre par kind : "recipe" = recettes seules ; sinon = listes de courses (défaut).
 class ListsModel : public QAbstractListModel {
     Q_OBJECT
 public:
@@ -32,9 +33,14 @@ public:
         // Avec qui la liste est partagée : noms joints (« Marie, Léo »), et leur nombre.
         MembersRole,
         MemberCountRole,
+        KindRole,
     };
 
     explicit ListsModel(QObject *parent = nullptr);
+
+    // "recipe" → recettes ; tout autre ("" / "shopping") → listes de courses.
+    void setKindFilter(const QString &kind);
+    QString kindFilter() const { return m_kindFilter; }
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
@@ -66,11 +72,15 @@ private:
         int64_t listOrder = 0;  // position manuelle dans le groupe
         QString members;    // noms des autres participants, joints
         int     memberCount = 0;
+        QString kind;
     };
 
     // Ré-espace les positions des listes d'un groupe quand l'intervalle est épuisé.
     void renumberGroup(store::Database &db, const QString &groupId);
 
+    bool matchesKind(const std::string &kind) const;
+
+    QString m_kindFilter;  // "" = shopping ; "recipe" = recettes
     std::vector<Row> m_rows;
 };
 
@@ -79,6 +89,8 @@ class AppController : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(QAbstractListModel* lists READ lists CONSTANT)
+    // Bibliothèque de recettes (même modèle, filtrée kind=recipe).
+    Q_PROPERTY(QAbstractListModel* recipes READ recipes CONSTANT)
     // Articles de la liste ouverte. Chargé par openList(), branché au SyncEngine.
     Q_PROPERTY(app::ItemModel* items READ items CONSTANT)
     // Compteur d'invalidation des vignettes : incrémenté quand le blob d'une photo
@@ -111,6 +123,7 @@ public:
     bool init();
 
     QAbstractListModel *lists() const;
+    QAbstractListModel *recipes() const;
     ItemModel *items();
     bool online() const;
     int  pendingChanges() const;
@@ -128,6 +141,10 @@ public:
 
 public slots:
     void createList(const QString &title);
+    // Crée une recette (kind=recipe) dans la bibliothèque.
+    void createRecipe(const QString &title);
+    // true si listId est une recette.
+    Q_INVOKABLE bool isRecipe(const QString &listId);
     // Renommer une liste. Le titre est un champ CRDT (LWW) : le renommage part au
     // relais comme une modification d'article.
     void renameList(const QString &listId, const QString &title);
@@ -139,8 +156,11 @@ public slots:
     // destination. Permet de garder des listes-modèles réutilisables (« courants »).
     // Tout est ajouté tel quel — pas de fusion : un article déjà présent fait un doublon.
     void importListInto(const QString &destListId, const QString &sourceListId);
-    // Autres listes que `exceptListId` : [{ id, name }, …], pour le sélecteur d'import.
+    // Autres listes de courses que `exceptListId` : [{ id, name }, …], pour le
+    // sélecteur d'import (recettes exclues).
     QVariantList otherLists(const QString &exceptListId);
+    // Listes de courses uniquement (pour « Ajouter une recette à… ») : [{ id, name }, …].
+    QVariantList shoppingLists();
     // openList is called from QML to open a list; emits listOpened.
     void openList(const QString &listId);
 
@@ -265,6 +285,7 @@ private:
 
     store::Database  m_db;
     ListsModel      *m_listsModel;
+    ListsModel      *m_recipesModel;
     ItemModel        m_itemModel;
     net::RelayPool   m_relayPool;
     SyncEngine       m_syncEngine;

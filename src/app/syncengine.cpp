@@ -162,12 +162,9 @@ void SyncEngine::publishDelta(const std::string& listId)
     p.title    = metaOpt->title;
     p.titleVer = metaOpt->titleVer;
 
-    // Mode de classement, versionné comme le titre. Omis tant que personne ne l'a
-    // choisi (ver lamport 0) : inutile d'imposer un défaut aux versions antérieures.
-    if (metaOpt->sortModeVer.lamport > 0) {
-        p.sortMode    = metaOpt->sortMode;
-        p.sortModeVer = metaOpt->sortModeVer;
-    }
+    // kind immuable : présent sur les recettes pour que le pair range correctement.
+    if (metaOpt->isRecipe())
+        p.kind = metaOpt->kind;
 
     // Include our own member entry so remote peers know our display name.
     const std::string devId = m_deviceId.toStdString();
@@ -195,10 +192,8 @@ void SyncEngine::publishSnap(const std::string& listId)
     p.items     = items;
     p.title     = metaOpt->title;
     p.titleVer  = metaOpt->titleVer;
-    if (metaOpt->sortModeVer.lamport > 0) {
-        p.sortMode    = metaOpt->sortMode;
-        p.sortModeVer = metaOpt->sortModeVer;
-    }
+    if (metaOpt->isRecipe())
+        p.kind = metaOpt->kind;
 
     const std::string devId = m_deviceId.toStdString();
     p.by = devId;
@@ -427,12 +422,19 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
         }
     }
 
-    // Merge sort mode if present. Change silencieuse (aucun article touché) : l'écran
-    // ouvert la reflète via le rechargement du modèle plus bas ; rien à notifier.
+    // Merge sort mode if present (déprécié pour l'UI : stocké pour d'anciens pairs).
     if (payload.sortMode && payload.sortModeVer) {
         auto metaS = m_db->getList(listId);
         if (metaS && core::mergeSortMode(*metaS, *payload.sortMode, *payload.sortModeVer))
             m_db->updateListSortMode(listId, metaS->sortMode, metaS->sortModeVer);
+    }
+
+    // kind immuable : première valeur non vide vue gagne (§2.2).
+    if (payload.kind && !payload.kind->empty()) {
+        auto before = m_db->getList(listId);
+        const bool wasEmpty = before && before->kind.empty();
+        if (m_db->setListKindIfEmpty(listId, *payload.kind) && wasEmpty)
+            emit listMetaChanged(QString::fromStdString(listId));
     }
 
     // Merge members.

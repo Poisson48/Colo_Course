@@ -38,9 +38,12 @@ public:
                          const std::string& title,
                          const core::Ver& ver);
     // Persist an LWW-merged sort mode (caller does the mergeSortMode comparison).
+    // Déprécié pour l'UI (§2.2.1) : conservé pour merger d'anciens payloads.
     bool updateListSortMode(const std::string& listId,
                             const std::string& sortMode,
                             const core::Ver& ver);
+    // Pose le kind une seule fois (immuable). No-op si déjà non vide.
+    bool setListKindIfEmpty(const std::string& listId, const std::string& kind);
     // Advance last_sync (ms epoch); only moves forward.
     bool updateLastSync(const std::string& listId, int64_t ms);
     // Quitter une liste : efface toute trace locale (liste, items, membres, outbox).

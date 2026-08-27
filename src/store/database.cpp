@@ -76,10 +76,11 @@ bool Database::createSchema()
             "  last_sync INT,"
             "  created INT,"
             "  group_id TEXT,"         // groupe local, '' = non rangé
-            "  sort_mode TEXT,"        // mode de classement répliqué, '' = par rayon
+            "  sort_mode TEXT,"        // mode de classement répliqué (déprécié)
             "  sort_mode_l INT,"
             "  sort_mode_d TEXT,"
-            "  list_order INT"         // position manuelle locale dans le groupe
+            "  list_order INT,"        // position manuelle locale dans le groupe
+            "  kind TEXT"              // '' / shopping = courses ; recipe = recette
             ")"),
         QStringLiteral(
             // Groupes locaux : jamais synchronisés, propres à l'appareil.
@@ -293,6 +294,15 @@ bool Database::migrateSchema()
             return false;
         }
     }
+
+    // kind : '' / shopping = courses, recipe = recette. Absent = courses.
+    if (!listCols.contains(QStringLiteral("kind"))) {
+        if (!q.exec(QStringLiteral("ALTER TABLE lists ADD COLUMN kind TEXT DEFAULT ''"))) {
+            qWarning() << "migrateSchema: ADD COLUMN kind failed:"
+                       << q.lastError().text();
+            return false;
+        }
+    }
     return true;
 }
 
@@ -304,8 +314,8 @@ bool Database::createList(const core::ListMeta& meta)
     q.prepare(QStringLiteral(
         "INSERT OR IGNORE INTO lists"
         " (list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created,"
-        "  sort_mode, sort_mode_l, sort_mode_d, list_order)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+        "  sort_mode, sort_mode_l, sort_mode_d, list_order, kind)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
     q.addBindValue(qs(meta.listId));
     q.addBindValue(QByteArray(reinterpret_cast<const char*>(meta.key.data()),
                               static_cast<int>(meta.key.size())));
@@ -321,6 +331,7 @@ bool Database::createList(const core::ListMeta& meta)
     // Position par défaut = date de création : une liste neuve se range en fin de son
     // groupe (created > tous les list_order rétro-remplis sur des créations passées).
     q.addBindValue(ll(meta.listOrder != 0 ? meta.listOrder : meta.created));
+    q.addBindValue(qs(meta.kind));
 
     if (!q.exec()) {
         qWarning() << "createList error:" << q.lastError().text();
@@ -377,7 +388,7 @@ std::vector<core::ListMeta> Database::getLists()
     // modèle, conserve à l'intérieur de chaque groupe. `created` départage les ex æquo.
     q.exec(QStringLiteral(
         "SELECT list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created,"
-        " group_id, sort_mode, sort_mode_l, sort_mode_d, list_order"
+        " group_id, sort_mode, sort_mode_l, sort_mode_d, list_order, kind"
         " FROM lists ORDER BY list_order ASC, created ASC"));
     while (q.next()) {
         core::ListMeta m;
@@ -394,6 +405,7 @@ std::vector<core::ListMeta> Database::getLists()
         m.sortMode      = ss(q.value(9).toString());
         m.sortModeVer   = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
         m.listOrder     = q.value(12).toLongLong();
+        m.kind          = ss(q.value(13).toString());
         result.push_back(std::move(m));
     }
     return result;
@@ -652,7 +664,7 @@ std::optional<core::ListMeta> Database::getList(const std::string& listId)
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
         "SELECT list_id, key, title, title_ver_l, title_ver_d, lamport, last_sync, created,"
-        " group_id, sort_mode, sort_mode_l, sort_mode_d, list_order"
+        " group_id, sort_mode, sort_mode_l, sort_mode_d, list_order, kind"
         " FROM lists WHERE list_id = ?"));
     q.addBindValue(qs(listId));
     if (!q.exec() || !q.next())
@@ -672,7 +684,25 @@ std::optional<core::ListMeta> Database::getList(const std::string& listId)
     m.sortMode      = ss(q.value(9).toString());
     m.sortModeVer   = verFromCols(q.value(10).toLongLong(), q.value(11).toString());
     m.listOrder     = q.value(12).toLongLong();
+    m.kind          = ss(q.value(13).toString());
     return m;
+}
+
+bool Database::setListKindIfEmpty(const std::string& listId, const std::string& kind)
+{
+    if (kind.empty()) return true;
+    QSqlQuery q(m_db);
+    // Immuable : ne pose le kind que s'il est encore vide (première valeur vue gagne).
+    q.prepare(QStringLiteral(
+        "UPDATE lists SET kind = ? WHERE list_id = ?"
+        " AND (kind IS NULL OR kind = '')"));
+    q.addBindValue(qs(kind));
+    q.addBindValue(qs(listId));
+    if (!q.exec()) {
+        qWarning() << "setListKindIfEmpty error:" << q.lastError().text();
+        return false;
+    }
+    return true;
 }
 
 // --- Items ---

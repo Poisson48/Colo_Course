@@ -85,6 +85,9 @@ signals:
     // Le titre de listId a été renommé par un autre appareil (merge LWW gagné).
     void listTitleChanged(const QString& listId, const QString& title);
 
+    // Métadonnées non-titre changées (ex. kind découvert via snap) : recharger les modèles.
+    void listMetaChanged(const QString& listId);
+
     // Le blob d'une photo vient d'arriver d'un relais : l'UI peut maintenant
     // l'afficher (les vignettes se rechargent via le compteur de révision).
     void imageArrived(const QString& listId, const QString& sha);

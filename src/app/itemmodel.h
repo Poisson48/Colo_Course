@@ -11,7 +11,7 @@
 namespace app {
 
 // ItemModel: QAbstractListModel for the items of a single list.
-// Tri (§7 SPEC) : rayon puis position manuelle — cocher ne déplace jamais la ligne.
+// Tri local (§2.2.1) : aisle | manual | name | created — cocher ne déplace jamais.
 // Deleted items (del=true) are hidden (tombstone filter).
 class ItemModel : public QAbstractListModel {
     Q_OBJECT
@@ -24,10 +24,11 @@ class ItemModel : public QAbstractListModel {
     // Nombre de rayons distincts affichés. À un seul, les en-têtes de section ne
     // servent à rien : qui ne classe pas ses articles ne voit aucun changement.
     Q_PROPERTY(int aisleCount READ aisleCount NOTIFY countChanged)
-    // Mode de classement de la liste (répliqué). false = par rayon puis position
-    // manuelle (défaut) ; true = position manuelle seule, sans sections, glisser
-    // réordonne librement sans reclasser. Le changer le publie aux autres participants.
-    Q_PROPERTY(bool manualSort READ manualSort WRITE setManualSort NOTIFY manualSortChanged)
+    // Mode de classement LOCAL (par appareil et par liste). aisle | manual | name | created.
+    // Changer de mode ne mute jamais `order` et ne publie rien.
+    Q_PROPERTY(QString sortMode READ sortMode WRITE setSortMode NOTIFY sortModeChanged)
+    // true si le glisser-déposer est autorisé (modes aisle et manual uniquement).
+    Q_PROPERTY(bool canReorder READ canReorder NOTIFY sortModeChanged)
     // Les rayons proposés à la saisie : ceux d'origine, puis ceux que les participants
     // ont inventés dans cette liste. NOTIFY et pas CONSTANT : un rayon créé doit
     // apparaître aussitôt dans le choix, ici comme chez les autres.
@@ -55,6 +56,9 @@ public:
     // Un rayon vide (« ») veut dire « non classé » et passe en dernier.
     static const QStringList &defaultAisles();
 
+    // Valeurs autorisées pour sortMode (préférence locale).
+    static bool isValidSortMode(const QString &mode);
+
     explicit ItemModel(QObject *parent = nullptr);
 
     // Load items from DB for a given list.
@@ -76,10 +80,10 @@ public:
     QString filter() const { return m_filter; }
     void    setFilter(const QString &filter);
 
-    bool manualSort() const { return m_manualSort; }
-    // Choisir le mode : écrit le champ répliqué (LWW), retrie, et publie aux autres.
-    // Un merge distant, lui, arrive par un rechargement complet du modèle (load).
-    void setManualSort(bool manual);
+    QString sortMode() const { return m_sortMode; }
+    // Préférence locale : settings["sortMode/"+listId]. Pas de publication.
+    void setSortMode(const QString &mode);
+    bool canReorder() const;
 
     // Nom d'un article déjà présent (comparaison insensible à la casse et aux
     // espaces), ou chaîne vide. Sert à prévenir avant d'ajouter un doublon.
@@ -97,6 +101,7 @@ public slots:
     // une frontière de section change aussi le rayon de l'article — c'est le geste
     // naturel pour classer (« ce truc va à la crèmerie »), et il n'y a pas d'autre
     // interprétation raisonnable d'un dépôt sous un autre en-tête.
+    // No-op hors modes aisle / manual.
     void moveItem(int from, int to);
 
     // Ranger un article dans un rayon (chaîne vide = non classé).
@@ -128,7 +133,7 @@ signals:
     void doneCountChanged();
     void filterChanged();
     void aisleNamesChanged();
-    void manualSortChanged();
+    void sortModeChanged();
     // Un article a été ajouté par l'utilisateur (pas un merge ni un import) : les
     // favoris fréquents ont changé.
     void itemAdded();
@@ -138,7 +143,7 @@ signals:
     void refreshed();
 
 private:
-    // Sorted visible rows (del=false only, sorted as §7).
+    // Sorted visible rows (del=false only, sorted as §2.2.1).
     struct Row {
         core::Item item;
     };
@@ -146,14 +151,15 @@ private:
     // Find visible row index by itemId (-1 if not found).
     int findRow(const QString &itemId) const;
 
-    // Tri d'affichage. En mode rayon : rayon (ordre du magasin) puis position
-    // manuelle. En mode manuel : position manuelle seule, sur toute la liste.
-    // L'état pris/à acheter n'entre pas dans le tri : cocher ne déplace pas la ligne,
-    // ni ici ni sur le téléphone des autres — on fait les courses à plusieurs.
-    static bool rowLessThan(const Row &a, const Row &b, bool manual);
+    // Tri d'affichage selon m_sortMode. L'état pris/à acheter n'entre pas dans le tri.
+    static bool rowLessThan(const Row &a, const Row &b, const QString &mode);
 
     // Rang du rayon dans le parcours. Rayon inconnu ou vide → après tous les autres.
     static int aisleRank(const std::string &aisle);
+
+    // Charge (ou migre) la préférence locale de tri pour la liste courante.
+    QString loadLocalSortMode() const;
+    void    saveLocalSortMode(const QString &mode);
 
     // Full reload from m_items into m_rows (sorted, filtre appliqué).
     void rebuildRows();
@@ -172,7 +178,7 @@ private:
     std::string      m_listId;
     std::string      m_deviceId;
     QString          m_filter;
-    bool             m_manualSort = false;  // mode de classement de la liste chargée
+    QString          m_sortMode = QStringLiteral("aisle");
 
     // deviceId → nom affiché, pour dire qui a ajouté quoi. Chargé avec la liste.
     std::map<std::string, QString> m_memberNames;

@@ -78,11 +78,15 @@ struct ListMeta {
     std::string title;
     Ver         titleVer;
 
-    // Mode de classement des articles, répliqué (LWW) comme le titre : partagé par tous
-    // les participants. "" ou "aisle" = rangé par rayon puis position manuelle (défaut),
-    // "manual" = position manuelle seule (pas de sections, glisser réordonne librement).
+    // Mode de classement répliqué (DÉPRÉCIÉ) : ancien LWW aisle/manual. Conservé pour
+    // merger les payloads des versions antérieures ; l'UI lit la préférence locale
+    // settings["sortMode/"+listId] (§2.2.1), pas ce champ.
     std::string sortMode;
     Ver         sortModeVer;
+
+    // "" / "shopping" = liste de courses ; "recipe" = recette. Immuable à la création,
+    // porté dans les payloads pour que le pair range au bon endroit (§2.2).
+    std::string kind;
 
     int64_t lamport  = 0;  // current Lamport clock for this list
     int64_t lastSync = 0;  // ms epoch of last relay sync
@@ -92,6 +96,9 @@ struct ListMeta {
     // synchronisé : chaque appareil organise ses listes comme il veut, la même liste
     // partagée peut être dans « Maison » chez l'un et « Courses » chez l'autre.
     std::string groupId;
+
+    // true si la liste est une recette (kind == "recipe").
+    bool isRecipe() const { return kind == "recipe"; }
 
     // Position manuelle de la liste dans son groupe (local, non synchronisé). Comme
     // pour les articles : valeurs espacées, initialisées sur `created`, pour se glisser
