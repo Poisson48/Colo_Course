@@ -21,6 +21,7 @@
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QList>
+#include <QSet>
 
 #include "../src/store/database.h"
 #include "../src/core/types.h"
@@ -99,6 +100,46 @@ public:
         return n;
     }
 
+    static bool eventMatchesFilter(const QJsonObject& ev, const QJsonObject& filter)
+    {
+        const qint64 since = filter["since"].toVariant().toLongLong();
+        if (since > 0
+            && ev["created_at"].toVariant().toLongLong() < since)
+            return false;
+
+        const QJsonArray kinds = filter["kinds"].toArray();
+        if (!kinds.isEmpty()) {
+            bool kindOk = false;
+            for (const QJsonValue& k : kinds) {
+                if (k.toInt() == ev["kind"].toInt()) {
+                    kindOk = true;
+                    break;
+                }
+            }
+            if (!kindOk) return false;
+        }
+
+        const QJsonArray tFilter = filter["#t"].toArray();
+        if (tFilter.isEmpty()) return true;
+
+        const QJsonArray tags = ev["tags"].toArray();
+        for (const QJsonValue& tv : tFilter) {
+            const QString want = tv.toString();
+            bool found = false;
+            for (const QJsonValue& tag : tags) {
+                const QJsonArray ta = tag.toArray();
+                if (ta.size() >= 2
+                    && ta[0].toString() == QLatin1String("t")
+                    && ta[1].toString() == want) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
+    }
+
 signals:
     void messageReceived(const QString& msg);
     void peerConnected();
@@ -122,35 +163,59 @@ private slots:
         const QString type = arr[0].toString();
         m_received.append({type, arr});
 
-        // Auto-forward EVENT messages to all peers (act as store-and-forward relay).
+        QWebSocket* peerSock = qobject_cast<QWebSocket*>(sender());
+
+        // Store-and-forward: persist published events for late subscribers.
         if (type == "EVENT" && arr.size() >= 2) {
-            // Send back as ["EVENT", subId, eventObj] to all peers.
-            // We need to wrap it in the relay→client format.
-            QJsonObject evObj = arr[1].toObject();
-            QString subId = m_activeSubId.isEmpty() ? "sub1" : m_activeSubId;
+            const QJsonObject evObj = arr[1].toObject();
+            const QString evId = evObj["id"].toString();
+            if (!evId.isEmpty() && !m_storeIds.contains(evId)) {
+                m_store.append(evObj);
+                m_storeIds.insert(evId);
+            }
+
+            // Forward live to all connected peers.
+            const QString subId = m_activeSubId.isEmpty()
+                ? QStringLiteral("sub1") : m_activeSubId;
             QJsonArray fwd;
             fwd.append("EVENT");
             fwd.append(subId);
             fwd.append(evObj);
             broadcast(fwd);
 
-            // Also send OK ack to the publisher.
-            QWebSocket* sender_sock = qobject_cast<QWebSocket*>(sender());
-            if (sender_sock) {
+            // OK ack to the publisher.
+            if (peerSock) {
                 QJsonArray ok;
                 ok.append("OK");
-                ok.append(evObj["id"].toString());
+                ok.append(evId);
                 ok.append(true);
                 ok.append("stored");
-                const QString okText = QString::fromUtf8(
-                    QJsonDocument(ok).toJson(QJsonDocument::Compact));
-                sender_sock->sendTextMessage(okText);
+                sendTo(peerSock, ok);
             }
         }
 
-        // Track last subscription id.
-        if (type == "REQ" && arr.size() >= 2)
-            m_activeSubId = arr[1].toString();
+        // Replay stored history when a peer (re)subscribes.
+        if (type == "REQ" && arr.size() >= 2) {
+            const QString subId = arr[1].toString();
+            m_activeSubId = subId;
+            const QJsonObject filter = (arr.size() >= 3)
+                ? arr[2].toObject() : QJsonObject();
+
+            if (peerSock) {
+                for (const QJsonObject& evObj : m_store) {
+                    if (!eventMatchesFilter(evObj, filter)) continue;
+                    QJsonArray fwd;
+                    fwd.append("EVENT");
+                    fwd.append(subId);
+                    fwd.append(evObj);
+                    sendTo(peerSock, fwd);
+                }
+                QJsonArray eose;
+                eose.append("EOSE");
+                eose.append(subId);
+                sendTo(peerSock, eose);
+            }
+        }
     }
 
     void onPeerDisconnected() {
@@ -163,9 +228,19 @@ private slots:
     }
 
 private:
+    void sendTo(QWebSocket* sock, const QJsonArray& msg)
+    {
+        if (!sock) return;
+        const QString text = QString::fromUtf8(
+            QJsonDocument(msg).toJson(QJsonDocument::Compact));
+        sock->sendTextMessage(text);
+    }
+
     QWebSocketServer m_server;
     QList<QWebSocket*> m_peers;
     QList<RawMsg> m_received;
+    QList<QJsonObject> m_store;
+    QSet<QString> m_storeIds;
     QString m_activeSubId;
 };
 
@@ -403,27 +478,27 @@ private slots:
         // A adds item while offline.
         A.model->addItem(QStringLiteral("Fromage"), QStringLiteral("1"));
         A.engine->onLocalChange(listId);
-        waitMs(400); // debounce fires → goes to outbox
+        waitMs(500); // debounce (300 ms) → outbox
 
         // Verify the item ended up in outbox for A.
         const auto outboxEntries = A.db.outboxPeekAll(listId);
         QVERIFY(!outboxEntries.empty());
 
+        // Spy before relay restarts so we never miss remoteChanges.
+        QSignalSpy spyB(B.engine.get(), &SyncEngine::remoteChanges);
+
         // Bring relay back on same port.
         QVERIFY(relay.listen(port));
 
-        // B needs to reconnect too.
-        QSignalSpy spyB(B.engine.get(), &SyncEngine::remoteChanges);
+        // Wait for A and B to reconnect; A flushes outbox, relay replays to late B.
+        QVERIFY(waitFor([&]{ return relay.peerCount() >= 2; }, 10000));
 
-        // Wait for A and B to reconnect and A to flush outbox.
-        QVERIFY(waitFor([&]{ return relay.peerCount() >= 2; }, 8000));
-        waitMs(300); // let flush + forward happen
-
-        // B should eventually see the item.
-        QVERIFY(waitFor([&]{ return spyB.count() >= 1; }, 5000));
-
-        B.reloadModel();
-        QVERIFY(B.itemNames().contains("Fromage"));
+        // B should eventually see the item (data-driven, not signal-only).
+        QVERIFY(waitFor([&]{
+            B.reloadModel();
+            return B.itemNames().contains(QStringLiteral("Fromage"));
+        }, 10000));
+        QVERIFY(spyB.count() >= 1);
     }
 
     // ── (d) Corrupted / wrong-key event → ignored silently, no crash ───────
