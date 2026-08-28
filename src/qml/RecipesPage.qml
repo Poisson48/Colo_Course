@@ -371,12 +371,14 @@ Item {
         }
 
         ScrollView {
+            id: ingredientsScroll
             Layout.fillWidth: true
-            Layout.maximumHeight: 200
-            clip: true
+            Layout.maximumHeight: Math.min(ingredientsCol.implicitHeight + 8,
+                                            catalogDetail.scrollMaxHeight)
 
             ColumnLayout {
-                width: parent.width
+                id: ingredientsCol
+                width: ingredientsScroll.availableWidth
                 spacing: 4
 
                 Repeater {
@@ -385,6 +387,7 @@ Item {
                     delegate: Label {
                         required property var modelData
                         Layout.fillWidth: true
+                        Layout.maximumWidth: ingredientsScroll.availableWidth
                         text: {
                             let s = modelData.name
                             if (modelData.qty && modelData.qty.length > 0)
@@ -411,13 +414,15 @@ Item {
         }
 
         ScrollView {
+            id: prepScroll
             Layout.fillWidth: true
-            Layout.maximumHeight: 220
-            clip: true
+            Layout.maximumHeight: Math.min(prepLabel.implicitHeight + 8,
+                                            catalogDetail.scrollMaxHeight)
             visible: catalogDetail.instructionsText.length > 0
 
             Label {
-                width: parent.width
+                id: prepLabel
+                width: prepScroll.availableWidth
                 text: catalogDetail.instructionsText
                 wrapMode: Text.WordWrap
                 color: Theme.text

@@ -381,33 +381,36 @@ Item {
             }
         }
 
-        // Préparation (recettes personnelles).
+        // Préparation (recettes personnelles) — aperçu multiligne.
         Rectangle {
             id: prepBar
             Layout.fillWidth: true
             Layout.preferredHeight: root.isRecipe && !root.shoppingMode
-                                    && prepBar.prepText.length > 0 ? 44 : 0
+                                    && prepBar.prepText.length > 0
+                                    ? Math.min(prepPreview.implicitHeight + Theme.pad * 2, 88) : 0
             visible: Layout.preferredHeight > 0
             clip: true
             color: Theme.surface
 
             property string prepText: AppController.recipeInstructions(root.listId)
 
-            ToolButton {
+            Label {
+                id: prepPreview
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Theme.pad
+                anchors.rightMargin: Theme.pad
+                text: prepBar.prepText
+                color: Theme.textDim
+                font.pixelSize: 13
+                wrapMode: Text.WordWrap
+                maximumLineCount: 3
+                elide: Text.ElideRight
+            }
+
+            MouseArea {
                 anchors.fill: parent
-                contentItem: Label {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.pad
-                    anchors.rightMargin: Theme.pad
-                    text: prepBar.prepText.length > 80
-                          ? prepBar.prepText.substring(0, 80) + "…"
-                          : prepBar.prepText
-                    color: Theme.textDim
-                    font.pixelSize: 13
-                    wrapMode: Text.NoWrap
-                    elide: Text.ElideRight
-                    verticalAlignment: Text.AlignVCenter
-                }
                 onClicked: prepViewDialog.open()
             }
 
@@ -1406,12 +1409,15 @@ Item {
         showAccept: false
 
         ScrollView {
+            id: prepViewScroll
             Layout.fillWidth: true
-            Layout.maximumHeight: 360
+            Layout.maximumHeight: Math.min(prepViewLabel.implicitHeight + 8,
+                                            prepViewDialog.scrollMaxHeight)
             clip: true
 
             Label {
-                width: parent.width
+                id: prepViewLabel
+                width: prepViewScroll.availableWidth
                 text: AppController.recipeInstructions(root.listId)
                 wrapMode: Text.WordWrap
                 color: Theme.text
@@ -1436,13 +1442,15 @@ Item {
         acceptText: "Enregistrer"
 
         ScrollView {
+            id: prepEditScroll
             Layout.fillWidth: true
-            Layout.preferredHeight: 220
+            Layout.preferredHeight: Math.min(prepField.implicitHeight + 16,
+                                             prepDialog.scrollMaxHeight)
             clip: true
 
             TextArea {
                 id: prepField
-                width: parent.width
+                width: prepEditScroll.availableWidth
                 wrapMode: TextArea.Wrap
                 color: Theme.text
                 font.pixelSize: 14

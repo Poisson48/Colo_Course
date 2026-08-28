@@ -19,13 +19,13 @@ Dialog {
 
     default property alias body: content.data
 
-    // Dans l'overlay : le dialogue reste centré même quand le clavier redimensionne
-    // la page, et n'est jamais rogné par le StackView.
+    // Sur téléphone : quasi pleine largeur ; sur grand écran : cap raisonnable.
     parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(parent.width - 48, 400)
-    // La largeur du dialogue est imposée : sans ce contentWidth, Popup la redemande
-    // au contenu, dont les enfants Layout.fillWidth la redemandent au dialogue.
+    width: Math.min(parent.width - 32, 520)
+    // Hauteur max utile pour les zones scrollables (portrait / paysage).
+    readonly property real scrollMaxHeight: Overlay.overlay
+        ? Math.max(Overlay.overlay.height * 0.42, 140) : 280
     contentWidth: availableWidth
 
     modal: true
@@ -45,10 +45,13 @@ Dialog {
     }
 
     header: Label {
+        width: dlg.availableWidth
         text: dlg.title
         color: Theme.text
         font.pixelSize: 19
         font.weight: Font.DemiBold
+        wrapMode: Text.WordWrap
+        maximumLineCount: 3
         elide: Text.ElideRight
         padding: 20
         bottomPadding: 4
