@@ -2,6 +2,9 @@
 
 #include "core/csv.h"
 #include "core/zip.h"
+#include "core/recipe_scale.h"
+
+#include <QString>
 
 #include <cstdio>
 #include <string>
@@ -94,6 +97,14 @@ static void test_zipRejectsGarbage() {
     EXPECT_TRUE(!zipRead(full.substr(0, 10)).has_value());
 }
 
+static void test_recipeScale() {
+    EXPECT_EQ(core::parseServingsCount(QString("4 personnes")), 4);
+    EXPECT_EQ(core::parseServingsCount(QString("6")), 6);
+    EXPECT_EQ(core::scaleQuantity(QString("700 g"), 1.5), QString("1050 g"));
+    EXPECT_EQ(core::scaleQuantity(QString("2"), 1.5), QString("3"));
+    EXPECT_EQ(core::scaleQuantity(QString("poivre"), 2.0), QString("poivre"));
+}
+
 int main() {
     std::printf("=== tst_dataexchange ===\n");
     test_csvEscape();
@@ -102,6 +113,7 @@ int main() {
     test_crc32();
     test_zipRoundTrip();
     test_zipRejectsGarbage();
+    test_recipeScale();
     std::printf("\nResults: %d/%d passed, %d failed\n", g_passed, g_total, g_failed);
     return g_failed == 0 ? 0 : 1;
 }

@@ -32,6 +32,8 @@ add_library(core STATIC
     core/pairing.cpp
     core/csv.cpp
     core/zip.cpp
+    core/recipe_library.cpp
+    core/recipe_scale.cpp
 )
 
 target_include_directories(core PUBLIC
@@ -39,7 +41,8 @@ target_include_directories(core PUBLIC
     ${CMAKE_SOURCE_DIR}/third_party
 )
 
-# core is pure STL: no Qt linkage.
+# core utilise QString pour la bibliothèque de recettes et le scaling des quantités.
+target_link_libraries(core PUBLIC Qt6::Core)
 
 # --- store static library ---
 add_library(store STATIC
@@ -77,6 +80,8 @@ target_link_libraries(qrdecode PUBLIC Qt6::Gui ZXing::ZXing)
 set(APPLIB_SOURCES
     app/appcontroller.cpp
     app/itemmodel.cpp
+    app/recipelibrarymodel.cpp
+    app/recipe_library_loader.cpp
     app/permissions.cpp
     app/platform.cpp
     app/qrimageprovider.cpp
@@ -123,6 +128,19 @@ qt_add_executable(colocourse
     app/main.cpp
 )
 
+set(COLO_RECIPE_LIBRARY "${CMAKE_SOURCE_DIR}/data/recipe_library.json")
+if(EXISTS "${COLO_RECIPE_LIBRARY}")
+    # FILES est résolu par rapport à CMAKE_CURRENT_SOURCE_DIR (src/), pas à BASE :
+    # il faut le chemin complet, sinon RCC cherche src/recipe_library.json.
+    qt_add_resources(colocourse "recipe_data"
+        PREFIX "/data"
+        BASE "${CMAKE_SOURCE_DIR}/data"
+        FILES "${COLO_RECIPE_LIBRARY}"
+    )
+else()
+    message(WARNING "data/recipe_library.json absent — catalogue intégré vide au build")
+endif()
+
 set(COLO_QML_FILES
     qml/Main.qml
     qml/ListsPage.qml
@@ -136,6 +154,7 @@ set(COLO_QML_FILES
     qml/ColoTextField.qml
     qml/AisleBox.qml
     qml/Icon.qml
+    qml/ServingsStepper.qml
     qml/FilePickers.qml
 )
 if(COLO_HAS_CAMERA)

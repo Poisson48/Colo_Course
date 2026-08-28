@@ -1,9 +1,12 @@
 #include "itemmodel.h"
 
+#include "../core/recipe_scale.h"
+
 #include <QUuid>
 #include <QDateTime>
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <set>
 
 namespace app {
@@ -190,6 +193,17 @@ void ItemModel::setSortMode(const QString &mode) {
     rebuildRows();
 }
 
+void ItemModel::setDisplayQtyScale(double scale) {
+    if (scale <= 0.0)
+        scale = 1.0;
+    if (std::fabs(scale - m_displayQtyScale) < 1e-6)
+        return;
+    m_displayQtyScale = scale;
+    emit displayQtyScaleChanged();
+    if (!m_rows.empty())
+        emit dataChanged(index(0), index(rowCount() - 1), { QtyRole });
+}
+
 bool ItemModel::canReorder() const {
     return m_sortMode == QLatin1String("aisle")
         || m_sortMode == QLatin1String("manual");
@@ -246,7 +260,14 @@ QVariant ItemModel::data(const QModelIndex &index, int role) const {
     switch (role) {
     case ItemIdRole:  return QString::fromStdString(row.item.itemId);
     case NameRole:    return QString::fromStdString(row.item.name);
-    case QtyRole:     return QString::fromStdString(row.item.qty);
+    case QtyRole: {
+        const QString raw = QString::fromStdString(row.item.qty);
+        if (m_displayQtyScale <= 0.0 || std::fabs(m_displayQtyScale - 1.0) < 1e-6)
+            return raw;
+        return core::scaleQuantity(raw, m_displayQtyScale);
+    }
+    case BaseQtyRole:
+        return QString::fromStdString(row.item.qty);
     case NoteRole:    return QString::fromStdString(row.item.note);
     case DoneRole:    return row.item.done;
     case DoneAtRole:  return static_cast<qlonglong>(row.item.doneAt);
@@ -272,6 +293,7 @@ QHash<int, QByteArray> ItemModel::roleNames() const {
         { ItemIdRole,  "itemId"  },
         { NameRole,    "name"    },
         { QtyRole,     "qty"     },
+        { BaseQtyRole, "baseQty" },
         { NoteRole,    "note"    },
         { DoneRole,    "done"    },
         { DoneAtRole,  "doneAt"  },

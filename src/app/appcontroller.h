@@ -12,6 +12,7 @@
 #include "../core/pairing.h"
 #include "../net/relaypool.h"
 #include "itemmodel.h"
+#include "recipelibrarymodel.h"
 #include "syncengine.h"
 
 namespace app {
@@ -91,6 +92,9 @@ class AppController : public QObject {
     Q_PROPERTY(QAbstractListModel* lists READ lists CONSTANT)
     // Bibliothèque de recettes (même modèle, filtrée kind=recipe).
     Q_PROPERTY(QAbstractListModel* recipes READ recipes CONSTANT)
+    // Catalogue intégré (~1500 recettes embarquées, lecture seule).
+    Q_PROPERTY(QAbstractListModel* recipeLibrary READ recipeLibrary CONSTANT)
+    Q_PROPERTY(int recipeLibraryCount READ recipeLibraryCount CONSTANT)
     // Articles de la liste ouverte. Chargé par openList(), branché au SyncEngine.
     Q_PROPERTY(app::ItemModel* items READ items CONSTANT)
     // Compteur d'invalidation des vignettes : incrémenté quand le blob d'une photo
@@ -124,6 +128,8 @@ public:
 
     QAbstractListModel *lists() const;
     QAbstractListModel *recipes() const;
+    QAbstractListModel *recipeLibrary() const;
+    int recipeLibraryCount() const;
     ItemModel *items();
     bool online() const;
     int  pendingChanges() const;
@@ -143,6 +149,16 @@ public slots:
     void createList(const QString &title);
     // Crée une recette (kind=recipe) dans la bibliothèque.
     void createRecipe(const QString &title);
+    // Ajoute une recette du catalogue intégré à la bibliothèque personnelle.
+    Q_INVOKABLE bool addRecipeFromLibrary(const QString &libraryId, int targetServings = 0);
+    // Ingrédients du catalogue, quantités mises à l'échelle pour `targetServings`.
+    Q_INVOKABLE QVariantList libraryIngredients(const QString &libraryId,
+                                                int targetServings = 0);
+    Q_INVOKABLE int libraryBaseServings(const QString &libraryId);
+    // Portions de base d'une recette personnelle (local, non synchronisé).
+    Q_INVOKABLE int recipeBaseServings(const QString &listId);
+    Q_INVOKABLE int recipeTargetServings(const QString &listId);
+    Q_INVOKABLE void setRecipeTargetServings(const QString &listId, int servings);
     // true si listId est une recette.
     Q_INVOKABLE bool isRecipe(const QString &listId);
     // Renommer une liste. Le titre est un champ CRDT (LWW) : le renommage part au
@@ -155,7 +171,8 @@ public slots:
     // toucher à la source : ses articles sont recopiés « à acheter » à la fin de la
     // destination. Permet de garder des listes-modèles réutilisables (« courants »).
     // Tout est ajouté tel quel — pas de fusion : un article déjà présent fait un doublon.
-    void importListInto(const QString &destListId, const QString &sourceListId);
+    void importListInto(const QString &destListId, const QString &sourceListId,
+                        int targetServings = 0);
     // Autres listes de courses que `exceptListId` : [{ id, name }, …], pour le
     // sélecteur d'import (recettes exclues).
     QVariantList otherLists(const QString &exceptListId);
@@ -286,6 +303,7 @@ private:
     store::Database  m_db;
     ListsModel      *m_listsModel;
     ListsModel      *m_recipesModel;
+    RecipeLibraryModel *m_recipeLibraryModel;
     ItemModel        m_itemModel;
     net::RelayPool   m_relayPool;
     SyncEngine       m_syncEngine;

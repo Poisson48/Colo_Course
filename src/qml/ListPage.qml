@@ -350,6 +350,32 @@ Item {
             }
         }
 
+        // Recette : ajuster le nombre de personnes (quantités affichées à l'échelle).
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.isRecipe && !root.shoppingMode ? 52 : 0
+            visible: Layout.preferredHeight > 0
+            clip: true
+            color: Theme.surface
+            Behavior on Layout.preferredHeight { NumberAnimation { duration: 140 } }
+
+            ServingsStepper {
+                id: recipeServings
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Theme.pad
+                value: AppController.recipeTargetServings(root.listId)
+                onValueChanged: AppController.setRecipeTargetServings(root.listId, value)
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: Theme.outline
+            }
+        }
+
         ListView {
             id: items
             Layout.fillWidth: true
@@ -981,7 +1007,7 @@ Item {
             author    = item.byName
             image     = item.image || ""
             editName.text = item.name
-            editQty.text  = item.qty
+            editQty.text  = item.baseQty !== undefined ? item.baseQty : item.qty
             editNote.text = item.note
             editAisle.aisle = item.aisle
             open()
@@ -1272,8 +1298,12 @@ Item {
         showAccept: false
 
         property var destinations: []
+        property int targetServings: 4
 
-        onAboutToShow: destinations = AppController.shoppingLists()
+        onAboutToShow: {
+            destinations = AppController.shoppingLists()
+            targetServings = AppController.recipeTargetServings(root.listId)
+        }
 
         Label {
             Layout.fillWidth: true
@@ -1283,6 +1313,13 @@ Item {
             wrapMode: Text.WordWrap
             color: Theme.textDim
             font.pixelSize: 13
+        }
+
+        ServingsStepper {
+            Layout.fillWidth: true
+            visible: recipeImportPicker.destinations.length > 0
+            value: recipeImportPicker.targetServings
+            onValueChanged: recipeImportPicker.targetServings = value
         }
 
         Label {
@@ -1312,7 +1349,8 @@ Item {
                     color: parent.pressed ? Theme.surfaceHigh : "transparent"
                 }
                 onClicked: {
-                    AppController.importListInto(modelData.id, root.listId)
+                    AppController.importListInto(modelData.id, root.listId,
+                                                 recipeImportPicker.targetServings)
                     recipeImportPicker.close()
                 }
             }

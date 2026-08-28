@@ -14,6 +14,7 @@ Item {
         ToolButton {
             width: 96
             height: Theme.touchTarget
+            visible: tabBar.currentIndex === 0
             contentItem: Label {
                 text: "Créer"
                 color: Theme.accent
@@ -30,78 +31,219 @@ Item {
         anchors.fill: parent
         spacing: 0
 
-        Label {
+        TabBar {
+            id: tabBar
             Layout.fillWidth: true
-            Layout.margins: Theme.gap
-            visible: recipesView.count === 0
-            text: "Aucune recette. Créez-en une, ou rejoignez-en une via un lien partagé."
-            wrapMode: Text.WordWrap
-            color: Theme.textDim
-            font.pixelSize: 15
+            Material.accent: Theme.accent
+
+            TabButton {
+                text: "Mes recettes"
+                width: implicitWidth + Theme.gap
+            }
+            TabButton {
+                text: "Catalogue (" + AppController.recipeLibraryCount + ")"
+                width: implicitWidth + Theme.gap
+            }
         }
 
-        ListView {
-            id: recipesView
+        // --- Mes recettes ---
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
-            model: AppController.recipes
-            topMargin: Theme.gap
-            bottomMargin: Theme.gap
-            spacing: 8
-            leftMargin: Theme.gap
-            rightMargin: Theme.gap
+            visible: tabBar.currentIndex === 0
+            spacing: 0
 
-            delegate: ItemDelegate {
-                id: card
-                required property string listId
-                required property string name
-                required property int total
-                required property string members
-                required property int memberCount
+            Label {
+                Layout.fillWidth: true
+                Layout.margins: Theme.gap
+                visible: recipesView.count === 0
+                text: "Aucune recette. Créez-en une, parcourez le catalogue, ou rejoignez-en une via un lien partagé."
+                wrapMode: Text.WordWrap
+                color: Theme.textDim
+                font.pixelSize: 15
+            }
 
-                width: recipesView.width - recipesView.leftMargin - recipesView.rightMargin
-                height: 72
+            ListView {
+                id: recipesView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: AppController.recipes
+                topMargin: Theme.gap
+                bottomMargin: Theme.gap
+                spacing: 8
+                leftMargin: Theme.gap
+                rightMargin: Theme.gap
 
-                background: Rectangle {
-                    radius: 12
-                    color: card.pressed ? Theme.surfaceHigh : Theme.surface
-                    border.color: Theme.outline
-                    border.width: 1
-                }
+                delegate: ItemDelegate {
+                    id: card
+                    required property string listId
+                    required property string name
+                    required property int total
+                    required property string members
+                    required property int memberCount
 
-                contentItem: ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 2
+                    width: recipesView.width - recipesView.leftMargin - recipesView.rightMargin
+                    height: 72
 
-                    Label {
-                        Layout.fillWidth: true
-                        text: card.name
-                        color: Theme.text
-                        font.pixelSize: 16
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
+                    background: Rectangle {
+                        radius: 12
+                        color: card.pressed ? Theme.surfaceHigh : Theme.surface
+                        border.color: Theme.outline
+                        border.width: 1
                     }
 
-                    Label {
-                        Layout.fillWidth: true
-                        text: {
-                            const parts = []
-                            parts.push(card.total + (card.total > 1
-                                        ? " ingrédients" : " ingrédient"))
-                            if (card.memberCount > 0)
-                                parts.push("partagée avec " + card.members)
-                            return parts.join(" · ")
+                    contentItem: ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 2
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: card.name
+                            color: Theme.text
+                            font.pixelSize: 16
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
                         }
-                        color: Theme.textDim
-                        font.pixelSize: 13
-                        elide: Text.ElideRight
-                    }
-                }
 
-                onClicked: AppController.openList(card.listId)
-                onPressAndHold: recipeMenu.openFor(card.listId, card.name)
+                        Label {
+                            Layout.fillWidth: true
+                            text: {
+                                const parts = []
+                                parts.push(card.total + (card.total > 1
+                                            ? " ingrédients" : " ingrédient"))
+                                if (card.memberCount > 0)
+                                    parts.push("partagée avec " + card.members)
+                                return parts.join(" · ")
+                            }
+                            color: Theme.textDim
+                            font.pixelSize: 13
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    onClicked: AppController.openList(card.listId)
+                    onPressAndHold: recipeMenu.openFor(card.listId, card.name)
+                }
+            }
+        }
+
+        // --- Catalogue intégré ---
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: tabBar.currentIndex === 1
+            spacing: Theme.gap
+
+            ColoTextField {
+                id: catalogSearch
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.gap
+                Layout.rightMargin: Theme.gap
+                Layout.topMargin: Theme.gap
+                hint: "Rechercher une recette ou un ingrédient…"
+            }
+
+            Timer {
+                id: catalogSearchDebounce
+                interval: 150
+                onTriggered: AppController.recipeLibrary.filter = catalogSearch.text
+            }
+
+            Connections {
+                target: catalogSearch
+                function onTextChanged() {
+                    catalogSearchDebounce.restart()
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.gap
+                Layout.rightMargin: Theme.gap
+                visible: AppController.recipeLibraryCount === 0
+                text: "Catalogue indisponible."
+                wrapMode: Text.WordWrap
+                color: Theme.textDim
+                font.pixelSize: 15
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.gap
+                Layout.rightMargin: Theme.gap
+                visible: AppController.recipeLibraryCount > 0 && catalogView.count === 0
+                text: "Aucun résultat pour « " + catalogSearch.text + " »."
+                wrapMode: Text.WordWrap
+                color: Theme.textDim
+                font.pixelSize: 15
+            }
+
+            ListView {
+                id: catalogView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: AppController.recipeLibrary
+                spacing: 8
+                leftMargin: Theme.gap
+                rightMargin: Theme.gap
+                bottomMargin: Theme.gap
+
+                delegate: ItemDelegate {
+                    id: libCard
+                    required property string libraryId
+                    required property string title
+                    required property string category
+                    required property string servings
+                    required property int ingredientCount
+
+                    width: catalogView.width - catalogView.leftMargin - catalogView.rightMargin
+                    height: 72
+
+                    background: Rectangle {
+                        radius: 12
+                        color: libCard.pressed ? Theme.surfaceHigh : Theme.surface
+                        border.color: Theme.outline
+                        border.width: 1
+                    }
+
+                    contentItem: ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        spacing: 2
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: libCard.title
+                            color: Theme.text
+                            font.pixelSize: 16
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: {
+                                const parts = []
+                                parts.push(libCard.ingredientCount
+                                           + (libCard.ingredientCount > 1
+                                              ? " ingrédients" : " ingrédient"))
+                                if (libCard.category.length > 0)
+                                    parts.push(libCard.category)
+                                if (libCard.servings.length > 0)
+                                    parts.push(libCard.servings)
+                                return parts.join(" · ")
+                            }
+                            color: Theme.textDim
+                            font.pixelSize: 13
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    onClicked: catalogDetail.openFor(libCard.libraryId, libCard.title)
+                }
             }
         }
     }
@@ -153,6 +295,86 @@ Item {
     }
 
     ColoDialog {
+        id: catalogDetail
+        title: "Recette du catalogue"
+        acceptText: "Ajouter à ma bibliothèque"
+        showAccept: true
+
+        property string libraryId: ""
+        property string recipeTitle: ""
+        property int targetServings: 4
+
+        function openFor(id, title) {
+            libraryId = id
+            recipeTitle = title
+            targetServings = AppController.libraryBaseServings(id)
+            open()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: catalogDetail.recipeTitle
+            wrapMode: Text.WordWrap
+            color: Theme.text
+            font.pixelSize: 16
+            font.weight: Font.DemiBold
+        }
+
+        ServingsStepper {
+            Layout.fillWidth: true
+            value: catalogDetail.targetServings
+            minimum: 1
+            onValueChanged: catalogDetail.targetServings = value
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: "Ingrédients"
+            color: Theme.textDim
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+        }
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.maximumHeight: 280
+            clip: true
+
+            ColumnLayout {
+                width: parent.width
+                spacing: 4
+
+                Repeater {
+                    model: AppController.libraryIngredients(catalogDetail.libraryId,
+                                                           catalogDetail.targetServings)
+                    delegate: Label {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        text: {
+                            let s = modelData.name
+                            if (modelData.qty && modelData.qty.length > 0)
+                                s = modelData.qty + " " + s
+                            if (modelData.note && modelData.note.length > 0)
+                                s += " (" + modelData.note + ")"
+                            return s
+                        }
+                        wrapMode: Text.WordWrap
+                        color: Theme.text
+                        font.pixelSize: 14
+                    }
+                }
+            }
+        }
+
+        onAccepted: {
+            AppController.addRecipeFromLibrary(catalogDetail.libraryId,
+                                               catalogDetail.targetServings)
+            catalogDetail.close()
+            tabBar.currentIndex = 0
+        }
+    }
+
+    ColoDialog {
         id: addToListPicker
         title: "Ajouter à une liste"
         showAccept: false
@@ -160,10 +382,12 @@ Item {
         property string recipeId: ""
         property string recipeName: ""
         property var destinations: []
+        property int targetServings: 4
 
         function openFor(id, name) {
             recipeId = id
             recipeName = name
+            targetServings = AppController.recipeTargetServings(id)
             destinations = AppController.shoppingLists()
             open()
         }
@@ -176,6 +400,13 @@ Item {
             wrapMode: Text.WordWrap
             color: Theme.textDim
             font.pixelSize: 13
+        }
+
+        ServingsStepper {
+            Layout.fillWidth: true
+            visible: addToListPicker.destinations.length > 0
+            value: addToListPicker.targetServings
+            onValueChanged: addToListPicker.targetServings = value
         }
 
         Label {
@@ -205,7 +436,8 @@ Item {
                     color: parent.pressed ? Theme.surfaceHigh : "transparent"
                 }
                 onClicked: {
-                    AppController.importListInto(modelData.id, addToListPicker.recipeId)
+                    AppController.importListInto(modelData.id, addToListPicker.recipeId,
+                                                 addToListPicker.targetServings)
                     addToListPicker.close()
                 }
             }

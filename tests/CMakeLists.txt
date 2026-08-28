@@ -48,6 +48,19 @@ target_link_libraries(tst_dataexchange PRIVATE core)
 
 add_test(NAME dataexchange COMMAND tst_dataexchange)
 
+# --- Bibliothèque de recettes intégrée (JSON → LibraryRecipe) ---
+add_executable(tst_recipe_library
+    tst_recipe_library.cpp
+)
+
+target_include_directories(tst_recipe_library PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(tst_recipe_library PRIVATE core)
+
+add_test(NAME recipe_library COMMAND tst_recipe_library)
+
 # --- Payload codec tests (pure C++, no Qt) ---
 add_executable(tst_payload
     tst_payload.cpp

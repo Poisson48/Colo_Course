@@ -29,6 +29,9 @@ class ItemModel : public QAbstractListModel {
     Q_PROPERTY(QString sortMode READ sortMode WRITE setSortMode NOTIFY sortModeChanged)
     // true si le glisser-déposer est autorisé (modes aisle et manual uniquement).
     Q_PROPERTY(bool canReorder READ canReorder NOTIFY sortModeChanged)
+    // Recettes : afficher les quantités pour N personnes (base stockée en local).
+    Q_PROPERTY(double displayQtyScale READ displayQtyScale WRITE setDisplayQtyScale
+               NOTIFY displayQtyScaleChanged)
     // Les rayons proposés à la saisie : ceux d'origine, puis ceux que les participants
     // ont inventés dans cette liste. NOTIFY et pas CONSTANT : un rayon créé doit
     // apparaître aussitôt dans le choix, ici comme chez les autres.
@@ -40,6 +43,7 @@ public:
         NameRole,
         QtyRole,
         NoteRole,
+        BaseQtyRole,
         DoneRole,
         DoneAtRole,
         CreatedRole,
@@ -81,8 +85,9 @@ public:
     void    setFilter(const QString &filter);
 
     QString sortMode() const { return m_sortMode; }
-    // Préférence locale : settings["sortMode/"+listId]. Pas de publication.
-    void setSortMode(const QString &mode);
+    void    setSortMode(const QString &mode);
+    double  displayQtyScale() const { return m_displayQtyScale; }
+    void    setDisplayQtyScale(double scale);
     bool canReorder() const;
 
     // Nom d'un article déjà présent (comparaison insensible à la casse et aux
@@ -134,6 +139,7 @@ signals:
     void filterChanged();
     void aisleNamesChanged();
     void sortModeChanged();
+    void displayQtyScaleChanged();
     // Un article a été ajouté par l'utilisateur (pas un merge ni un import) : les
     // favoris fréquents ont changé.
     void itemAdded();
@@ -188,6 +194,7 @@ private:
 
     // Visible, sorted view (no del=true).
     std::vector<Row> m_rows;
+    double m_displayQtyScale = 1.0;
 };
 
 } // namespace app

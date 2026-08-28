@@ -1,4 +1,8 @@
 #include "appcontroller.h"
+
+#include "../core/recipe_library.h"
+#include "recipe_library_loader.h"
+#include "../core/recipe_scale.h"
 #include "platform.h"
 
 #include <QBuffer>
@@ -254,6 +258,7 @@ AppController::AppController(QObject *parent)
     : QObject(parent)
     , m_listsModel(new ListsModel(this))
     , m_recipesModel(new ListsModel(this))
+    , m_recipeLibraryModel(new RecipeLibraryModel(this))
     , m_relayPool(this)
     , m_syncEngine(this)
 {
@@ -273,6 +278,11 @@ bool AppController::init() {
     if (!m_db.open(databasePath())) {
         return false;
     }
+
+    if (!loadRecipeLibraryFromResource())
+        qWarning() << "Bibliothèque de recettes intégrée introuvable ou vide";
+    m_recipeLibraryModel->reloadFromLibrary();
+
 
     // Blobs orphelins (photo retirée, liste quittée…) : les purger au démarrage.
     m_db.purgeOrphanImages();
@@ -382,6 +392,14 @@ QAbstractListModel *AppController::recipes() const {
     return m_recipesModel;
 }
 
+QAbstractListModel *AppController::recipeLibrary() const {
+    return m_recipeLibraryModel;
+}
+
+int AppController::recipeLibraryCount() const {
+    return core::RecipeLibrary::count();
+}
+
 ItemModel *AppController::items() {
     return &m_itemModel;
 }
@@ -472,6 +490,27 @@ void AppController::createList(const QString &title) {
     }
 }
 
+namespace {
+
+QString recipeServingsKey(const QString &listId) {
+    return QStringLiteral("recipeServings/") + listId;
+}
+
+QString recipeTargetServingsKey(const QString &listId) {
+    return QStringLiteral("recipeTargetServings/") + listId;
+}
+
+void applyRecipeDisplayScale(AppController *self, const QString &listId) {
+    if (!self->isRecipe(listId))
+        return;
+    const int base = self->recipeBaseServings(listId);
+    const int target = self->recipeTargetServings(listId);
+    const double factor = base > 0 ? static_cast<double>(target) / base : 1.0;
+    self->items()->setDisplayQtyScale(factor);
+}
+
+} // namespace
+
 void AppController::createRecipe(const QString &title) {
     core::ListMeta meta;
     meta.listId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
@@ -488,11 +527,135 @@ void AppController::createRecipe(const QString &title) {
     }
 
     if (m_db.createList(meta)) {
+        m_db.setSetting(recipeServingsKey(QString::fromStdString(meta.listId)).toStdString(),
+                        "4");
+        m_db.setSetting(recipeTargetServingsKey(QString::fromStdString(meta.listId)).toStdString(),
+                        "4");
         m_listsModel->reload(m_db, m_deviceId.toStdString());
         m_recipesModel->reload(m_db, m_deviceId.toStdString());
         m_syncEngine.onListJoined(meta.listId);
         emit toast(QStringLiteral("Recette créée"));
     }
+}
+
+bool AppController::addRecipeFromLibrary(const QString &libraryId, int targetServings) {
+    const core::LibraryRecipe *lib = core::RecipeLibrary::recipeById(libraryId);
+    if (!lib) {
+        emit toast(QStringLiteral("Recette introuvable dans le catalogue"));
+        return false;
+    }
+
+    core::ListMeta meta;
+    meta.listId = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+    meta.key      = net::generateListKey();
+    meta.title    = lib->title.toStdString();
+    meta.titleVer = core::Ver{ 1, m_deviceId.toStdString() };
+    meta.lamport  = 1;
+    meta.created  = QDateTime::currentMSecsSinceEpoch();
+    meta.kind     = "recipe";
+
+    if (meta.key.size() != 32) {
+        emit toast(QStringLiteral("Échec de la génération de la clé de chiffrement"));
+        return false;
+    }
+    if (!m_db.createList(meta)) {
+        emit toast(QStringLiteral("Impossible d'ajouter la recette"));
+        return false;
+    }
+
+    const int base = lib->servingsCount > 0 ? lib->servingsCount : 4;
+    const int target = targetServings > 0 ? targetServings : base;
+  m_db.setSetting(recipeServingsKey(QString::fromStdString(meta.listId)).toStdString(),
+                    QString::number(base).toStdString());
+    m_db.setSetting(recipeTargetServingsKey(QString::fromStdString(meta.listId)).toStdString(),
+                    QString::number(target).toStdString());
+
+    int added = 0;
+    for (const auto &ing : lib->ingredients) {
+        const int64_t lamport = m_db.bumpLamport(meta.listId);
+        const core::Ver ver{ lamport, m_deviceId.toStdString() };
+
+        core::Item item;
+        item.listId  = meta.listId;
+        item.itemId  = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
+        item.created = meta.created + added;
+        item.by      = m_deviceId.toStdString();
+        item.name    = ing.name.toStdString();  item.nameVer  = ver;
+        item.qty     = ing.qty.toStdString();   item.qtyVer   = ver;
+        item.note    = ing.note.toStdString();  item.noteVer  = ver;
+        item.aisle   = m_db.suggestAisleForName(item.name); item.aisleVer = ver;
+        item.order   = item.created;            item.orderVer = ver;
+        item.delVer  = ver;
+        item.touched = meta.created;
+
+        if (m_db.upsertItem(item))
+            ++added;
+    }
+
+    m_listsModel->reload(m_db, m_deviceId.toStdString());
+    m_recipesModel->reload(m_db, m_deviceId.toStdString());
+    m_syncEngine.onListJoined(meta.listId);
+    m_syncEngine.onLocalChange(meta.listId);
+
+    emit toast(QStringLiteral("« %1 » ajoutée — %2 ingrédient(s) pour %3 personne(s)")
+                   .arg(lib->title).arg(added).arg(target));
+    return true;
+}
+
+QVariantList AppController::libraryIngredients(const QString &libraryId, int targetServings) {
+    const core::LibraryRecipe *lib = core::RecipeLibrary::recipeById(libraryId);
+    if (!lib)
+        return {};
+
+    const int base = lib->servingsCount > 0 ? lib->servingsCount : 4;
+    const int target = targetServings > 0 ? targetServings : base;
+    const double factor = static_cast<double>(target) / base;
+
+    QVariantList out;
+    for (const auto &ing : lib->ingredients) {
+        out.append(QVariantMap{
+            { QStringLiteral("name"), ing.name },
+            { QStringLiteral("qty"), core::scaleQuantity(ing.qty, factor) },
+            { QStringLiteral("note"), ing.note },
+        });
+    }
+    return out;
+}
+
+int AppController::libraryBaseServings(const QString &libraryId) {
+    const core::LibraryRecipe *lib = core::RecipeLibrary::recipeById(libraryId);
+    if (!lib)
+        return 4;
+    return lib->servingsCount > 0 ? lib->servingsCount : 4;
+}
+
+int AppController::recipeBaseServings(const QString &listId) {
+    if (!m_db.isOpen() || !isRecipe(listId))
+        return 4;
+    const auto v = m_db.getSetting(recipeServingsKey(listId).toStdString());
+    if (!v)
+        return 4;
+    const int n = QString::fromStdString(*v).toInt();
+    return n > 0 ? n : 4;
+}
+
+int AppController::recipeTargetServings(const QString &listId) {
+    if (!m_db.isOpen() || !isRecipe(listId))
+        return 4;
+    const auto v = m_db.getSetting(recipeTargetServingsKey(listId).toStdString());
+    if (!v)
+        return recipeBaseServings(listId);
+    const int n = QString::fromStdString(*v).toInt();
+    return n > 0 ? n : recipeBaseServings(listId);
+}
+
+void AppController::setRecipeTargetServings(const QString &listId, int servings) {
+    if (!m_db.isOpen() || !isRecipe(listId) || servings <= 0)
+        return;
+    m_db.setSetting(recipeTargetServingsKey(listId).toStdString(),
+                    QString::number(servings).toStdString());
+    if (m_openListId == listId.toStdString())
+        applyRecipeDisplayScale(this, listId);
 }
 
 bool AppController::isRecipe(const QString &listId) {
@@ -546,6 +709,17 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
         return;
     }
     if (!m_db.createList(copy)) return;
+
+    if (copy.isRecipe()) {
+        const QString srcId = QString::fromStdString(srcOpt->listId);
+        const QString copyId = QString::fromStdString(copy.listId);
+        const auto base = m_db.getSetting(QStringLiteral("recipeServings/").append(srcId).toStdString());
+        const auto target = m_db.getSetting(QStringLiteral("recipeTargetServings/").append(srcId).toStdString());
+        if (base)
+            m_db.setSetting(QStringLiteral("recipeServings/").append(copyId).toStdString(), *base);
+        if (target)
+            m_db.setSetting(QStringLiteral("recipeTargetServings/").append(copyId).toStdString(), *target);
+    }
 
     // Les articles sont recopiés à acheter (done=false) : on duplique une liste pour
     // la refaire. Les tombstones de l'originale ne sont pas repris.
@@ -602,12 +776,21 @@ void AppController::moveList(int from, int to) {
     m_listsModel->moveRow(m_db, from, to);
 }
 
-void AppController::importListInto(const QString &destListId, const QString &sourceListId) {
+void AppController::importListInto(const QString &destListId, const QString &sourceListId,
+                                   int targetServings) {
     if (destListId == sourceListId) return;  // s'importer soi-même n'a pas de sens
 
     auto destOpt = m_db.getList(destListId.toStdString());
     auto srcOpt  = m_db.getList(sourceListId.toStdString());
     if (!destOpt || !srcOpt) return;
+
+    double qtyFactor = 1.0;
+    if (srcOpt->isRecipe()) {
+        const int base = recipeBaseServings(sourceListId);
+        int target = targetServings > 0 ? targetServings : recipeTargetServings(sourceListId);
+        if (base > 0 && target > 0)
+            qtyFactor = static_cast<double>(target) / base;
+    }
 
     // Les articles importés arrivent après ceux déjà présents : leur `order` part de
     // maintenant (ms epoch), forcément au-delà des `order` existants issus d'un
@@ -630,7 +813,8 @@ void AppController::importListInto(const QString &destListId, const QString &sou
         item.by      = m_deviceId.toStdString();
         item.name    = src.name;
         item.nameVer = ver;
-        item.qty     = src.qty;
+        const QString srcQty = QString::fromStdString(src.qty);
+        item.qty     = core::scaleQuantity(srcQty, qtyFactor).toStdString();
         item.qtyVer  = ver;
         item.note    = src.note;
         item.noteVer = ver;
@@ -1257,6 +1441,12 @@ void AppController::openList(const QString &listId) {
     m_itemModel.load(m_db, id, m_deviceId.toStdString());
     m_syncEngine.registerItemModel(id, &m_itemModel);
     m_openListId = id;
+
+    if (metaOpt->isRecipe()) {
+        applyRecipeDisplayScale(this, listId);
+    } else {
+        m_itemModel.setDisplayQtyScale(1.0);
+    }
 
     emit listOpened(listId, QString::fromStdString(metaOpt->title));
 }
