@@ -244,6 +244,18 @@ def normalize_recipe(raw: dict, stats: dict) -> dict | None:
             stats["truncated_fields"] += 1
         if instr_text:
             recipe["instructions"] = instr_text
+    rating_raw = raw.get("rating")
+    if rating_raw is not None:
+        try:
+            recipe["rating"] = round(float(rating_raw), 1)
+        except (TypeError, ValueError):
+            pass
+    rc_raw = raw.get("review_count")
+    if rc_raw is not None:
+        try:
+            recipe["review_count"] = int(rc_raw)
+        except (TypeError, ValueError):
+            pass
     # Champs informatifs conservés s'ils existent (ignorés par le loader C++).
     for extra_key in ("source", "prep_time"):
         if raw.get(extra_key):

@@ -185,6 +185,37 @@ def parse_instructions_from_node(node: dict) -> str:
     return "\n\n".join(f"{i + 1}. {s}" for i, s in enumerate(steps))
 
 
+def parse_aggregate_rating(node: dict) -> tuple[float, int]:
+    """Extrait note Marmiton (schema.org aggregateRating)."""
+    ar = node.get("aggregateRating")
+    if not isinstance(ar, dict):
+        return 0.0, 0
+    try:
+        rating = float(ar.get("ratingValue", 0) or 0)
+    except (TypeError, ValueError):
+        rating = 0.0
+    rc = ar.get("reviewCount", ar.get("ratingCount", 0))
+    try:
+        reviews = int(rc or 0)
+    except (TypeError, ValueError):
+        reviews = 0
+    return rating, reviews
+
+
+def parse_rating_from_html(html: str) -> tuple[float, int]:
+    """Repli si aggregateRating absent du nœud Recipe (regex dans la page)."""
+    m = re.search(r'"ratingValue"\s*:\s*([\d.]+)', html)
+    if not m:
+        return 0.0, 0
+    try:
+        rating = float(m.group(1))
+    except ValueError:
+        return 0.0, 0
+    rc = re.search(r'"reviewCount"\s*:\s*(\d+)', html)
+    reviews = int(rc.group(1)) if rc else 0
+    return rating, reviews
+
+
 def parse_recipe_page(html: str, url: str) -> dict | None:
     for block in re.finditer(
         r"<script type=\"application/ld\+json\">(.*?)</script>", html, re.DOTALL
@@ -223,7 +254,11 @@ def parse_recipe_page(html: str, url: str) -> dict | None:
             if servings_count <= 0:
                 servings_count = 4
 
-            return {
+            rating, review_count = parse_aggregate_rating(node)
+            if rating <= 0:
+                rating, review_count = parse_rating_from_html(html)
+
+            recipe = {
                 "id": recipe_id_from_url(url),
                 "title": title,
                 "category": _as_str(node.get("recipeCategory")),
@@ -234,10 +269,15 @@ def parse_recipe_page(html: str, url: str) -> dict | None:
                 "servings": servings_text,
                 "servings_count": servings_count,
             }
+            if rating > 0:
+                recipe["rating"] = round(rating, 1)
+            if review_count > 0:
+                recipe["review_count"] = review_count
+            return recipe
     return None
 
 
-def collect_sitemap_urls(limit: int) -> list[str]:
+def collect_sitemap_urls(limit: int | None = None) -> list[str]:
     index_xml = fetch(SITEMAP_INDEX)
     root = ET.fromstring(index_xml)
     ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
@@ -249,16 +289,20 @@ def collect_sitemap_urls(limit: int) -> list[str]:
 
     urls: list[str] = []
     for sm_url in sitemap_locs:
-        if len(urls) >= limit:
+        if limit is not None and len(urls) >= limit:
             break
         sm_xml = fetch(sm_url)
         sm_root = ET.fromstring(sm_xml)
         for loc in sm_root.findall("sm:url/sm:loc", ns):
             if loc.text and "/recettes/recette_" in loc.text:
                 urls.append(loc.text.strip())
-                if len(urls) >= limit:
+                if limit is not None and len(urls) >= limit:
                     break
     return urls
+
+
+def collect_all_sitemap_urls() -> list[str]:
+    return collect_sitemap_urls(limit=None)
 
 
 def scrape_one(url: str) -> dict | None:
