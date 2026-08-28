@@ -78,6 +78,9 @@ public:
     // Subscribe all known lists (called after init, or after reconnect).
     void subscribeAllLists(int64_t since = 0);
 
+    // Flush outbox + resubscribe (si le relais est joignable).
+    void catchUpOnForeground();
+
 signals:
     // N items changed in listId by authorName (from a remote event).
     void remoteChanges(const QString& listId, int count, const QString& authorName);

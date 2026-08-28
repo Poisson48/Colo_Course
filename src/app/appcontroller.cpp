@@ -457,8 +457,14 @@ bool AppController::init() {
     // --- Connect and subscribe ---
     m_relayPool.connectAll();
     m_syncEngine.subscribeAllLists();
+    m_online = m_relayPool.isOnline();
 
     return true;
+}
+
+void AppController::resumeSync() {
+    m_relayPool.connectAll();
+    m_syncEngine.catchUpOnForeground();
 }
 
 QAbstractListModel *AppController::lists() const {
@@ -515,6 +521,15 @@ void AppController::onSyncOnlineChanged(bool online) {
     if (m_online == online) return;
     m_online = online;
     emit onlineChanged();
+
+    if (online) {
+        // Réafficher l'état local immédiatement ; les événements distants
+        // mettront à jour via onRemoteChanges.
+        m_listsModel->reload(m_db, m_deviceId.toStdString());
+        m_recipesModel->reload(m_db, m_deviceId.toStdString());
+        if (!m_openListId.empty())
+            m_itemModel.load(m_db, m_openListId, m_deviceId.toStdString());
+    }
 }
 
 void AppController::onRemoteChanges(const QString& /*listId*/, int /*count*/, const QString& /*authorName*/) {

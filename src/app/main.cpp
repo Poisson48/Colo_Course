@@ -43,11 +43,12 @@ int main(int argc, char *argv[])
                                     &controller, "handleJoinUrl");
 
     // SPEC §8 : au retour au premier plan, rattrapage immédiat — Android a pu tuer
-    // la socket pendant la mise en veille, et la souscription doit être rejouée.
+    // la socket pendant la mise en veille, et toutes les listes doivent être
+    // re-souscrites (multi-canaux).
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
                      &controller, [&controller](Qt::ApplicationState state) {
         if (state == Qt::ApplicationActive)
-            controller.syncEngine()->subscribeAllLists();
+            controller.resumeSync();
     });
 
     // Types du scanner, dans le même module QML que les écrans (URI ColoCourse).

@@ -43,10 +43,10 @@ void RelayPool::setRelays(const QList<QUrl>& urls)
         m_clients.push_back(std::move(client));
     }
 
-    // Re-apply subscription if one is already active.
-    if (m_channelTag.has_value()) {
+    // Ré-appliquer toutes les souscriptions actives (multi-listes).
+    for (auto it = m_subscriptions.constBegin(); it != m_subscriptions.constEnd(); ++it) {
         for (auto& c : m_clients)
-            c->subscribe(*m_channelTag, m_since);
+            c->subscribe(it.key(), it.value());
     }
 }
 
@@ -72,8 +72,7 @@ void RelayPool::publishToAll(const NostrEvent& ev)
 
 void RelayPool::subscribeAll(const QString& channelTag, int64_t since)
 {
-    m_channelTag = channelTag;
-    m_since      = since;
+    m_subscriptions[channelTag] = since;
     for (auto& c : m_clients)
         c->subscribe(channelTag, since);
 }

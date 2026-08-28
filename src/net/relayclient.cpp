@@ -42,19 +42,39 @@ void RelayClient::publish(const NostrEvent& ev)
 
 void RelayClient::subscribe(const QString& channelTag, int64_t since)
 {
-    m_channelTag = channelTag;
-    m_since      = since;
+    for (auto& sub : m_subscriptions) {
+        if (sub.channelTag == channelTag) {
+            if (sub.since == since)
+                return;
+            if (m_socket.state() == QAbstractSocket::ConnectedState && !sub.subId.isEmpty())
+                sendJson(makeCloseMsg(sub.subId));
+            sub.since = since;
+            sub.subId = makeSubId();
+            if (m_socket.state() == QAbstractSocket::ConnectedState)
+                sendReq(sub);
+            return;
+        }
+    }
+
+    ActiveSub sub;
+    sub.channelTag = channelTag;
+    sub.since      = since;
+    sub.subId      = makeSubId();
+    m_subscriptions.push_back(sub);
 
     if (m_socket.state() == QAbstractSocket::ConnectedState)
-        resubscribe();
+        sendReq(sub);
 }
 
 void RelayClient::closeSubscription()
 {
-    if (!m_subId.isEmpty()) {
-        sendJson(makeCloseMsg(m_subId));
-        m_subId.clear();
+    if (m_socket.state() == QAbstractSocket::ConnectedState) {
+        for (const auto& sub : m_subscriptions) {
+            if (!sub.subId.isEmpty())
+                sendJson(makeCloseMsg(sub.subId));
+        }
     }
+    m_subscriptions.clear();
 }
 
 bool RelayClient::isConnected() const
@@ -114,6 +134,18 @@ void RelayClient::onReconnectTimer()
 
 // ── Private helpers ────────────────────────────────────────────────────────
 
+QString RelayClient::makeSubId()
+{
+    return QUuid::createUuid().toString(QUuid::WithoutBraces).left(16);
+}
+
+void RelayClient::sendReq(const ActiveSub& sub)
+{
+    const QStringList kinds = { QStringLiteral("4545") };
+    const QStringList tVals = { sub.channelTag };
+    sendJson(makeReqMsg(sub.subId, kinds, tVals, sub.since));
+}
+
 void RelayClient::sendJson(const QJsonArray& msg)
 {
     if (m_socket.state() != QAbstractSocket::ConnectedState) {
@@ -138,15 +170,12 @@ void RelayClient::resetBackoff()
 
 void RelayClient::resubscribe()
 {
-    if (!m_channelTag.has_value())
-        return;
-
-    // Generate a fresh subscription id.
-    m_subId = QUuid::createUuid().toString(QUuid::WithoutBraces).left(16);
-
-    const QStringList kinds  = {"4545"};
-    const QStringList tVals  = {*m_channelTag};
-    sendJson(makeReqMsg(m_subId, kinds, tVals, m_since));
+    for (auto& sub : m_subscriptions) {
+        if (!sub.subId.isEmpty())
+            sendJson(makeCloseMsg(sub.subId));
+        sub.subId = makeSubId();
+        sendReq(sub);
+    }
 }
 
 } // namespace net

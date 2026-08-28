@@ -9,7 +9,7 @@
 #include <QString>
 #include <QStringList>
 #include <cstdint>
-#include <optional>
+#include <vector>
 
 namespace net {
 
@@ -18,7 +18,8 @@ namespace net {
 // Reconnection: exponential backoff starting at 1 s, doubling each attempt,
 // capped at 60 s. Resets to 1 s on a successful connection.
 //
-// Subscription: kind 4545, tag #t = channelTag, since = lastSync - 3600.
+// Subscriptions: plusieurs canaux (#t) en parallèle sur une même socket —
+// nécessaire pour suivre toutes les listes partagées d'un appareil.
 // Re-subscribes automatically after every reconnection.
 //
 // Publish: emits the event to the relay; tracks the matching ["OK"] reply and
@@ -41,10 +42,10 @@ public:
     void publish(const NostrEvent& ev);
 
     // Subscribe using kind 4545, the given channel tag, and a since timestamp.
-    // Calling again replaces the current subscription.
+    // Appeler pour chaque liste : les souscriptions coexistent.
     void subscribe(const QString& channelTag, int64_t since);
 
-    // Close the current subscription (sends CLOSE).
+    // Close all subscriptions (sends CLOSE pour chaque subId actif).
     void closeSubscription();
 
     bool isConnected() const;
@@ -65,6 +66,14 @@ private slots:
     void onReconnectTimer();
 
 private:
+    struct ActiveSub {
+        QString channelTag;
+        int64_t since = 0;
+        QString subId;
+    };
+
+    QString makeSubId();
+    void sendReq(const ActiveSub& sub);
     void sendJson(const QJsonArray& msg);
     void scheduleReconnect();
     void resetBackoff();
@@ -77,10 +86,7 @@ private:
     int     m_backoffMs    = 1000;   // current reconnect delay
     bool    m_intentionalDisconnect = false;
 
-    // Active subscription parameters (re-applied after reconnect).
-    std::optional<QString>  m_channelTag;
-    int64_t                 m_since = 0;
-    QString                 m_subId;
+    std::vector<ActiveSub> m_subscriptions;
 
     static constexpr int kMaxBackoffMs = 60'000;
     static constexpr int kInitBackoffMs = 1'000;

@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QUrl>
 #include <QSet>
+#include <QHash>
 #include <QStringList>
 #include <vector>
 #include <memory>
@@ -69,9 +70,8 @@ private:
     std::vector<std::unique_ptr<RelayClient>> m_clients;
     QSet<QString> m_seenIds;   // in-memory dedup by event id
 
-    // Active subscription (stored for new relays added after subscribeAll).
-    std::optional<QString> m_channelTag;
-    int64_t                m_since = 0;
+    // Souscriptions actives par canal (#t) — une entrée par liste partagée.
+    QHash<QString, int64_t> m_subscriptions;
 
     bool m_online = false;
 };

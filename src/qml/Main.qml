@@ -163,7 +163,7 @@ ApplicationWindow {
         Rectangle {
             id: offlineBanner
             width: parent.width
-            height: window.offline ? 32 : 0
+            height: window.offline ? 40 : 0
             color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.92)
             clip: true
             visible: height > 0
@@ -173,8 +173,15 @@ ApplicationWindow {
                 anchors.centerIn: parent
                 width: parent.width - 16
                 horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
                 elide: Text.ElideRight
-                text: "Hors ligne — les modifications partiront au retour du réseau"
+                text: window.offline
+                      ? (AppController.pendingChanges > 0
+                         ? "Hors ligne — " + AppController.pendingChanges
+                           + " modification(s) en attente (listes conservées localement)"
+                         : "Hors ligne — listes disponibles localement, sync au retour du réseau")
+                      : ""
                 color: "#1A1400"
                 font.pixelSize: 12
             }

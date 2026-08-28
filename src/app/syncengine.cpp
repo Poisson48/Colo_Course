@@ -528,6 +528,14 @@ void SyncEngine::onRelayOnline(bool online)
     subscribeAllLists();
 }
 
+void SyncEngine::catchUpOnForeground()
+{
+    if (!m_pool || !m_pool->isOnline())
+        return;
+    flushOutbox();
+    subscribeAllLists();
+}
+
 void SyncEngine::subscribeAllLists(int64_t since)
 {
     if (!m_db || !m_pool) return;

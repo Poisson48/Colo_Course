@@ -527,6 +527,32 @@ private slots:
             onlineSpy.wait(2000);
         QVERIFY(!pool.isOnline());
     }
+
+    // ── RelayClient: plusieurs listes partagées = plusieurs souscriptions ───
+
+    void test_multiChannelSubscribe() {
+        FakeRelay relay;
+        QVERIFY(relay.listen(0));
+
+        net::RelayClient client(relay.url());
+        QSignalSpy connSpy(&client, &net::RelayClient::connected);
+
+        client.connectToRelay();
+        QVERIFY(connSpy.wait(2000));
+
+        client.subscribe(QStringLiteral("channeltagaaaaaaaaaaaaaaaaaaaa"), 0);
+        client.subscribe(QStringLiteral("channeltagbbbbbbbbbbbbbbbbbbbb"), 100);
+        waitMs(80);
+
+        int reqCount = 0;
+        for (const auto& m : relay.received()) {
+            if (m.type == QStringLiteral("REQ"))
+                ++reqCount;
+        }
+        QCOMPARE(reqCount, 2);
+
+        client.disconnectFromRelay();
+    }
 };
 
 QTEST_MAIN(TstRelay)

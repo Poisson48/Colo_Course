@@ -283,6 +283,9 @@ public slots:
     // Access SyncEngine (for ItemModel integration).
     SyncEngine *syncEngine() { return &m_syncEngine; }
 
+    // Reconnexion + rattrapage (retour au premier plan ou après coupure réseau).
+    void resumeSync();
+
 signals:
     void onlineChanged();
     void pendingChangesChanged();
