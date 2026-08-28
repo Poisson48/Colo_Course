@@ -28,6 +28,7 @@ static const char *kValidJson = R"JSON({
       "category": "Plat principal",
       "servings": "2 personnes",
       "servings_count": 2,
+      "instructions": "1. Battre les oeufs. 2. Cuire dans la poele.",
       "ingredients": [
         {"name": "Oeufs", "qty": "3", "note": ""},
         {"name": "Beurre", "qty": "10 g", "note": ""},
@@ -122,6 +123,14 @@ static void test_filterIndices() {
     // Par titre, insensible à la casse.
     const auto byTitle = RecipeLibrary::filterIndices(QStringLiteral("OMELETTE"));
     EXPECT_EQ(static_cast<int>(byTitle.size()), 1);
+
+    // Tokens AND : « pomme terre » matche « Pommes de terre ».
+    const auto multi = RecipeLibrary::filterIndices(QStringLiteral("pomme terre"));
+    EXPECT_EQ(static_cast<int>(multi.size()), 1);
+
+    // Recherche dans la préparation.
+    const auto byPrep = RecipeLibrary::filterIndices(QStringLiteral("poele"));
+    EXPECT_EQ(static_cast<int>(byPrep.size()), 1);
 
     // Aucun résultat pour une requête absente du catalogue.
     EXPECT_TRUE(RecipeLibrary::filterIndices(QStringLiteral("introuvable-xyz")).empty());

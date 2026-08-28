@@ -18,7 +18,8 @@ struct LibraryRecipe {
     QString category;
     QString servings;       // libellé libre affiché ("4 personnes")
     int     servingsCount = 0; // nombre de personnes, 0 si inconnu (pour la mise à l'échelle)
-    QString searchBlob;        // titre + catégorie + ingrédients, normalisé (recherche)
+    QString instructions;      // étapes de préparation (texte multi-lignes)
+    QString searchBlob;        // titre + catégorie + ingrédients + préparation, normalisé
     std::vector<LibraryIngredient> ingredients;
 };
 
@@ -31,7 +32,11 @@ public:
     static const LibraryRecipe *recipeAt(int index);
     static const LibraryRecipe *recipeById(const QString &id);
 
-    // Filtre titre + ingrédients (insensible à la casse, sans accents).
+    // Normalise pour la recherche (minuscules, sans accents).
+    static QString normalizeSearchText(const QString &s);
+
+    // Filtre titre, ingrédients et préparation (tokens AND, insensible casse/accents).
+    // Tri par pertinence : titre > catégorie > ingrédients > préparation.
     static std::vector<int> filterIndices(const QString &query);
 
 private:

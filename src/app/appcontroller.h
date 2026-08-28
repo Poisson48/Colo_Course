@@ -22,6 +22,7 @@ namespace app {
 // Filtre par kind : "recipe" = recettes seules ; sinon = listes de courses (défaut).
 class ListsModel : public QAbstractListModel {
     Q_OBJECT
+    Q_PROPERTY(QString filter READ filter WRITE setFilter NOTIFY filterChanged)
 public:
     enum Roles {
         ListIdRole = Qt::UserRole + 1,
@@ -50,6 +51,9 @@ public:
     // Reload from DB. deviceId sert à s'exclure soi-même de la liste des participants.
     void reload(store::Database &db, const std::string &deviceId);
 
+    QString filter() const { return m_filter; }
+    void setFilter(const QString &filter);
+
     // Remove a row by listId (no-op if absent).
     void remove(const QString &listId);
 
@@ -60,6 +64,9 @@ public:
     // modèle. Franchir une frontière de groupe range aussi la liste dans ce groupe —
     // même geste que pour les articles et les rayons. Purement local.
     void moveRow(store::Database &db, int from, int to);
+
+signals:
+    void filterChanged();
 
 private:
     struct Row {
@@ -74,15 +81,19 @@ private:
         QString members;    // noms des autres participants, joints
         int     memberCount = 0;
         QString kind;
+        QString searchBlob; // nom + ingrédients + préparation (recettes), normalisé
     };
 
     // Ré-espace les positions des listes d'un groupe quand l'intervalle est épuisé.
     void renumberGroup(store::Database &db, const QString &groupId);
 
     bool matchesKind(const std::string &kind) const;
+    void applyFilter();
 
     QString m_kindFilter;  // "" = shopping ; "recipe" = recettes
+    QString m_filter;
     std::vector<Row> m_rows;
+    std::vector<Row> m_allRows; // toutes les lignes avant filtre
 };
 
 // AppController: singleton QObject exposed to QML as a context property.
@@ -155,6 +166,10 @@ public slots:
     Q_INVOKABLE QVariantList libraryIngredients(const QString &libraryId,
                                                 int targetServings = 0);
     Q_INVOKABLE int libraryBaseServings(const QString &libraryId);
+    Q_INVOKABLE QString libraryInstructions(const QString &libraryId);
+    // Préparation d'une recette personnelle (local, non synchronisé).
+    Q_INVOKABLE QString recipeInstructions(const QString &listId);
+    Q_INVOKABLE void setRecipeInstructions(const QString &listId, const QString &text);
     // Portions de base d'une recette personnelle (local, non synchronisé).
     Q_INVOKABLE int recipeBaseServings(const QString &listId);
     Q_INVOKABLE int recipeTargetServings(const QString &listId);

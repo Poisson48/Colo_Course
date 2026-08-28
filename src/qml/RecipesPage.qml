@@ -53,11 +53,44 @@ Item {
             visible: tabBar.currentIndex === 0
             spacing: 0
 
+            ColoTextField {
+                id: myRecipesSearch
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.gap
+                Layout.rightMargin: Theme.gap
+                Layout.topMargin: Theme.gap
+                hint: "Rechercher une recette, un ingrédient…"
+            }
+
+            Timer {
+                id: myRecipesSearchDebounce
+                interval: 150
+                onTriggered: AppController.recipes.filter = myRecipesSearch.text
+            }
+
+            Connections {
+                target: myRecipesSearch
+                function onTextChanged() {
+                    myRecipesSearchDebounce.restart()
+                }
+            }
+
             Label {
                 Layout.fillWidth: true
                 Layout.margins: Theme.gap
-                visible: recipesView.count === 0
+                visible: recipesView.count === 0 && myRecipesSearch.text.length === 0
                 text: "Aucune recette. Créez-en une, parcourez le catalogue, ou rejoignez-en une via un lien partagé."
+                wrapMode: Text.WordWrap
+                color: Theme.textDim
+                font.pixelSize: 15
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.gap
+                Layout.rightMargin: Theme.gap
+                visible: recipesView.count === 0 && myRecipesSearch.text.length > 0
+                text: "Aucun résultat pour « " + myRecipesSearch.text + " »."
                 wrapMode: Text.WordWrap
                 color: Theme.textDim
                 font.pixelSize: 15
@@ -142,7 +175,7 @@ Item {
                 Layout.leftMargin: Theme.gap
                 Layout.rightMargin: Theme.gap
                 Layout.topMargin: Theme.gap
-                hint: "Rechercher une recette ou un ingrédient…"
+                hint: "Rechercher titre, ingrédient, préparation…"
             }
 
             Timer {
@@ -303,6 +336,8 @@ Item {
         property string libraryId: ""
         property string recipeTitle: ""
         property int targetServings: 4
+        property string instructionsText: libraryId.length > 0
+                ? AppController.libraryInstructions(libraryId) : ""
 
         function openFor(id, title) {
             libraryId = id
@@ -337,7 +372,7 @@ Item {
 
         ScrollView {
             Layout.fillWidth: true
-            Layout.maximumHeight: 280
+            Layout.maximumHeight: 200
             clip: true
 
             ColumnLayout {
@@ -363,6 +398,30 @@ Item {
                         font.pixelSize: 14
                     }
                 }
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: catalogDetail.instructionsText.length > 0
+            text: "Préparation"
+            color: Theme.textDim
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+        }
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.maximumHeight: 220
+            clip: true
+            visible: catalogDetail.instructionsText.length > 0
+
+            Label {
+                width: parent.width
+                text: catalogDetail.instructionsText
+                wrapMode: Text.WordWrap
+                color: Theme.text
+                font.pixelSize: 14
             }
         }
 

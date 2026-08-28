@@ -3,6 +3,8 @@
 #include "../core/recipe_library.h"
 #include "recipe_library_loader.h"
 #include "../core/recipe_scale.h"
+
+#include <QRegularExpression>
 #include "platform.h"
 
 #include <QBuffer>
@@ -91,8 +93,7 @@ QHash<int, QByteArray> ListsModel::roleNames() const {
 }
 
 void ListsModel::reload(store::Database &db, const std::string &deviceId) {
-    beginResetModel();
-    m_rows.clear();
+    m_allRows.clear();
 
     // Table des groupes : id → (nom, ordre). Un rang par défaut très grand range les
     // listes non rangées après tous les groupes.
@@ -106,10 +107,19 @@ void ListsModel::reload(store::Database &db, const std::string &deviceId) {
 
         int unchecked = 0;
         int total     = 0;
+        QString ingredientBlob;
         for (const auto &item : db.getItems(meta.listId)) {
             if (item.del) continue;
             ++total;
             if (!item.done) ++unchecked;
+            if (meta.isRecipe()) {
+                ingredientBlob += QLatin1Char(' ')
+                    + core::RecipeLibrary::normalizeSearchText(
+                          QString::fromStdString(item.name));
+                ingredientBlob += QLatin1Char(' ')
+                    + core::RecipeLibrary::normalizeSearchText(
+                          QString::fromStdString(item.note));
+            }
         }
 
         // Avec qui c'est partagé : les membres connus, soi-même exclu. Un membre =
@@ -131,6 +141,18 @@ void ListsModel::reload(store::Database &db, const std::string &deviceId) {
         row.memberCount = static_cast<int>(names.size());
         row.kind        = QString::fromStdString(meta.kind);
 
+        QString searchBlob = core::RecipeLibrary::normalizeSearchText(row.name);
+        if (meta.isRecipe()) {
+            searchBlob += ingredientBlob;
+            const auto instr = db.getSetting(
+                (QStringLiteral("recipeInstructions/") + row.listId).toStdString());
+            if (instr)
+                searchBlob += QLatin1Char(' ')
+                    + core::RecipeLibrary::normalizeSearchText(
+                          QString::fromStdString(*instr));
+        }
+        row.searchBlob = searchBlob;
+
         const auto git = groups.find(meta.groupId);
         if (!meta.groupId.empty() && git != groups.end()) {
             row.groupId    = QString::fromStdString(meta.groupId);
@@ -140,31 +162,86 @@ void ListsModel::reload(store::Database &db, const std::string &deviceId) {
             // Non rangée (ou groupe supprimé) : après tous les groupes.
             row.groupOrder = std::numeric_limits<int64_t>::max();
         }
-        m_rows.push_back(std::move(row));
+        m_allRows.push_back(std::move(row));
     }
 
     // Trier par groupe pour que les sections soient contiguës ; l'ordre d'origine
     // (création) est préservé à l'intérieur d'un groupe par le tri stable.
-    std::stable_sort(m_rows.begin(), m_rows.end(), [](const Row &a, const Row &b) {
+    std::stable_sort(m_allRows.begin(), m_allRows.end(), [](const Row &a, const Row &b) {
         if (a.groupOrder != b.groupOrder) return a.groupOrder < b.groupOrder;
         return a.groupName < b.groupName;
     });
+
+    applyFilter();
+}
+
+void ListsModel::setFilter(const QString &filter) {
+    if (m_filter == filter)
+        return;
+    m_filter = filter;
+    applyFilter();
+    emit filterChanged();
+}
+
+void ListsModel::applyFilter() {
+    beginResetModel();
+    m_rows.clear();
+
+    const QStringList tokens = core::RecipeLibrary::normalizeSearchText(m_filter)
+        .split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+
+    for (const auto &row : m_allRows) {
+        bool match = true;
+        for (const QString &tok : tokens) {
+            if (!row.searchBlob.contains(tok)) {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+            m_rows.push_back(row);
+    }
 
     endResetModel();
 }
 
 void ListsModel::rename(const QString &listId, const QString &name) {
-    const auto it = std::find_if(m_rows.begin(), m_rows.end(),
-                                 [&](const Row &r){ return r.listId == listId; });
-    if (it == m_rows.end() || it->name == name) return;
+    const auto update = [&](Row &r) {
+        if (r.listId != listId || r.name == name)
+            return false;
+        const QString oldTitleNorm = core::RecipeLibrary::normalizeSearchText(r.name);
+        r.name = name;
+        const QString newTitleNorm = core::RecipeLibrary::normalizeSearchText(name);
+        if (r.searchBlob.startsWith(oldTitleNorm))
+            r.searchBlob = newTitleNorm + r.searchBlob.mid(oldTitleNorm.length());
+        else
+            r.searchBlob = newTitleNorm + QLatin1Char(' ') + r.searchBlob;
+        return true;
+    };
 
-    it->name = name;
-    const int row = static_cast<int>(std::distance(m_rows.begin(), it));
-    const QModelIndex idx = index(row);
-    emit dataChanged(idx, idx, { NameRole });
+    bool changed = false;
+    for (auto &r : m_allRows)
+        changed = update(r) || changed;
+    if (!changed)
+        return;
+
+    for (auto &r : m_rows)
+        update(r);
+
+    const auto it = std::find_if(m_rows.begin(), m_rows.end(),
+                                 [&](const Row &r) { return r.listId == listId; });
+    if (it != m_rows.end()) {
+        const int row = static_cast<int>(std::distance(m_rows.begin(), it));
+        emit dataChanged(index(row), index(row), { NameRole });
+    }
 }
 
 void ListsModel::remove(const QString &listId) {
+    const auto allIt = std::find_if(m_allRows.begin(), m_allRows.end(),
+                                    [&](const Row &r) { return r.listId == listId; });
+    if (allIt != m_allRows.end())
+        m_allRows.erase(allIt);
+
     const auto it = std::find_if(m_rows.begin(), m_rows.end(),
                                  [&](const Row &r){ return r.listId == listId; });
     if (it == m_rows.end()) return;
@@ -500,6 +577,10 @@ QString recipeTargetServingsKey(const QString &listId) {
     return QStringLiteral("recipeTargetServings/") + listId;
 }
 
+QString recipeInstructionsKey(const QString &listId) {
+    return QStringLiteral("recipeInstructions/") + listId;
+}
+
 void applyRecipeDisplayScale(AppController *self, const QString &listId) {
     if (!self->isRecipe(listId))
         return;
@@ -569,6 +650,9 @@ bool AppController::addRecipeFromLibrary(const QString &libraryId, int targetSer
                     QString::number(base).toStdString());
     m_db.setSetting(recipeTargetServingsKey(QString::fromStdString(meta.listId)).toStdString(),
                     QString::number(target).toStdString());
+    if (!lib->instructions.isEmpty())
+        m_db.setSetting(recipeInstructionsKey(QString::fromStdString(meta.listId)).toStdString(),
+                        lib->instructions.toStdString());
 
     int added = 0;
     for (const auto &ing : lib->ingredients) {
@@ -627,6 +711,25 @@ int AppController::libraryBaseServings(const QString &libraryId) {
     if (!lib)
         return 4;
     return lib->servingsCount > 0 ? lib->servingsCount : 4;
+}
+
+QString AppController::libraryInstructions(const QString &libraryId) {
+    const core::LibraryRecipe *lib = core::RecipeLibrary::recipeById(libraryId);
+    return lib ? lib->instructions : QString();
+}
+
+QString AppController::recipeInstructions(const QString &listId) {
+    if (!m_db.isOpen() || !isRecipe(listId))
+        return {};
+    const auto v = m_db.getSetting(recipeInstructionsKey(listId).toStdString());
+    return v ? QString::fromStdString(*v) : QString();
+}
+
+void AppController::setRecipeInstructions(const QString &listId, const QString &text) {
+    if (!m_db.isOpen() || !isRecipe(listId))
+        return;
+    m_db.setSetting(recipeInstructionsKey(listId).toStdString(), text.trimmed().toStdString());
+    m_recipesModel->reload(m_db, m_deviceId.toStdString());
 }
 
 int AppController::recipeBaseServings(const QString &listId) {
@@ -719,6 +822,9 @@ void AppController::duplicateList(const QString &listId, const QString &title) {
             m_db.setSetting(QStringLiteral("recipeServings/").append(copyId).toStdString(), *base);
         if (target)
             m_db.setSetting(QStringLiteral("recipeTargetServings/").append(copyId).toStdString(), *target);
+        const auto instr = m_db.getSetting(recipeInstructionsKey(srcId).toStdString());
+        if (instr)
+            m_db.setSetting(recipeInstructionsKey(copyId).toStdString(), *instr);
     }
 
     // Les articles sont recopiés à acheter (done=false) : on duplique une liste pour

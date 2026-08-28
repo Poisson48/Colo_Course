@@ -38,6 +38,7 @@ from typing import Any
 MAX_NAME_LEN = 200
 MAX_QTY_LEN = 100
 MAX_NOTE_LEN = 200
+MAX_INSTRUCTIONS_LEN = 12000
 
 # Unités triées par longueur (aligné avec scrape_recipe_library.py).
 _UNIT_WORDS = [
@@ -236,6 +237,13 @@ def normalize_recipe(raw: dict, stats: dict) -> dict | None:
         "servings_count": base_servings,
         "ingredients": ingredients,
     }
+    instr_raw = to_str(raw.get("instructions"))
+    if instr_raw:
+        instr_text, truncated = truncate(instr_raw, MAX_INSTRUCTIONS_LEN)
+        if truncated:
+            stats["truncated_fields"] += 1
+        if instr_text:
+            recipe["instructions"] = instr_text
     # Champs informatifs conservés s'ils existent (ignorés par le loader C++).
     for extra_key in ("source", "prep_time"):
         if raw.get(extra_key):

@@ -18,6 +18,7 @@ Format JSON produit (version 1) :
         "title": "...",
         "category": "...",
         "ingredients": [{"name": "...", "qty": "...", "note": ""}],
+        "instructions": "1. Étape…\n\n2. Étape…",
         "source": "https://...",
         "prep_time": "PT30M",     # durée ISO 8601 (prepTime schema.org)
         "servings": "4 personnes"
@@ -149,6 +150,41 @@ def _iter_jsonld_nodes(data: object) -> list[dict]:
     return nodes
 
 
+def parse_instructions_from_node(node: dict) -> str:
+    """Extrait recipeInstructions (texte ou HowToStep) → texte multi-lignes."""
+    raw = node.get("recipeInstructions")
+    steps: list[str] = []
+
+    def add_step(text: str) -> None:
+        t = (text or "").strip()
+        if t:
+            steps.append(t)
+
+    if isinstance(raw, str):
+        add_step(raw)
+    elif isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, str):
+                add_step(item)
+            elif isinstance(item, dict):
+                add_step(_as_str(item.get("text")))
+                if not item.get("text"):
+                    add_step(_as_str(item.get("name")))
+                item_list = item.get("itemListElement")
+                if isinstance(item_list, list):
+                    for sub in item_list:
+                        if isinstance(sub, dict):
+                            add_step(_as_str(sub.get("text")))
+                        elif isinstance(sub, str):
+                            add_step(sub)
+
+    if not steps:
+        return ""
+    if len(steps) == 1:
+        return steps[0]
+    return "\n\n".join(f"{i + 1}. {s}" for i, s in enumerate(steps))
+
+
 def parse_recipe_page(html: str, url: str) -> dict | None:
     for block in re.finditer(
         r"<script type=\"application/ld\+json\">(.*?)</script>", html, re.DOTALL
@@ -192,6 +228,7 @@ def parse_recipe_page(html: str, url: str) -> dict | None:
                 "title": title,
                 "category": _as_str(node.get("recipeCategory")),
                 "ingredients": ingredients,
+                "instructions": parse_instructions_from_node(node),
                 "source": url,
                 "prep_time": _as_str(node.get("prepTime")),
                 "servings": servings_text,

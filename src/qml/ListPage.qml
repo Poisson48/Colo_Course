@@ -222,6 +222,11 @@ Item {
         }
         MenuSeparator {}
         MenuItem {
+            text: "Modifier la préparation"
+            visible: root.isRecipe
+            onTriggered: prepDialog.open()
+        }
+        MenuItem {
             text: "Ajouter à une liste…"
             visible: root.isRecipe
             onTriggered: recipeImportPicker.open()
@@ -366,6 +371,44 @@ Item {
                 anchors.leftMargin: Theme.pad
                 value: AppController.recipeTargetServings(root.listId)
                 onValueChanged: AppController.setRecipeTargetServings(root.listId, value)
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: Theme.outline
+            }
+        }
+
+        // Préparation (recettes personnelles).
+        Rectangle {
+            id: prepBar
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.isRecipe && !root.shoppingMode
+                                    && prepBar.prepText.length > 0 ? 44 : 0
+            visible: Layout.preferredHeight > 0
+            clip: true
+            color: Theme.surface
+
+            property string prepText: AppController.recipeInstructions(root.listId)
+
+            ToolButton {
+                anchors.fill: parent
+                contentItem: Label {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.pad
+                    anchors.rightMargin: Theme.pad
+                    text: prepBar.prepText.length > 80
+                          ? prepBar.prepText.substring(0, 80) + "…"
+                          : prepBar.prepText
+                    color: Theme.textDim
+                    font.pixelSize: 13
+                    wrapMode: Text.NoWrap
+                    elide: Text.ElideRight
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: prepViewDialog.open()
             }
 
             Rectangle {
@@ -1355,6 +1398,65 @@ Item {
                 }
             }
         }
+    }
+
+    ColoDialog {
+        id: prepViewDialog
+        title: "Préparation"
+        showAccept: false
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.maximumHeight: 360
+            clip: true
+
+            Label {
+                width: parent.width
+                text: AppController.recipeInstructions(root.listId)
+                wrapMode: Text.WordWrap
+                color: Theme.text
+                font.pixelSize: 14
+            }
+        }
+
+        Button {
+            Layout.fillWidth: true
+            flat: true
+            text: "Modifier"
+            onClicked: {
+                prepViewDialog.close()
+                prepDialog.open()
+            }
+        }
+    }
+
+    ColoDialog {
+        id: prepDialog
+        title: "Préparation"
+        acceptText: "Enregistrer"
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 220
+            clip: true
+
+            TextArea {
+                id: prepField
+                width: parent.width
+                wrapMode: TextArea.Wrap
+                color: Theme.text
+                font.pixelSize: 14
+                selectByMouse: true
+                background: Rectangle {
+                    radius: 12
+                    color: Theme.surfaceHigh
+                    border.color: Theme.outline
+                }
+            }
+        }
+
+        onOpened: prepField.text = AppController.recipeInstructions(root.listId)
+        onAccepted: AppController.setRecipeInstructions(root.listId, prepField.text)
     }
 
     ColoDialog {

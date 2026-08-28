@@ -2,10 +2,13 @@
 
 #include "recipe_scale.h"
 
+#include <algorithm>
+
 #include <nlohmann/json.hpp>
 
 #include <QHash>
 #include <QSet>
+#include <QRegularExpression>
 
 namespace core {
 
@@ -26,6 +29,10 @@ static QString deaccent(const QString &s) {
 
 static QString normKey(const QString &s) {
     return deaccent(s.trimmed().toLower());
+}
+
+QString RecipeLibrary::normalizeSearchText(const QString &s) {
+    return normKey(s);
 }
 
 static QString jsonStringField(const nlohmann::json &node, const char *key) {
@@ -116,9 +123,13 @@ bool RecipeLibrary::loadFromJson(const QByteArray &json) {
             if (rec.ingredients.size() < 2)
                 continue;
 
+            rec.instructions = jsonStringField(node, "instructions");
+
             QString blob = normKey(rec.title) + QLatin1Char(' ') + normKey(rec.category);
             for (const auto &ing : rec.ingredients)
                 blob += QLatin1Char(' ') + normKey(ing.name);
+            if (!rec.instructions.isEmpty())
+                blob += QLatin1Char(' ') + normKey(rec.instructions);
             rec.searchBlob = blob;
 
             s_idIndex[rec.id] = s_recipes.size();
@@ -148,12 +159,55 @@ const LibraryRecipe *RecipeLibrary::recipeById(const QString &id) {
 }
 
 std::vector<int> RecipeLibrary::filterIndices(const QString &query) {
-    std::vector<int> out;
     const QString q = normKey(query);
+    const QStringList tokens = q.split(QRegularExpression(QStringLiteral("\\s+")),
+                                      Qt::SkipEmptyParts);
+
+    struct Scored { int index; int score; };
+    std::vector<Scored> scored;
+
     for (int i = 0; i < static_cast<int>(s_recipes.size()); ++i) {
-        if (q.isEmpty() || s_recipes[static_cast<size_t>(i)].searchBlob.contains(q))
-            out.push_back(i);
+        const LibraryRecipe &rec = s_recipes[static_cast<size_t>(i)];
+        if (!tokens.isEmpty()) {
+            bool allMatch = true;
+            int score = 0;
+            const QString titleNorm = normKey(rec.title);
+            const QString catNorm   = normKey(rec.category);
+            const QString instrNorm = normKey(rec.instructions);
+            for (const QString &tok : tokens) {
+                if (!rec.searchBlob.contains(tok)) {
+                    allMatch = false;
+                    break;
+                }
+                if (titleNorm.contains(tok))
+                    score += 20;
+                if (catNorm.contains(tok))
+                    score += 8;
+                for (const auto &ing : rec.ingredients) {
+                    if (normKey(ing.name).contains(tok))
+                        score += 5;
+                }
+                if (instrNorm.contains(tok))
+                    score += 3;
+            }
+            if (!allMatch)
+                continue;
+            scored.push_back({ i, score });
+        } else {
+            scored.push_back({ i, 0 });
+        }
     }
+
+    std::stable_sort(scored.begin(), scored.end(),
+                     [](const Scored &a, const Scored &b) {
+                         if (a.score != b.score)
+                             return a.score > b.score;
+                         return a.index < b.index;
+                     });
+
+    std::vector<int> out;
+    for (const auto &s : scored)
+        out.push_back(s.index);
     return out;
 }
 
