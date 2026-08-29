@@ -32,6 +32,16 @@ static constexpr int64_t kSnapAgeMs         = 7LL * 24 * 3600 * 1000; // 7 days
 static constexpr const char* kDeltaCountKey  = "sync.delta_count.";
 static constexpr const char* kLastSnapKey    = "sync.last_snap.";
 
+static bool relayAckMeansStored(bool accepted, const QString& msg)
+{
+    if (accepted)
+        return true;
+    const QString lower = msg.toLower();
+    return lower.contains(QStringLiteral("duplicate"))
+        || lower.contains(QStringLiteral("already"))
+        || lower.contains(QStringLiteral("stored"));
+}
+
 // ---------------------------------------------------------------------------
 // Construction / init
 // ---------------------------------------------------------------------------
@@ -305,7 +315,12 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
     const std::string eventId = ev.id.toStdString();
 
     // Dedup (DB-level persistence, survives restarts).
-    if (m_db->isEventSeen(eventId)) return;
+    // Événement déjà connu (souvent le nôtre renvoyé par le relais) : l'outbox
+    // peut encore le contenir si l'accusé OK a été perdu — le retirer ici.
+    if (m_db->isEventSeen(eventId)) {
+        removeOutboxEntryForEventId(ev.id);
+        return;
+    }
     m_db->markEventSeen(eventId);
 
     // Identify which list this belongs to (find list whose channelTag matches).
@@ -616,33 +631,57 @@ void SyncEngine::trackPendingAck(const QString& eventId, const std::string& list
         m_pendingAcks[eventId] = listId;
 }
 
-void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QString& /*msg*/)
+std::optional<std::string> SyncEngine::removeOutboxEntryForEventId(const QString& eventId)
 {
-    if (!accepted) return;
+    if (!m_db || eventId.isEmpty())
+        return std::nullopt;
 
-    // Remove from outbox tracking once at least one relay accepted.
-    auto it = m_pendingAcks.find(eventId);
-    if (it == m_pendingAcks.end()) return;
+    for (const auto& meta : m_db->getLists()) {
+        for (const auto& [rowid, json] : m_db->outboxPeekAll(meta.listId)) {
+            const QJsonDocument doc = QJsonDocument::fromJson(
+                QByteArray::fromStdString(json));
+            if (!doc.isObject())
+                continue;
+            const auto evOpt = net::NostrEvent::fromJson(doc.object());
+            if (!evOpt)
+                continue;
+            if (evOpt->id.compare(eventId, Qt::CaseInsensitive) != 0)
+                continue;
 
-    // Targeted removal by rowid: acks can arrive out of order (several relays,
-    // partial acceptance), so other entries must stay queued.
-    const std::string& listId = it->second;
-    const auto entries = m_db->outboxPeekAll(listId);
-    for (const auto& [rowid, json] : entries) {
-        const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(json));
-        if (!doc.isObject()) continue;
-        auto evOpt = net::NostrEvent::fromJson(doc.object());
-        if (evOpt && evOpt->id == eventId) {
             m_db->outboxRemove(rowid);
-            // Le relais a accusé réception : c'est ici, et nulle part ailleurs, que
-            // « en attente » devient « à jour ».
             emit outboxChanged();
-            break;
+            for (auto it = m_pendingAcks.begin(); it != m_pendingAcks.end(); ) {
+                if (it->first.compare(eventId, Qt::CaseInsensitive) == 0)
+                    it = m_pendingAcks.erase(it);
+                else
+                    ++it;
+            }
+            return meta.listId;
         }
     }
+    return std::nullopt;
+}
 
-    m_pendingAcks.erase(it);
-    maybeSendPushWake(listId);
+void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QString& msg)
+{
+    if (eventId.isEmpty() || !relayAckMeansStored(accepted, msg))
+        return;
+
+    std::optional<std::string> listId = removeOutboxEntryForEventId(eventId);
+    if (!listId) {
+        const auto it = m_pendingAcks.find(eventId);
+        if (it != m_pendingAcks.end())
+            listId = it->second;
+    }
+
+    for (auto it = m_pendingAcks.begin(); it != m_pendingAcks.end(); ) {
+        if (it->first.compare(eventId, Qt::CaseInsensitive) == 0)
+            it = m_pendingAcks.erase(it);
+        else
+            ++it;
+    }
+    if (listId)
+        maybeSendPushWake(*listId);
 }
 
 // ---------------------------------------------------------------------------

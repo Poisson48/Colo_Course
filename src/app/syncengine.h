@@ -134,6 +134,9 @@ private:
     // Once we get at least one OK, remove from outbox.
     void trackPendingAck(const QString& eventId, const std::string& listId);
 
+    // Retire l'outbox quand le relais confirme ou renvoie l'événement (echo EVENT).
+    std::optional<std::string> removeOutboxEntryForEventId(const QString& eventId);
+
     // Returns the channel tag for a list (derived from its key).
     std::optional<std::string> channelTagForList(const std::string& listId);
 
