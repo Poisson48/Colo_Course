@@ -103,20 +103,24 @@ Item {
 
             width: ListView.view.width - 2 * Theme.gap
             x: Theme.gap
-            height: 56
+            height: Math.max(58, contentLay.implicitHeight + 24)
             radius: 12
             color: Theme.surface
             border.color: Theme.outline
             border.width: 1
 
             RowLayout {
+                id: contentLay
                 anchors.fill: parent
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
-                spacing: 8
+                anchors.topMargin: 10
+                anchors.bottomMargin: 10
+                spacing: 10
 
                 Icon {
-                    Layout.alignment: Qt.AlignVCenter
+                    Layout.alignment: Qt.AlignTop
+                    Layout.topMargin: 2
                     name: "check"
                     color: Theme.accent
                     size: 16
@@ -124,15 +128,17 @@ Item {
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignVCenter
-                    spacing: 1
+                    spacing: 3
 
                     Label {
                         Layout.fillWidth: true
                         text: row.modelData.name
                         color: Theme.text
-                        font.pixelSize: 15
-                        elide: Text.ElideRight
+                        font.pixelSize: 16
+                        font.weight: Font.DemiBold
+                        wrapMode: Text.WordWrap
+                        lineHeight: 1.28
+                        lineHeightMode: Text.ProportionalHeight
                     }
 
                     Label {
@@ -148,7 +154,9 @@ Item {
                             return parts.join(" · ")
                         }
                         color: Theme.textDim
-                        font.pixelSize: 12
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
                         elide: Text.ElideRight
                     }
                 }

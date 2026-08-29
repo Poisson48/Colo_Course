@@ -263,7 +263,7 @@ Item {
         delegate: Item {
             id: wrapper
             width: listView.width - 2 * Theme.gap
-            height: 96
+            height: Math.max(96, card.implicitHeight)
 
             property int rowIndex: index
             // « Saisie » posée par la poignée à l'appui (fige la vue + détache la carte).
@@ -344,21 +344,24 @@ Item {
                             Layout.fillWidth: true
                             text: model.name
                             color: Theme.text
-                            font.pixelSize: 17
+                            font.pixelSize: 18
                             font.weight: Font.DemiBold
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 2
                             elide: Text.ElideRight
                         }
 
                         Label {
                             Layout.fillWidth: true
                             color: Theme.textDim
-                            font.pixelSize: 13
+                            font.pixelSize: 14
                             elide: Text.ElideRight
                             text: model.total === 0
                                   ? "Liste vide"
                                   : (model.count === 0
                                      ? "Tout est dans le panier"
-                                     : model.count + " à acheter sur " + model.total)
+                                     : model.count + " restant" + (model.count > 1 ? "s" : "")
+                                       + " sur " + model.total)
                         }
 
                         // Avec qui la liste est partagée.

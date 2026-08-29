@@ -34,6 +34,21 @@ Item {
         ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
         : listTitle
 
+    // Sous-titre dans la barre (Main.qml) : combien il reste à lire / acheter.
+    readonly property string pageSubtitle: {
+        if (selectionMode || shoppingMode || searchOpen)
+            return ""
+        const total = AppController.items.count
+        if (total === 0)
+            return ""
+        const left = total - AppController.items.doneCount
+        if (left === 0)
+            return "Tout est pris"
+        if (left === 1)
+            return "1 article restant"
+        return left + " articles restants"
+    }
+
     // L'écran reste allumé pour toute l'app (Main.qml), pas seulement en mode Courses.
 
     function closeSearch() {
@@ -274,8 +289,9 @@ Item {
                           ? "Liste vide"
                           : (AppController.items.doneCount === AppController.items.count
                              ? "Tout est dans le panier"
-                             : AppController.items.doneCount + " sur "
-                               + AppController.items.count + " dans le panier")
+                             : (AppController.items.count - AppController.items.doneCount)
+                               + " restant" + ((AppController.items.count - AppController.items.doneCount) > 1 ? "s" : "")
+                               + " · " + AppController.items.doneCount + " pris")
                     color: Theme.text
                     font.pixelSize: 14
                     font.weight: Font.DemiBold
@@ -458,19 +474,31 @@ Item {
             section.delegate: Item {
                 required property string section
                 width: items.width
-                height: AppController.items.aisleCount > 1 ? 34 : 0
+                height: AppController.items.aisleCount > 1 ? 38 : 0
                 visible: height > 0
 
-                Label {
+                Rectangle {
                     anchors.left: parent.left
-                    anchors.leftMargin: Theme.gap + 4
+                    anchors.leftMargin: Theme.gap
                     anchors.verticalCenter: parent.verticalCenter
-                    // Le rayon vide est réel (« non classé »), il lui faut un nom.
-                    text: parent.section.length > 0 ? parent.section : "Sans rayon"
-                    color: Theme.accent
-                    font.pixelSize: 12
-                    font.weight: Font.DemiBold
-                    font.capitalization: Font.AllUppercase
+                    height: 26
+                    width: Math.min(sectionLabel.implicitWidth + 16, parent.width - 2 * Theme.gap)
+                    radius: 13
+                    color: Theme.accentSoft
+
+                    Label {
+                        id: sectionLabel
+                        anchors.centerIn: parent
+                        width: parent.width - 12
+                        horizontalAlignment: Text.AlignHCenter
+                        // Le rayon vide est réel (« non classé »), il lui faut un nom.
+                        text: section.length > 0 ? section : "Sans rayon"
+                        color: Theme.accent
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                        font.capitalization: Font.AllUppercase
+                        elide: Text.ElideRight
+                    }
                 }
             }
 
@@ -509,8 +537,8 @@ Item {
                     width: wrapper.width - 2 * Theme.gap
                     x: Theme.gap
                     // S'adapte au nom enroulé (WordWrap) : une ligne courte reste compacte.
-                    height: Math.max(root.shoppingMode ? 68 : 60,
-                                     contentItem.implicitHeight + 8)
+                    height: Math.max(root.shoppingMode ? 72 : 60,
+                                     contentItem.implicitHeight + 10)
                     padding: 0
 
                     readonly property bool selected: root.isSelected(model.itemId)
@@ -564,54 +592,93 @@ Item {
                         }
 
                         ColumnLayout {
+                            id: textBlock
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignVCenter
                             Layout.leftMargin: 4
-                            spacing: 1
+                            spacing: 2
+                            opacity: model.done && !root.selectionMode ? 0.58 : 1.0
+                            Behavior on opacity { NumberAnimation { duration: 160 } }
+
+                            readonly property string filterText: AppController.items.filter
+                            readonly property string detail: root.detailLine(model.qty, model.note)
 
                             Label {
                                 Layout.fillWidth: true
-                                text: model.name
+                                text: textBlock.filterText.length > 0
+                                      ? root.highlightPlain(model.name, textBlock.filterText)
+                                      : model.name
+                                textFormat: textBlock.filterText.length > 0
+                                            ? Text.StyledText : Text.PlainText
                                 color: model.done ? Theme.textDim : Theme.text
-                                font.pixelSize: 16
+                                font.pixelSize: root.shoppingMode ? 18 : 16
                                 font.strikeout: model.done
+                                font.weight: root.shoppingMode ? Font.DemiBold : Font.Normal
+                                lineHeight: root.shoppingMode ? 1.35 : 1.28
+                                lineHeightMode: Text.ProportionalHeight
                                 wrapMode: Text.WordWrap
                             }
 
-                            // Quantité et description sur une ligne : « 2 \u00b7 sans sucre ».
+                            // Quantité et description : jusqu'à deux lignes, lisibles au doigt.
                             Label {
                                 Layout.fillWidth: true
                                 visible: text.length > 0
-                                text: {
-                                    const parts = []
-                                    if (model.qty && model.qty.length > 0)
-                                        parts.push(model.qty)
-                                    if (model.note && model.note.length > 0)
-                                        parts.push(model.note)
-                                    return parts.join(" \u00b7 ")
-                                }
+                                text: textBlock.filterText.length > 0
+                                      ? root.highlightPlain(textBlock.detail, textBlock.filterText)
+                                      : textBlock.detail
+                                textFormat: textBlock.filterText.length > 0
+                                            ? Text.StyledText : Text.PlainText
                                 color: Theme.textDim
-                                font.pixelSize: 13
+                                font.pixelSize: root.shoppingMode ? 14 : 13
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 2
                                 elide: Text.ElideRight
                             }
                         }
 
-                        // Vignette de la première photo, si l'article en a et que le
-                        // blob est déjà arrivé (sinon rien, jusqu'à la prochaine révision).
-                        Image {
-                            Layout.preferredWidth: visible ? 40 : 0
-                            Layout.preferredHeight: 40
-                            Layout.rightMargin: visible ? 4 : 0
+                        // Vignette de la première photo : plus grande, coins arrondis.
+                        // Un tap ouvre la photo sans passer par l'édition.
+                        Item {
+                            id: thumbHost
+                            Layout.preferredWidth: model.image.length > 0 ? 48 : 0
+                            Layout.preferredHeight: 48
+                            Layout.rightMargin: model.image.length > 0 ? 6 : 0
                             Layout.alignment: Qt.AlignVCenter
-                            visible: model.image.length > 0 && status === Image.Ready
-                            source: model.image.length > 0
-                                    ? "image://itemimg/" + model.image.split(" ")[0]
-                                      + "?r=" + AppController.imageRevision
-                                    : ""
-                            sourceSize.width: 80
-                            sourceSize.height: 80
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
+                            visible: model.image.length > 0
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 8
+                                clip: true
+                                color: Theme.surfaceHigh
+
+                                Image {
+                                    id: thumbImg
+                                    anchors.fill: parent
+                                    source: model.image.length > 0
+                                            ? "image://itemimg/" + model.image.split(" ")[0]
+                                              + "?r=" + AppController.imageRevision
+                                            : ""
+                                    sourceSize.width: 96
+                                    sourceSize.height: 96
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                }
+                            }
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 8
+                                color: "transparent"
+                                border.color: Theme.outline
+                                border.width: thumbImg.status === Image.Ready ? 1 : 0
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: thumbImg.status === Image.Ready
+                                onClicked: photoViewer.openFor(model.image.split(" ")[0])
+                            }
                         }
 
                         // Poignée de déplacement, toujours visible (hors sélection et
@@ -658,7 +725,7 @@ Item {
                             // confirme le geste à la place du regard.
                             AppController.vibrate()
                         } else {
-                            editDialog.openFor(model)
+                            readDialog.openFor(model)
                         }
                     }
 
@@ -722,6 +789,23 @@ Item {
                       : "Ajoutez un premier article ci-dessous."
                 color: Theme.textDim
                 font.pixelSize: 14
+            }
+
+            Button {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 4
+                visible: parent.filtering
+                flat: true
+                implicitHeight: Theme.touchTarget
+                contentItem: Label {
+                    text: "Effacer la recherche"
+                    color: Theme.accent
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: root.closeSearch()
             }
 
             Item { Layout.fillHeight: true }
@@ -1012,6 +1096,43 @@ Item {
         AppController.items.addItem(fav.name, fav.qty, "", fav.aisle)
     }
 
+    function escapeHtml(s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+
+    // Surligne le filtre de recherche dans un libellé (StyledText).
+    function highlightPlain(text, query) {
+        if (!query || query.length === 0)
+            return text
+        const q = query.toLowerCase()
+        const lower = text.toLowerCase()
+        let out = ""
+        let i = 0
+        const accent = Theme.accent.toString()
+        while (i < text.length) {
+            const idx = lower.indexOf(q, i)
+            if (idx < 0) {
+                out += escapeHtml(text.substring(i))
+                break
+            }
+            out += escapeHtml(text.substring(i, idx))
+            out += '<font color="' + accent + '"><b>'
+                 + escapeHtml(text.substring(idx, idx + query.length)) + '</b></font>'
+            i = idx + query.length
+        }
+        return out
+    }
+
+    // Quantité et note sur une ligne, pour l'affichage et la recherche.
+    function detailLine(qty, note) {
+        const parts = []
+        if (qty && qty.length > 0)
+            parts.push(qty)
+        if (note && note.length > 0)
+            parts.push(note)
+        return parts.join(" \u00b7 ")
+    }
+
     // Une date lisible : « aujourd'hui à 18:32 », « hier à 09:05 », sinon « 3 juil. à 14:20 ».
     function formatStamp(ms) {
         if (!ms || ms <= 0)
@@ -1029,6 +1150,149 @@ Item {
     }
 
     // --- Dialogues ---
+
+    // Lecture seule : lire nom, description et photos avant d'éditer.
+    ColoDialog {
+        id: readDialog
+        title: "Article"
+        acceptText: "Modifier"
+
+        property string itemId: ""
+        property string itemName: ""
+        property string itemQty: ""
+        property string itemNote: ""
+        property string itemAisle: ""
+        property string itemImage: ""
+        property real   createdMs: 0
+        property real   doneAtMs: 0
+        property string author: ""
+        property bool   itemDone: false
+
+        readonly property var photoShas: itemImage.length > 0
+            ? itemImage.split(" ").filter(s => s.length > 0) : []
+
+        function openFor(item) {
+            itemId    = item.itemId
+            itemName  = item.name
+            itemQty   = item.qty || ""
+            itemNote  = item.note || ""
+            itemAisle = item.aisle || ""
+            itemImage = item.image || ""
+            createdMs = item.created
+            doneAtMs  = item.doneAt
+            author    = item.byName || ""
+            itemDone  = item.done === true
+            open()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            text: readDialog.itemName
+            color: readDialog.itemDone ? Theme.textDim : Theme.text
+            font.pixelSize: 22
+            font.weight: Font.DemiBold
+            font.strikeout: readDialog.itemDone
+            wrapMode: Text.WordWrap
+            lineHeight: 1.25
+            lineHeightMode: Text.ProportionalHeight
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: text.length > 0
+            text: root.detailLine(readDialog.itemQty, readDialog.itemNote)
+            color: Theme.textDim
+            font.pixelSize: 16
+            wrapMode: Text.WordWrap
+            lineHeight: 1.35
+            lineHeightMode: Text.ProportionalHeight
+        }
+
+        Label {
+            Layout.fillWidth: true
+            visible: readDialog.itemAisle.length > 0
+            text: readDialog.itemAisle
+            color: Theme.accent
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+            font.capitalization: Font.AllUppercase
+        }
+
+        Flow {
+            Layout.fillWidth: true
+            spacing: 8
+            visible: readDialog.photoShas.length > 0
+
+            Repeater {
+                model: readDialog.photoShas
+                delegate: Item {
+                    width: 80
+                    height: 80
+                    required property string modelData
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 8
+                        clip: true
+                        color: Theme.surfaceHigh
+
+                        Image {
+                            id: readThumb
+                            anchors.fill: parent
+                            source: "image://itemimg/" + modelData
+                                    + "?r=" + AppController.imageRevision
+                            sourceSize.width: 160
+                            sourceSize.height: 160
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                        }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: photoViewer.openFor(modelData)
+                    }
+                }
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 12
+            text: {
+                const lines = []
+                const added = root.formatStamp(readDialog.createdMs)
+                if (added.length > 0) {
+                    lines.push(readDialog.author.length > 0
+                               ? "Ajouté par " + readDialog.author + " " + added
+                               : "Ajouté " + added)
+                }
+                if (readDialog.doneAtMs > 0)
+                    lines.push("Coché " + root.formatStamp(readDialog.doneAtMs))
+                return lines.join("\n")
+            }
+        }
+
+        onAccepted: {
+            const snap = {
+                itemId: readDialog.itemId,
+                name: readDialog.itemName,
+                qty: readDialog.itemQty,
+                note: readDialog.itemNote,
+                aisle: readDialog.itemAisle,
+                image: readDialog.itemImage,
+                created: readDialog.createdMs,
+                doneAt: readDialog.doneAtMs,
+                byName: readDialog.author,
+                done: readDialog.itemDone
+            }
+            readDialog.close()
+            editDialog.openFor(snap)
+        }
+    }
 
     ColoDialog {
         id: editDialog

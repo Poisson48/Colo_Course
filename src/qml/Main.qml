@@ -77,7 +77,8 @@ ApplicationWindow {
     // Barre supérieure : titre de la page courante + actions fournies par la page.
     header: Rectangle {
         color: Theme.surface
-        implicitHeight: 56
+        implicitHeight: (stack.currentItem && stack.currentItem.pageSubtitle
+                         && stack.currentItem.pageSubtitle.length > 0) ? 68 : 56
 
         RowLayout {
             anchors.fill: parent
@@ -104,15 +105,30 @@ ApplicationWindow {
                 }
             }
 
-            Label {
+            ColumnLayout {
                 Layout.fillWidth: true
                 Layout.leftMargin: stack.depth > 1 ? 4 : 12
-                text: stack.currentItem && stack.currentItem.pageTitle
-                      ? stack.currentItem.pageTitle : "Mes listes"
-                color: Theme.text
-                font.pixelSize: 20
-                font.weight: Font.DemiBold
-                elide: Text.ElideRight
+                spacing: 0
+
+                Label {
+                    Layout.fillWidth: true
+                    text: stack.currentItem && stack.currentItem.pageTitle
+                          ? stack.currentItem.pageTitle : "Mes listes"
+                    color: Theme.text
+                    font.pixelSize: 20
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: text.length > 0
+                    text: stack.currentItem && stack.currentItem.pageSubtitle
+                          ? stack.currentItem.pageSubtitle : ""
+                    color: Theme.textDim
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                }
             }
 
             // Chaque page expose ses propres boutons via `property Component actions`.
