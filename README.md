@@ -30,8 +30,8 @@ Téléchargez la dernière version — **[⬇️ Releases](../../releases/latest
 | **Android** (arm64) | `colocourse-*-arm64.apk` | Ouvrez l'APK sur le téléphone (autorisez l'installation depuis cette source), ou `adb install -r colocourse-*-arm64.apk` |
 
 L'AppImage embarque Qt : un fichier, aucune dépendance, il se lance tel quel.
-L'APK est signé avec la clé de publication du projet — les versions suivantes
-s'installent **par-dessus**, et l'app vous les proposera d'elle-même.
+Les mises à jour s'installent **par-dessus** sans perdre vos listes ; l'app vous propose
+la dernière version au démarrage.
 
 Pour tester à plusieurs : ouvrez l'app sur un premier appareil, créez une liste, partagez
 le QR code (ou le lien) aux autres — les modifications s'y synchronisent en direct.

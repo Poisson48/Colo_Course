@@ -95,20 +95,22 @@ jobs:
             cat <<'EOF'
           ## Installation
 
-          **PC / Linux (x86-64)** — l'AppImage `ColoCourse-*-x86_64.AppImage` :
-          `chmod +x ColoCourse-*.AppImage && ./ColoCourse-*.AppImage`. Autonome, rien à installer.
+          **PC / Linux (x86-64)** — `ColoCourse-*-x86_64.AppImage` :
+          `chmod +x ColoCourse-*.AppImage && ./ColoCourse-*.AppImage`
 
-          **Android (arm64)** — l'APK `colocourse-*-arm64.apk` : ouvrez-le sur le téléphone
+          **Android (arm64)** — `colocourse-*-arm64.apk` : ouvrez-le sur le téléphone
           (autorisez l'installation depuis cette source), ou `adb install -r colocourse-*-arm64.apk`.
-          Signé avec la clé de publication du projet : les versions suivantes s'installent
-          **par-dessus**, sans désinstaller ni perdre vos listes — et l'app vous les proposera.
 
-          *Venant d'une version Android antérieure à la v0.3.0 ? Ces APK-là portaient une
-          signature qui changeait à chaque build : une dernière désinstallation est
-          nécessaire avant d'installer celui-ci.*
+          Les mises à jour s'installent **par-dessus** sans perdre vos listes ; l'app vous
+          propose la dernière version au démarrage.
 
-          **Limite connue** : sans notifications push activées, les changements arrivent
-          à l'ouverture de l'app. Activez la veille push dans Réglages → Relais (Android).
+          ## Rappels
+
+          - **Sync** — relais par défaut : `wss://colo-apps.les-crevettes-cevenoles.fr`
+            (Listes → ⋮ → Relais de synchronisation).
+          - **Notifications push** (Android) — même menu : réveil quand quelqu'un modifie
+            une liste partagée, même app en arrière-plan.
+          - **Hors ligne** — les changements restent locaux et partent au retour du réseau.
           EOF
           } > notes.md
 
