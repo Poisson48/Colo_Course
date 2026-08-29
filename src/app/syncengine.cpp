@@ -8,7 +8,7 @@
 #include "../net/nostr.h"
 #include "../net/pushclient.h"
 
-#include <QHash>
+#include <QDateTime>
 #include <QDebug>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -680,6 +680,9 @@ void SyncEngine::resetDeltaCounter(const std::string& listId)
 
 void SyncEngine::showNotification(const QString& title, const QString& body, qint64 whenMs)
 {
+    if (m_deferBackgroundNotifs && !m_appInForeground)
+        return;
+
     if (platformNotify(title, body, whenMs))
         return;
 
@@ -727,7 +730,8 @@ void SyncEngine::maybeSendPushWake(const std::string &listId)
 
     net::sendPushWake(base,
                       net::pushTopicForChannel(QString::fromStdString(*tagOpt)),
-                      title);
+                      title,
+                      m_deviceId);
 }
 
 } // namespace app

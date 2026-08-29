@@ -46,10 +46,7 @@ int main(int argc, char *argv[])
     // la socket pendant la mise en veille, et toutes les listes doivent être
     // re-souscrites (multi-canaux).
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
-                     &controller, [&controller](Qt::ApplicationState state) {
-        if (state == Qt::ApplicationActive)
-            controller.resumeSync();
-    });
+                     &controller, &app::AppController::onApplicationStateChanged);
 
     // Types du scanner, dans le même module QML que les écrans (URI ColoCourse).
     // Sans Qt Multimedia, ScanPage.qml n'est pas embarquée : son Loader échoue

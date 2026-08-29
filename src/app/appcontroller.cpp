@@ -466,7 +466,7 @@ bool AppController::init() {
     m_syncEngine.subscribeAllLists();
     m_online = m_relayPool.isOnline();
 
-    refreshPushTopics();
+    onApplicationStateChanged(QGuiApplication::applicationState());
 
     return true;
 }
@@ -474,6 +474,18 @@ bool AppController::init() {
 void AppController::resumeSync() {
     m_relayPool.connectAll();
     m_syncEngine.catchUpOnForeground();
+}
+
+void AppController::onApplicationStateChanged(Qt::ApplicationState state)
+{
+    const bool active = (state == Qt::ApplicationActive);
+    m_syncEngine.setAppInForeground(active);
+    if (active) {
+        platformConfigurePush(QString(), {}, QString());
+        resumeSync();
+    } else {
+        refreshPushTopics();
+    }
 }
 
 QAbstractListModel *AppController::lists() const {
@@ -698,8 +710,16 @@ void AppController::setPushSettings(bool enabled, const QString &baseUrl)
 
 void AppController::refreshPushTopics()
 {
-    if (!pushEnabled()) {
-        platformConfigurePush(QString(), {});
+    const bool pushOn = pushEnabled();
+    m_syncEngine.setDeferBackgroundNotificationsToPush(pushOn);
+
+    if (!pushOn) {
+        platformConfigurePush(QString(), {}, QString());
+        return;
+    }
+
+    if (QGuiApplication::applicationState() == Qt::ApplicationActive) {
+        platformConfigurePush(QString(), {}, QString());
         return;
     }
 
@@ -708,7 +728,7 @@ void AppController::refreshPushTopics()
         topics.append(net::pushTopicForChannel(
             QString::fromStdString(net::deriveChannelTag(meta.key))));
     }
-    platformConfigurePush(pushBaseUrl(), topics);
+    platformConfigurePush(pushBaseUrl(), topics, m_deviceId);
 }
 
 void AppController::createList(const QString &title) {

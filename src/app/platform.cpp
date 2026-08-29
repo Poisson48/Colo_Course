@@ -105,7 +105,8 @@ void platformKeepScreenOn(bool on)
         "(Landroid/content/Context;Z)V", ctx.object(), static_cast<jboolean>(on));
 }
 
-void platformConfigurePush(const QString &baseUrl, const QStringList &topics)
+void platformConfigurePush(const QString &baseUrl, const QStringList &topics,
+                           const QString &deviceId)
 {
     const QJniObject ctx = androidContext();
     if (!ctx.isValid())
@@ -120,10 +121,11 @@ void platformConfigurePush(const QString &baseUrl, const QStringList &topics)
     }
 
     const QJniObject jUrl = QJniObject::fromString(baseUrl);
+    const QJniObject jDev = QJniObject::fromString(deviceId);
     QJniObject::callStaticMethod<void>(
         kPlatformClass, "configurePush",
-        "(Landroid/content/Context;Ljava/lang/String;[Ljava/lang/String;)V",
-        ctx.object(), jUrl.object<jstring>(), arr);
+        "(Landroid/content/Context;Ljava/lang/String;[Ljava/lang/String;Ljava/lang/String;)V",
+        ctx.object(), jUrl.object<jstring>(), arr, jDev.object<jstring>());
     env->DeleteLocalRef(arr);
 }
 
@@ -141,7 +143,7 @@ void platformVibrate(int) {}
 
 void platformKeepScreenOn(bool) {}
 
-void platformConfigurePush(const QString &, const QStringList &) {}
+void platformConfigurePush(const QString &, const QStringList &, const QString &) {}
 
 #endif
 

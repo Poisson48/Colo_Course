@@ -28,6 +28,7 @@ import java.io.OutputStream;
 public class Platform {
 
     public static final String CHANNEL_ID = "colocourse.sync";
+    public static final String CHANNEL_VEILLE_ID = "colocourse.veille";
     private static final int    NOTIFICATION_ID = 4545;
     private static final int    PERMISSION_REQUEST = 4545;
 
@@ -41,6 +42,15 @@ public class Platform {
                 CHANNEL_ID, "Synchronisation", NotificationManager.IMPORTANCE_DEFAULT);
         channel.setDescription("Changements reçus sur vos listes");
         nm.createNotificationChannel(channel);
+
+        if (nm.getNotificationChannel(CHANNEL_VEILLE_ID) == null) {
+            NotificationChannel veille = new NotificationChannel(
+                    CHANNEL_VEILLE_ID, "Veille en arrière-plan",
+                    NotificationManager.IMPORTANCE_MIN);
+            veille.setDescription("Service discret quand l'app est en arrière-plan");
+            veille.setShowBadge(false);
+            nm.createNotificationChannel(veille);
+        }
     }
 
     // Android 13+ : POST_NOTIFICATIONS est une permission runtime. Sans activité
@@ -62,8 +72,9 @@ public class Platform {
     }
 
     // ntfy : démarre ou arrête la veille push (topics = colo-{channelTag}).
-    public static void configurePush(Context ctx, String baseUrl, String[] topics) {
-        PushService.configure(ctx, baseUrl, topics);
+    public static void configurePush(Context ctx, String baseUrl, String[] topics,
+                                     String deviceId) {
+        PushService.configure(ctx, baseUrl, topics, deviceId);
     }
 
     // whenMs > 0 : horodatage de la notification = heure de la modification

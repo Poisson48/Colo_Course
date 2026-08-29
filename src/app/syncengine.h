@@ -58,6 +58,11 @@ public:
     // Nom affiché embarqué dans les payloads (members). Changeable à chaud.
     void setDisplayName(const QString& displayName) { m_displayName = displayName; }
 
+    void setDeferBackgroundNotificationsToPush(bool defer) {
+        m_deferBackgroundNotifs = defer;
+    }
+    void setAppInForeground(bool foreground) { m_appInForeground = foreground; }
+
     // Register an ItemModel for a given listId so incoming events
     // can refresh it directly (weak reference: model must outlive usage).
     void registerItemModel(const std::string& listId, ItemModel* model);
@@ -168,6 +173,9 @@ private:
     QSet<QString> m_subscribedChannels;
 
     QObject* m_tray = nullptr; // QSystemTrayIcon* when QtWidgets available
+
+    bool m_deferBackgroundNotifs = false;
+    bool m_appInForeground         = true;
 };
 
 } // namespace app

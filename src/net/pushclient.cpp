@@ -6,7 +6,8 @@
 
 namespace net {
 
-void sendPushWake(const QString &baseUrl, const QString &topic, const QString &title)
+void sendPushWake(const QString &baseUrl, const QString &topic, const QString &title,
+                  const QString &senderDeviceId)
 {
     if (baseUrl.isEmpty() || topic.isEmpty())
         return;
@@ -23,6 +24,10 @@ void sendPushWake(const QString &baseUrl, const QString &topic, const QString &t
     if (!title.isEmpty())
         req.setRawHeader("Title", title.toUtf8());
     req.setRawHeader("Priority", "3");
+    if (!senderDeviceId.isEmpty()) {
+        req.setRawHeader("Tags",
+                         QStringLiteral("device:%1").arg(senderDeviceId).toUtf8());
+    }
     req.setTransferTimeout(8000);
 
     nam.post(req, QByteArray("sync"));

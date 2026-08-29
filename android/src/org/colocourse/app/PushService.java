@@ -15,28 +15,32 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
-// Veille ntfy en arrière-plan : réveille l'app quand une autre personne modifie une liste.
-// Foreground service obligatoire sur Android 8+ (notification discrète « veille »).
+// Veille ntfy uniquement en arrière-plan (C++ arrête le service au premier plan).
 public class PushService extends Service {
 
     private static final String PREFS = "colocourse_push";
     private static final int FG_ID = 4546;
+    private static final long NOTIFY_COOLDOWN_MS = 60_000L;
 
     private volatile Thread worker;
     private volatile boolean running;
 
-    public static void configure(Context ctx, String baseUrl, String[] topics) {
+    public static void configure(Context ctx, String baseUrl, String[] topics,
+                                 String deviceId) {
         if (ctx == null)
             return;
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         prefs.edit()
                 .putString("baseUrl", baseUrl != null ? baseUrl.trim() : "")
-                .putStringSet("topics", new HashSet<>(Arrays.asList(topics != null ? topics : new String[0])))
+                .putString("deviceId", deviceId != null ? deviceId.trim() : "")
+                .putStringSet("topics", new HashSet<>(Arrays.asList(
+                        topics != null ? topics : new String[0])))
                 .apply();
 
         Intent intent = new Intent(ctx, PushService.class);
@@ -57,16 +61,18 @@ public class PushService extends Service {
         final Set<String> topics = prefs.getStringSet("topics", null);
 
         if (baseUrl.isEmpty() || topics == null || topics.isEmpty()) {
+            stopForeground(true);
             stopSelf();
             return START_NOT_STICKY;
         }
 
         Platform.createChannel(this);
-        Notification.Builder builder = new Notification.Builder(this, Platform.CHANNEL_ID)
+        Notification.Builder builder = new Notification.Builder(this, Platform.CHANNEL_VEILLE_ID)
                 .setSmallIcon(smallIcon())
                 .setContentTitle("Colo Course")
-                .setContentText("Veille des listes partagées")
-                .setOngoing(true);
+                .setContentText("Synchronisation en arrière-plan")
+                .setOngoing(true)
+                .setSilent(true);
         startForeground(FG_ID, builder.build());
 
         if (worker != null && worker.isAlive()) {
@@ -83,6 +89,8 @@ public class PushService extends Service {
     private void pollLoop(String baseUrl, Set<String> topics) {
         String root = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
         SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        final String ownDevice = prefs.getString("deviceId", "");
+        final String ownTag = ownDevice.isEmpty() ? "" : ("device:" + ownDevice);
 
         while (running) {
             for (String topic : topics) {
@@ -91,7 +99,12 @@ public class PushService extends Service {
                 try {
                     final String sinceKey = "since_" + topic;
                     final String since = prefs.getString(sinceKey, "");
-                    String pollUrl = root + topic + "/json?poll=1&since=" + since;
+                    final boolean priming = since.isEmpty();
+
+                    String pollUrl = root + topic + "/json?poll=1";
+                    if (!since.isEmpty())
+                        pollUrl += "&since=" + URLEncoder.encode(since, "UTF-8");
+
                     HttpURLConnection conn = (HttpURLConnection) new URL(pollUrl).openConnection();
                     conn.setRequestMethod("GET");
                     conn.setConnectTimeout(15000);
@@ -99,7 +112,7 @@ public class PushService extends Service {
 
                     if (conn.getResponseCode() != 200) {
                         conn.disconnect();
-                        sleep(5000);
+                        sleep(8000);
                         continue;
                     }
 
@@ -119,22 +132,44 @@ public class PushService extends Service {
                         if (!id.isEmpty())
                             prefs.edit().putString(sinceKey, id).apply();
 
-                        final String event = msg.optString("event", "message");
-                        if (!"message".equals(event))
+                        if (priming)
                             continue;
+
+                        if (!"message".equals(msg.optString("event", "message")))
+                            continue;
+
+                        if (!ownTag.isEmpty() && hasTag(msg, ownTag))
+                            continue;
+
+                        final long now = System.currentTimeMillis();
+                        final long last = prefs.getLong("lastNotify_" + topic, 0L);
+                        if (now - last < NOTIFY_COOLDOWN_MS)
+                            continue;
+                        prefs.edit().putLong("lastNotify_" + topic, now).apply();
 
                         String title = msg.optString("title", "");
                         if (title.isEmpty())
                             title = "Liste mise à jour";
-                        String body = msg.optString("message", "Synchronisation…");
-                        Platform.showNotification(PushService.this, title, body);
+                        Platform.showNotification(PushService.this, title,
+                                "Modifications reçues — ouvrez l'app pour voir le détail");
                     }
                 } catch (Exception e) {
                     sleep(8000);
                 }
             }
-            sleep(2000);
+            sleep(5000);
         }
+    }
+
+    private static boolean hasTag(JSONObject msg, String tag) {
+        JSONArray tags = msg.optJSONArray("tags");
+        if (tags == null)
+            return false;
+        for (int i = 0; i < tags.length(); ++i) {
+            if (tag.equals(tags.optString(i, "")))
+                return true;
+        }
+        return false;
     }
 
     private static void sleep(long ms) {
@@ -155,6 +190,7 @@ public class PushService extends Service {
         running = false;
         if (worker != null)
             worker.interrupt();
+        stopForeground(true);
         super.onDestroy();
     }
 

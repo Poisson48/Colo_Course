@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QGuiApplication>
 #include <QAbstractListModel>
 #include <QString>
 #include <QVariant>
@@ -305,6 +306,9 @@ public slots:
 
     // Reconnexion + rattrapage (retour au premier plan ou après coupure réseau).
     void resumeSync();
+
+    // Veille push ntfy : active seulement quand l'app n'est pas au premier plan.
+    void onApplicationStateChanged(Qt::ApplicationState state);
 
 signals:
     void onlineChanged();
