@@ -27,6 +27,8 @@ namespace app {
 static constexpr int     kDebounceMs        = 300;
 static constexpr int64_t kSnapDeltaThresh   = 100;    // deltas before forcing a snap
 static constexpr int64_t kSnapAgeMs         = 7LL * 24 * 3600 * 1000; // 7 days
+// Outbox : au-delà de ce délai sans ACK, l'event a déjà été republié — on purge.
+static constexpr int64_t kOutboxStaleMs     = 45'000;
 
 // Settings key prefixes
 static constexpr const char* kDeltaCountKey  = "sync.delta_count.";
@@ -539,6 +541,7 @@ void SyncEngine::onRelayOnline(bool online)
 
     // Flush outbox for all known lists.
     flushOutbox();
+    reconcileStuckOutbox();
 
     // (Re)subscribe all known lists.
     subscribeAllLists();
@@ -549,6 +552,7 @@ void SyncEngine::catchUpOnForeground()
     if (!m_pool || !m_pool->isOnline())
         return;
     flushOutbox();
+    reconcileStuckOutbox();
     subscribeAllLists();
 }
 
@@ -636,30 +640,68 @@ std::optional<std::string> SyncEngine::removeOutboxEntryForEventId(const QString
     if (!m_db || eventId.isEmpty())
         return std::nullopt;
 
-    for (const auto& meta : m_db->getLists()) {
-        for (const auto& [rowid, json] : m_db->outboxPeekAll(meta.listId)) {
-            const QJsonDocument doc = QJsonDocument::fromJson(
-                QByteArray::fromStdString(json));
-            if (!doc.isObject())
-                continue;
-            const auto evOpt = net::NostrEvent::fromJson(doc.object());
-            if (!evOpt)
-                continue;
-            if (evOpt->id.compare(eventId, Qt::CaseInsensitive) != 0)
-                continue;
+    for (const auto& row : m_db->outboxPeekAllEntries()) {
+        const QJsonDocument doc = QJsonDocument::fromJson(
+            QByteArray::fromStdString(row.eventJson));
+        if (!doc.isObject())
+            continue;
+        const auto evOpt = net::NostrEvent::fromJson(doc.object());
+        if (!evOpt)
+            continue;
+        if (evOpt->id.compare(eventId, Qt::CaseInsensitive) != 0)
+            continue;
 
-            m_db->outboxRemove(rowid);
-            emit outboxChanged();
-            for (auto it = m_pendingAcks.begin(); it != m_pendingAcks.end(); ) {
-                if (it->first.compare(eventId, Qt::CaseInsensitive) == 0)
-                    it = m_pendingAcks.erase(it);
-                else
-                    ++it;
-            }
-            return meta.listId;
+        m_db->outboxRemove(row.rowid);
+        emit outboxChanged();
+        for (auto it = m_pendingAcks.begin(); it != m_pendingAcks.end(); ) {
+            if (it->first.compare(eventId, Qt::CaseInsensitive) == 0)
+                it = m_pendingAcks.erase(it);
+            else
+                ++it;
         }
+        return row.listId;
     }
     return std::nullopt;
+}
+
+void SyncEngine::reconcileStuckOutbox()
+{
+    if (!m_db || !m_pool || !m_pool->isOnline())
+        return;
+
+    const int purged = m_db->outboxPurgeOrphaned();
+    if (purged > 0)
+        emit outboxChanged();
+
+    const int64_t now = QDateTime::currentMSecsSinceEpoch();
+    bool changed = false;
+    for (const auto& row : m_db->outboxPeekAllEntries()) {
+        if (now - row.created < kOutboxStaleMs)
+            continue;
+
+        const QJsonDocument doc = QJsonDocument::fromJson(
+            QByteArray::fromStdString(row.eventJson));
+        if (!doc.isObject()) {
+            m_db->outboxRemove(row.rowid);
+            changed = true;
+            continue;
+        }
+        const auto evOpt = net::NostrEvent::fromJson(doc.object());
+        if (!evOpt) {
+            m_db->outboxRemove(row.rowid);
+            changed = true;
+            continue;
+        }
+
+        if (m_db->isEventSeen(evOpt->id.toStdString())) {
+            qInfo() << "[SyncEngine] purging stale outbox entry" << evOpt->id.left(12);
+            m_db->outboxRemove(row.rowid);
+            m_pendingAcks.erase(evOpt->id);
+            changed = true;
+        }
+    }
+    if (changed)
+        emit outboxChanged();
 }
 
 void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QString& msg)

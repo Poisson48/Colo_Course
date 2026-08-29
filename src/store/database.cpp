@@ -1125,6 +1125,33 @@ std::vector<std::pair<int64_t, std::string>> Database::outboxPeekAll(const std::
     return result;
 }
 
+std::vector<Database::OutboxEntry> Database::outboxPeekAllEntries()
+{
+    std::vector<OutboxEntry> result;
+    QSqlQuery q(m_db);
+    if (!q.exec(QStringLiteral(
+            "SELECT rowid, list_id, event_json, created FROM outbox ORDER BY rowid ASC")))
+        return result;
+    while (q.next()) {
+        OutboxEntry row;
+        row.rowid      = q.value(0).toLongLong();
+        row.listId     = ss(q.value(1).toString());
+        row.eventJson  = ss(q.value(2).toString());
+        row.created    = q.value(3).toLongLong();
+        result.push_back(std::move(row));
+    }
+    return result;
+}
+
+int Database::outboxPurgeOrphaned()
+{
+    QSqlQuery q(m_db);
+    if (!q.exec(QStringLiteral(
+            "DELETE FROM outbox WHERE list_id NOT IN (SELECT list_id FROM lists)")))
+        return 0;
+    return q.numRowsAffected();
+}
+
 int Database::outboxCount()
 {
     QSqlQuery q(m_db);

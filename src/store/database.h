@@ -142,6 +142,16 @@ public:
     std::optional<std::pair<int64_t, std::string>> outboxPop(const std::string& listId);
     // Peek all entries for a list in FIFO order (rowid, eventJson).
     std::vector<std::pair<int64_t, std::string>> outboxPeekAll(const std::string& listId);
+    struct OutboxEntry {
+        int64_t     rowid = 0;
+        std::string listId;
+        std::string eventJson;
+        int64_t     created = 0;
+    };
+    // Toutes les entrées outbox (y compris listes supprimées).
+    std::vector<OutboxEntry> outboxPeekAllEntries();
+    // Efface les entrées orphelines (list_id absent de lists).
+    int outboxPurgeOrphaned();
     // Nombre d'événements en attente d'envoi, toutes listes confondues. C'est ce que
     // l'UI traduit par « modifications en attente » / « à jour ».
     int outboxCount();
