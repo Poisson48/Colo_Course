@@ -30,6 +30,9 @@ Item {
     // liste pour que le glissement l'emporte sur écran tactile.
     property bool rowDragging: false
 
+    // Mode Cuisine (recettes) : texte agrandi, préparation étape par étape.
+    property bool recipeCookMode: false
+
     readonly property string pageTitle: selectionMode
         ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
         : listTitle
@@ -75,6 +78,10 @@ Item {
         }
         if (shoppingMode) {
             shoppingMode = false
+            return true
+        }
+        if (recipeCookMode) {
+            recipeCookMode = false
             return true
         }
         return false
@@ -155,10 +162,59 @@ Item {
             onClicked: root.shoppingMode = true
         }
 
+        // Recette : action principale = envoyer les ingrédients vers une liste de courses.
+        ToolButton {
+            width: 100
+            height: Theme.touchTarget
+            visible: !root.selectionMode && !root.shoppingMode && root.isRecipe
+                     && !root.recipeCookMode
+            contentItem: Label {
+                text: "À la liste"
+                color: Theme.accent
+                font.pixelSize: 14
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: recipeImportPicker.open()
+        }
+
+        // Mode Cuisine : lecture pas à pas des étapes.
+        ToolButton {
+            width: 88
+            height: Theme.touchTarget
+            visible: !root.selectionMode && !root.shoppingMode && root.isRecipe
+                     && !root.recipeCookMode
+            contentItem: Label {
+                text: "Cuisine"
+                color: Theme.accent
+                font.pixelSize: 14
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: root.recipeCookMode = true
+        }
+
+        ToolButton {
+            width: 92
+            height: Theme.touchTarget
+            visible: root.recipeCookMode && !root.selectionMode
+            contentItem: Label {
+                text: "Terminer"
+                color: Theme.accent
+                font.pixelSize: 14
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: root.recipeCookMode = false
+        }
+
         ToolButton {
             width: Theme.touchTarget
             height: Theme.touchTarget
-            visible: !root.selectionMode && !root.shoppingMode
+            visible: !root.selectionMode && !root.shoppingMode && !root.recipeCookMode
             contentItem: Icon {
                 name: "menu"
                 color: Theme.text
@@ -376,94 +432,24 @@ Item {
             }
         }
 
-        // Recette : ajuster le nombre de personnes (quantités affichées à l'échelle).
-        Rectangle {
+        // Recette : vue de lecture unifiée (personnes, préparation, ingrédients).
+        RecipeReadView {
+            id: recipeView
             Layout.fillWidth: true
-            Layout.preferredHeight: root.isRecipe && !root.shoppingMode ? 52 : 0
-            visible: Layout.preferredHeight > 0
-            clip: true
-            color: Theme.surface
-            Behavior on Layout.preferredHeight { NumberAnimation { duration: 140 } }
-
-            ServingsStepper {
-                id: recipeServings
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Theme.pad
-                value: AppController.recipeTargetServings(root.listId)
-                onValueChanged: AppController.setRecipeTargetServings(root.listId, value)
-            }
-
-            Rectangle {
-                anchors.bottom: parent.bottom
-                width: parent.width
-                height: 1
-                color: Theme.outline
-            }
-        }
-
-        // Préparation (recettes) — aperçu lisible, tap = lecture plein écran.
-        Rectangle {
-            id: prepBar
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.isRecipe && !root.shoppingMode
-                                    && prepBar.prepText.length > 0
-                                    ? Math.min(prepCol.implicitHeight + Theme.pad * 2, 120) : 0
-            visible: Layout.preferredHeight > 0
-            clip: true
-            color: Theme.surface
-
-            property string prepText: AppController.recipeInstructions(root.listId)
-
-            ColumnLayout {
-                id: prepCol
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Theme.pad
-                anchors.rightMargin: Theme.pad
-                spacing: 4
-
-                Label {
-                    Layout.fillWidth: true
-                    text: "Préparation"
-                    color: Theme.accent
-                    font.pixelSize: 11
-                    font.weight: Font.DemiBold
-                    font.capitalization: Font.AllUppercase
-                }
-
-                Label {
-                    id: prepPreview
-                    Layout.fillWidth: true
-                    text: prepBar.prepText
-                    color: Theme.text
-                    font.pixelSize: 15
-                    lineHeight: 1.38
-                    lineHeightMode: Text.ProportionalHeight
-                    wrapMode: Text.WordWrap
-                    maximumLineCount: 4
-                    elide: Text.ElideRight
-                }
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                onClicked: prepViewDialog.open()
-            }
-
-            Rectangle {
-                anchors.bottom: parent.bottom
-                width: parent.width
-                height: 1
-                color: Theme.outline
-            }
+            Layout.fillHeight: true
+            visible: root.isRecipe
+            listId: root.listId
+            cookMode: root.recipeCookMode
+            filterText: AppController.items.filter
+            onIngredientClicked: function (item) { readDialog.openFor(item) }
+            onEditPrepRequested: prepDialog.open()
         }
 
         ListView {
             id: items
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: !root.isRecipe
             clip: true
             model: AppController.items
             // La vue ne se fige QUE pendant qu'une poignée est tenue : sinon elle
@@ -514,7 +500,9 @@ Item {
                         width: parent.width - 12
                         horizontalAlignment: Text.AlignHCenter
                         // Le rayon vide est réel (« non classé »), il lui faut un nom.
-                        text: section.length > 0 ? section : "Sans rayon"
+                        text: root.isRecipe
+                              ? (section.length > 0 ? section : "Ingrédients")
+                              : (section.length > 0 ? section : "Sans rayon")
                         color: Theme.accent
                         font.pixelSize: 11
                         font.weight: Font.DemiBold
@@ -782,7 +770,7 @@ Item {
         // État vide. Une liste vide et une recherche sans résultat ne se disent pas
         // pareil : « ajoutez un article » quand on cherche « harissa » serait absurde.
         ColumnLayout {
-            visible: items.count === 0
+            visible: items.count === 0 && !root.isRecipe
             Layout.alignment: Qt.AlignCenter
             Layout.fillHeight: true
             Layout.leftMargin: 40
@@ -796,7 +784,8 @@ Item {
             Label {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignHCenter
-                text: parent.filtering ? "Aucun résultat" : "Liste vide"
+                text: parent.filtering ? "Aucun résultat"
+                      : (root.isRecipe ? "Aucun ingrédient" : "Liste vide")
                 color: Theme.text
                 font.pixelSize: 18
                 font.weight: Font.DemiBold
@@ -807,8 +796,12 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
                 text: parent.filtering
-                      ? "Aucun article ne correspond à « " + AppController.items.filter + " »."
-                      : "Ajoutez un premier article ci-dessous."
+                      ? (root.isRecipe
+                         ? "Aucun ingrédient ne correspond à « " + AppController.items.filter + " »."
+                         : "Aucun article ne correspond à « " + AppController.items.filter + " ».")
+                      : (root.isRecipe
+                         ? "Ajoutez le premier ingrédient ci-dessous."
+                         : "Ajoutez un premier article ci-dessous.")
                 color: Theme.textDim
                 font.pixelSize: 14
             }
@@ -860,6 +853,7 @@ Item {
 
                 readonly property bool visibleBar: count > 0 && !root.selectionMode
                                                    && !root.shoppingMode && !root.searchOpen
+                                                   && !root.isRecipe
 
                 delegate: Rectangle {
                     required property var modelData
@@ -915,6 +909,7 @@ Item {
             // et la barre reste sur une ligne le reste du temps.
             implicitHeight: root.composing ? 118 : 72
             visible: !root.selectionMode && !root.shoppingMode
+                     && (!root.isRecipe || !root.recipeCookMode)
             color: Theme.surface
             clip: true
             Behavior on implicitHeight { NumberAnimation { duration: 120 } }
@@ -937,7 +932,7 @@ Item {
                     ColoTextField {
                         id: nameField
                         Layout.fillWidth: true
-                        hint: "Ajouter un article"
+                        hint: root.isRecipe ? "Ajouter un ingrédient" : "Ajouter un article"
                         onAccepted: root.addItem()
                         // Pré-remplir le rayon d'après les articles déjà classés (« pain »
                         // → Boulangerie), tant que l'utilisateur n'a pas choisi lui-même.
@@ -992,7 +987,7 @@ Item {
                     ColoTextField {
                         id: addNoteField
                         Layout.fillWidth: true
-                        hint: "Description (facultatif)"
+                        hint: root.isRecipe ? "Précision (facultatif)" : "Description (facultatif)"
                         onAccepted: root.addItem()
                     }
 
@@ -1000,6 +995,7 @@ Item {
                         id: addAisleBox
                         objectName: "addAisleBox"
                         Layout.preferredWidth: 132
+                        visible: !root.isRecipe
                         // Un choix manuel fige le rayon : on cesse de le pré-remplir.
                         onChosen: root.aisleManual = true
                     }
@@ -1153,6 +1149,26 @@ Item {
         if (note && note.length > 0)
             parts.push(note)
         return parts.join(" \u00b7 ")
+    }
+
+    // Numérote les lignes de préparation pour la lecture pas à pas.
+    function formatPrepSteps(text) {
+        if (!text || text.length === 0)
+            return ""
+        const lines = text.split("\n")
+        let out = ""
+        let n = 0
+        for (let i = 0; i < lines.length; ++i) {
+            const line = lines[i].trim()
+            if (line.length === 0) {
+                out += "<br>"
+                continue
+            }
+            ++n
+            out += '<span style="color:' + Theme.accent.toString() + '"><b>'
+                 + n + '.</b></span> ' + escapeHtml(line) + "<br>"
+        }
+        return out
     }
 
     // Une date lisible : « aujourd'hui à 18:32 », « hier à 09:05 », sinon « 3 juil. à 14:20 ».
@@ -1651,6 +1667,7 @@ Item {
             Layout.fillWidth: true
             visible: recipeImportPicker.destinations.length > 0
             value: recipeImportPicker.targetServings
+            baseServings: AppController.recipeBaseServings(root.listId)
             onValueChanged: recipeImportPicker.targetServings = value
         }
 
@@ -1691,7 +1708,7 @@ Item {
 
     ColoDialog {
         id: prepViewDialog
-        title: "Préparation"
+        title: "Préparation · " + AppController.recipeTargetServings(root.listId) + " pers."
         showAccept: false
 
         ScrollView {
@@ -1704,11 +1721,12 @@ Item {
             Label {
                 id: prepViewLabel
                 width: prepViewScroll.availableWidth
-                text: AppController.recipeInstructions(root.listId)
+                text: root.formatPrepSteps(AppController.recipeInstructions(root.listId))
+                textFormat: Text.RichText
                 wrapMode: Text.WordWrap
                 color: Theme.text
                 font.pixelSize: 16
-                lineHeight: 1.45
+                lineHeight: 1.5
                 lineHeightMode: Text.ProportionalHeight
             }
         }

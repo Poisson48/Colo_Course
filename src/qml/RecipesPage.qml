@@ -8,6 +8,32 @@ Item {
 
     readonly property string pageTitle: "Recettes"
 
+    function escapeHtml(s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+
+    function highlightPlain(text, query) {
+        if (!query || query.length === 0)
+            return text
+        const q = query.toLowerCase()
+        const lower = text.toLowerCase()
+        let out = ""
+        let i = 0
+        const accent = Theme.accent.toString()
+        while (i < text.length) {
+            const idx = lower.indexOf(q, i)
+            if (idx < 0) {
+                out += escapeHtml(text.substring(i))
+                break
+            }
+            out += escapeHtml(text.substring(i, idx))
+            out += '<font color="' + accent + '"><b>'
+                 + escapeHtml(text.substring(idx, idx + query.length)) + '</b></font>'
+            i = idx + query.length
+        }
+        return out
+    }
+
     property Component actions: Row {
         spacing: 0
 
@@ -96,6 +122,34 @@ Item {
                 font.pixelSize: 15
             }
 
+            Button {
+                Layout.alignment: Qt.AlignHCenter
+                visible: recipesView.count === 0 && myRecipesSearch.text.length > 0
+                flat: true
+                implicitHeight: Theme.touchTarget
+                contentItem: Label {
+                    text: "Effacer la recherche"
+                    color: Theme.accent
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                }
+                onClicked: {
+                    myRecipesSearch.text = ""
+                    AppController.recipes.filter = ""
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.gap
+                Layout.rightMargin: Theme.gap
+                Layout.bottomMargin: 4
+                visible: myRecipesSearch.text.length > 0 && recipesView.count > 0
+                text: recipesView.count + (recipesView.count > 1 ? " recettes" : " recette")
+                color: Theme.textDim
+                font.pixelSize: 12
+            }
+
             ListView {
                 id: recipesView
                 Layout.fillWidth: true
@@ -126,39 +180,64 @@ Item {
                         border.width: 1
                     }
 
-                    contentItem: ColumnLayout {
+                    contentItem: RowLayout {
                         anchors.fill: parent
                         anchors.margins: 14
-                        spacing: 2
+                        spacing: 10
 
-                        Label {
-                            Layout.fillWidth: true
-                            text: card.name
-                            color: Theme.text
-                            font.pixelSize: 17
-                            font.weight: Font.DemiBold
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
-                            lineHeight: 1.25
-                            lineHeightMode: Text.ProportionalHeight
+                        Rectangle {
+                            Layout.preferredWidth: 36
+                            Layout.preferredHeight: 36
+                            Layout.alignment: Qt.AlignVCenter
+                            radius: 18
+                            color: Theme.accent
+
+                            Label {
+                                anchors.centerIn: parent
+                                text: card.name.length > 0 ? card.name.charAt(0).toUpperCase() : "R"
+                                color: Theme.onAccent
+                                font.pixelSize: 15
+                                font.weight: Font.DemiBold
+                            }
                         }
 
-                        Label {
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            text: {
-                                const parts = []
-                                parts.push(card.total + (card.total > 1
-                                            ? " ingrédients" : " ingrédient"))
-                                if (card.memberCount > 0)
-                                    parts.push("partagée avec " + card.members)
-                                return parts.join(" · ")
+                            spacing: 2
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: myRecipesSearch.text.length > 0
+                                      ? root.highlightPlain(card.name, myRecipesSearch.text)
+                                      : card.name
+                                textFormat: myRecipesSearch.text.length > 0
+                                            ? Text.StyledText : Text.PlainText
+                                color: Theme.text
+                                font.pixelSize: 17
+                                font.weight: Font.DemiBold
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                                lineHeight: 1.25
+                                lineHeightMode: Text.ProportionalHeight
                             }
-                            color: Theme.textDim
-                            font.pixelSize: 14
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: {
+                                    const parts = []
+                                    parts.push(card.total + (card.total > 1
+                                                ? " ingrédients" : " ingrédient"))
+                                    if (card.memberCount > 0)
+                                        parts.push("partagée avec " + card.members)
+                                    return parts.join(" · ")
+                                }
+                                color: Theme.textDim
+                                font.pixelSize: 14
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                            }
                         }
                     }
 
@@ -219,6 +298,35 @@ Item {
                 font.pixelSize: 15
             }
 
+            Button {
+                Layout.alignment: Qt.AlignHCenter
+                visible: AppController.recipeLibraryCount > 0 && catalogView.count === 0
+                          && catalogSearch.text.length > 0
+                flat: true
+                implicitHeight: Theme.touchTarget
+                contentItem: Label {
+                    text: "Effacer la recherche"
+                    color: Theme.accent
+                    font.pixelSize: 14
+                    font.weight: Font.DemiBold
+                }
+                onClicked: {
+                    catalogSearch.text = ""
+                    AppController.recipeLibrary.filter = ""
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.gap
+                Layout.rightMargin: Theme.gap
+                visible: catalogSearch.text.length > 0 && catalogView.count > 0
+                text: catalogView.count + " sur ~"
+                      + AppController.recipeLibraryCount + " recettes"
+                color: Theme.textDim
+                font.pixelSize: 12
+            }
+
             ListView {
                 id: catalogView
                 Layout.fillWidth: true
@@ -237,6 +345,7 @@ Item {
                     required property string category
                     required property string servings
                     required property int ingredientCount
+                    required property int baseServings
 
                     width: catalogView.width - catalogView.leftMargin - catalogView.rightMargin
                     height: Math.max(76, libCard.implicitHeight)
@@ -248,46 +357,76 @@ Item {
                         border.width: 1
                     }
 
-                    contentItem: ColumnLayout {
+                    contentItem: RowLayout {
                         anchors.fill: parent
                         anchors.margins: 14
-                        spacing: 2
+                        spacing: 10
 
-                        Label {
-                            Layout.fillWidth: true
-                            text: libCard.title
-                            color: Theme.text
-                            font.pixelSize: 17
-                            font.weight: Font.DemiBold
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
-                            lineHeight: 1.25
-                            lineHeightMode: Text.ProportionalHeight
+                        Rectangle {
+                            Layout.preferredWidth: 36
+                            Layout.preferredHeight: 36
+                            Layout.alignment: Qt.AlignVCenter
+                            radius: 18
+                            color: Theme.accentSoft
+                            border.color: Theme.accent
+                            border.width: 1
+
+                            Label {
+                                anchors.centerIn: parent
+                                text: libCard.title.length > 0 ? libCard.title.charAt(0).toUpperCase() : "?"
+                                color: Theme.accent
+                                font.pixelSize: 15
+                                font.weight: Font.DemiBold
+                            }
                         }
 
-                        Label {
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            text: {
-                                const parts = []
-                                parts.push(libCard.ingredientCount
-                                           + (libCard.ingredientCount > 1
-                                              ? " ingrédients" : " ingrédient"))
-                                if (libCard.category.length > 0)
-                                    parts.push(libCard.category)
-                                if (libCard.servings.length > 0)
-                                    parts.push(libCard.servings)
-                                return parts.join(" · ")
+                            spacing: 2
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: catalogSearch.text.length > 0
+                                      ? root.highlightPlain(libCard.title, catalogSearch.text)
+                                      : libCard.title
+                                textFormat: catalogSearch.text.length > 0
+                                            ? Text.StyledText : Text.PlainText
+                                color: Theme.text
+                                font.pixelSize: 17
+                                font.weight: Font.DemiBold
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                                lineHeight: 1.25
+                                lineHeightMode: Text.ProportionalHeight
                             }
-                            color: Theme.textDim
-                            font.pixelSize: 14
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
+
+                            Label {
+                                Layout.fillWidth: true
+                                text: {
+                                    const parts = []
+                                    parts.push(libCard.ingredientCount
+                                               + (libCard.ingredientCount > 1
+                                                  ? " ingrédients" : " ingrédient"))
+                                    if (libCard.category.length > 0)
+                                        parts.push(libCard.category)
+                                    if (libCard.baseServings > 0)
+                                        parts.push(libCard.baseServings + " pers.")
+                                    else if (libCard.servings.length > 0)
+                                        parts.push(libCard.servings)
+                                    return parts.join(" · ")
+                                }
+                                color: Theme.textDim
+                                font.pixelSize: 14
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                            }
                         }
                     }
 
-                    onClicked: catalogDetail.openFor(libCard.libraryId, libCard.title)
+                    onClicked: catalogDetail.openFor(libCard.libraryId, libCard.title,
+                                                      libCard.category, libCard.baseServings)
                 }
             }
         }
@@ -347,13 +486,17 @@ Item {
 
         property string libraryId: ""
         property string recipeTitle: ""
+        property string recipeCategory: ""
         property int targetServings: 4
+        property int baseServings: 4
         property string instructionsText: libraryId.length > 0
                 ? AppController.libraryInstructions(libraryId) : ""
 
-        function openFor(id, title) {
+        function openFor(id, title, category, base) {
             libraryId = id
             recipeTitle = title
+            recipeCategory = category || ""
+            baseServings = base > 0 ? base : 4
             targetServings = AppController.libraryBaseServings(id)
             open()
         }
@@ -369,9 +512,43 @@ Item {
             lineHeightMode: Text.ProportionalHeight
         }
 
+        Flow {
+            Layout.fillWidth: true
+            spacing: 6
+            visible: catalogDetail.recipeCategory.length > 0 || catalogDetail.baseServings > 0
+
+            Repeater {
+                model: {
+                    const chips = []
+                    if (catalogDetail.recipeCategory.length > 0)
+                        chips.push(catalogDetail.recipeCategory)
+                    if (catalogDetail.baseServings > 0)
+                        chips.push(catalogDetail.baseServings + " pers.")
+                    return chips
+                }
+                delegate: Rectangle {
+                    required property string modelData
+                    height: 24
+                    width: chipLabel.implicitWidth + 16
+                    radius: 12
+                    color: Theme.accentSoft
+
+                    Label {
+                        id: chipLabel
+                        anchors.centerIn: parent
+                        text: modelData
+                        color: Theme.accent
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                    }
+                }
+            }
+        }
+
         ServingsStepper {
             Layout.fillWidth: true
             value: catalogDetail.targetServings
+            baseServings: catalogDetail.baseServings
             minimum: 1
             onValueChanged: catalogDetail.targetServings = value
         }
@@ -398,23 +575,36 @@ Item {
                 Repeater {
                     model: AppController.libraryIngredients(catalogDetail.libraryId,
                                                            catalogDetail.targetServings)
-                    delegate: Label {
+                    delegate: RowLayout {
                         required property var modelData
                         Layout.fillWidth: true
-                        Layout.maximumWidth: ingredientsScroll.availableWidth
-                        text: {
-                            let s = modelData.name
-                            if (modelData.qty && modelData.qty.length > 0)
-                                s = modelData.qty + " " + s
-                            if (modelData.note && modelData.note.length > 0)
-                                s += " (" + modelData.note + ")"
-                            return s
+                        spacing: 8
+
+                        Label {
+                            text: "•"
+                            color: Theme.accent
+                            font.pixelSize: 16
+                            font.weight: Font.DemiBold
+                            Layout.alignment: Qt.AlignTop
+                            Layout.topMargin: 1
                         }
-                        wrapMode: Text.WordWrap
-                        color: Theme.text
-                        font.pixelSize: 15
-                        lineHeight: 1.35
-                        lineHeightMode: Text.ProportionalHeight
+
+                        Label {
+                            Layout.fillWidth: true
+                            text: {
+                                let s = modelData.name
+                                if (modelData.qty && modelData.qty.length > 0)
+                                    s = modelData.qty + " " + s
+                                if (modelData.note && modelData.note.length > 0)
+                                    s += " (" + modelData.note + ")"
+                                return s
+                            }
+                            wrapMode: Text.WordWrap
+                            color: Theme.text
+                            font.pixelSize: 15
+                            lineHeight: 1.35
+                            lineHeightMode: Text.ProportionalHeight
+                        }
                     }
                 }
             }
@@ -488,6 +678,7 @@ Item {
             Layout.fillWidth: true
             visible: addToListPicker.destinations.length > 0
             value: addToListPicker.targetServings
+            baseServings: AppController.recipeBaseServings(addToListPicker.recipeId)
             onValueChanged: addToListPicker.targetServings = value
         }
 

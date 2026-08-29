@@ -155,6 +155,7 @@ set(COLO_QML_FILES
     qml/AisleBox.qml
     qml/Icon.qml
     qml/ServingsStepper.qml
+    qml/RecipeReadView.qml
     qml/FilePickers.qml
 )
 if(COLO_HAS_CAMERA)

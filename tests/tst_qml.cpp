@@ -170,6 +170,96 @@ private slots:
             }
         }
 
+        // Recette longue : lecture unifiée + mode Cuisine (validation visuelle).
+        core::ListMeta rec;
+        rec.listId = "rec-boeuf";
+        rec.key = std::vector<uint8_t>(32, 9);
+        rec.title = "Bœuf bourguignon";
+        rec.titleVer = {1, "dev-A"};
+        rec.lamport = 1;
+        rec.created = 500;
+        rec.kind = "recipe";
+        db.createList(rec);
+        db.setSetting("recipeServings/rec-boeuf", "6");
+        m_ctrl.setRecipeInstructions(QStringLiteral("rec-boeuf"),
+            QStringLiteral(
+                "Couper la viande en cubes de 4 cm et la fariner légèrement.\n"
+                "Dans une cocotte, colorer les lardons puis les retirer.\n"
+                "Saisir la viande par poignées jusqu'à belle coloration ambrée.\n"
+                "Ajouter les oignons et les carottes émincés, laisser fondre 5 min.\n"
+                "Verser le vin rouge, gratter les sucs, porter à frémissement.\n"
+                "Ajouter le bouillon, l'ail, le thym et le laurier.\n"
+                "Couvrir et mijoter 2 h 30 à feu doux.\n"
+                "Repasser les champignons au beurre, les ajouter 20 min avant la fin.\n"
+                "Rectifier l'assaisonnement et servir avec des pommes vapeur."));
+        struct Ing { const char *name, *qty, *note; };
+        const Ing ings[] = {
+            { "Paleron ou joue de bœuf", "1,2 kg", "coupé en gros cubes" },
+            { "Lardons fumés", "200 g", "" },
+            { "Oignons grelots", "24", "pelés" },
+            { "Carottes", "4", "épluchées, épaisses" },
+            { "Champignons de Paris", "400 g", "quartiers" },
+            { "Vin rouge de Bourgogne", "750 ml", "Pinot noir" },
+            { "Bouillon de bœuf", "200 ml", "" },
+            { "Farine", "3 c. à s.", "pour enrober" },
+            { "Beurre doux", "50 g", "" },
+            { "Huile d'olive", "2 c. à s.", "" },
+            { "Gousses d'ail", "4", "écrasées" },
+            { "Thym frais", "4 brins", "" },
+            { "Laurier", "2 feuilles", "" },
+            { "Sel fin", "", "au goût" },
+            { "Poivre noir", "", "moulu" },
+            { "Clous de girofle", "2", "optionnel" },
+            { "Cognac", "3 c. à s.", "pour flamber" },
+            { "Tomates concassées", "100 g", "optionnel" },
+            { "Bouquet garni", "1", "" },
+            { "Persil plat", "1 botte", "haché pour servir" },
+            { "Pommes de terre", "1 kg", "vapeur pour accompagner" },
+            { "Sucre", "1 pincée", "pour équilibrer" },
+        };
+        i = 0;
+        for (const auto &ing : ings) {
+            core::Item it;
+            it.listId = "rec-boeuf";
+            it.itemId = QString("ing-%1").arg(i).toStdString();
+            it.created = now + i * 1000;
+            it.order = 2000 + i;
+            it.by = "dev-A";
+            it.name = ing.name;
+            it.qty = ing.qty;
+            it.note = ing.note;
+            const core::Ver v{1, "dev-A"};
+            it.nameVer = it.qtyVer = it.noteVer = it.orderVer = it.delVer = v;
+            db.upsertItem(it);
+            ++i;
+        }
+        m_ctrl.items()->load(db, "rec-boeuf", "dev-A");
+
+        QMetaObject::invokeMethod(&m_ctrl, "listOpened",
+                                  Q_ARG(QString, "rec-boeuf"),
+                                  Q_ARG(QString, "Bœuf bourguignon"));
+        QTest::qWait(300);
+        win->grabWindow().save(outDir + "/recipe.png");
+
+        QQuickItem *recipeScroll = window->findChild<QQuickItem *>(
+            QStringLiteral("recipeScroll"));
+        if (recipeScroll) {
+            recipeScroll->setProperty("contentY", 520);
+            QTest::qWait(200);
+            win->grabWindow().save(outDir + "/recipe-ingredients.png");
+        }
+
+        QObject *recipePage = nullptr;
+        for (QObject *o : window->findChildren<QObject *>()) {
+            if (o->property("recipeCookMode").isValid())
+                recipePage = o;
+        }
+        if (recipePage) {
+            recipePage->setProperty("recipeCookMode", true);
+            QTest::qWait(250);
+            win->grabWindow().save(outDir + "/recipe-cook.png");
+        }
+
         delete window;
     }
 

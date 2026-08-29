@@ -9,6 +9,8 @@ RowLayout {
     property int value: 4
     property int minimum: 1
     property int maximum: 99
+    // Base de la recette : affiche « (pour 4) » quand la recette n'est pas calibrée là-dessus.
+    property int baseServings: 0
 
     spacing: 8
 
@@ -59,5 +61,16 @@ RowLayout {
         text: "personnes"
         color: Theme.textDim
         font.pixelSize: 14
+    }
+
+    Label {
+        visible: root.baseServings > 0
+        text: root.baseServings === root.value
+              ? "(recette pour " + root.baseServings + ")"
+              : "(base " + root.baseServings + " pers.)"
+        color: Theme.textDim
+        font.pixelSize: 12
+        elide: Text.ElideRight
+        Layout.fillWidth: true
     }
 }
