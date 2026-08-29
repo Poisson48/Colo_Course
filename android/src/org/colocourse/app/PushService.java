@@ -71,8 +71,7 @@ public class PushService extends Service {
                 .setSmallIcon(smallIcon())
                 .setContentTitle("Colo Course")
                 .setContentText("Synchronisation en arrière-plan")
-                .setOngoing(true)
-                .setSilent(true);
+                .setOngoing(true);
         startForeground(FG_ID, builder.build());
 
         if (worker != null && worker.isAlive()) {
