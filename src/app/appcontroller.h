@@ -356,6 +356,7 @@ private:
     QString          m_deviceId;
     QString          m_displayName;
     bool             m_hasDisplayName = false;
+    bool             m_pushLifecycleReady = false;
     std::string      m_openListId;   // liste actuellement chargée dans m_itemModel
     QString          m_pendingPrepListId; // recette neuve → proposer la préparation
     int              m_imageRevision = 0;

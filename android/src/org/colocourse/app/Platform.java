@@ -36,12 +36,15 @@ public class Platform {
         if (ctx == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O)
             return;
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
-        if (nm == null || nm.getNotificationChannel(CHANNEL_ID) != null)
+        if (nm == null)
             return;
-        NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, "Synchronisation", NotificationManager.IMPORTANCE_DEFAULT);
-        channel.setDescription("Changements reçus sur vos listes");
-        nm.createNotificationChannel(channel);
+
+        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID, "Synchronisation", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("Changements reçus sur vos listes");
+            nm.createNotificationChannel(channel);
+        }
 
         if (nm.getNotificationChannel(CHANNEL_VEILLE_ID) == null) {
             NotificationChannel veille = new NotificationChannel(

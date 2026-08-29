@@ -466,7 +466,14 @@ bool AppController::init() {
     m_syncEngine.subscribeAllLists();
     m_online = m_relayPool.isOnline();
 
-    onApplicationStateChanged(QGuiApplication::applicationState());
+    const bool active = QGuiApplication::applicationState() == Qt::ApplicationActive;
+    m_syncEngine.setAppInForeground(active);
+    m_syncEngine.setDeferBackgroundNotificationsToPush(pushEnabled());
+    if (active) {
+        m_pushLifecycleReady = true;
+        platformConfigurePush(QString(), {}, QString());
+        resumeSync();
+    }
 
     return true;
 }
@@ -480,10 +487,13 @@ void AppController::onApplicationStateChanged(Qt::ApplicationState state)
 {
     const bool active = (state == Qt::ApplicationActive);
     m_syncEngine.setAppInForeground(active);
+    m_syncEngine.setDeferBackgroundNotificationsToPush(pushEnabled());
+
     if (active) {
+        m_pushLifecycleReady = true;
         platformConfigurePush(QString(), {}, QString());
         resumeSync();
-    } else {
+    } else if (m_pushLifecycleReady) {
         refreshPushTopics();
     }
 }

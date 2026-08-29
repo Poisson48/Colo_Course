@@ -48,10 +48,14 @@ public class PushService extends Service {
             ctx.stopService(intent);
             return;
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            ctx.startForegroundService(intent);
-        else
-            ctx.startService(intent);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                ctx.startForegroundService(intent);
+            else
+                ctx.startService(intent);
+        } catch (Exception e) {
+            // Android 12+ : impossible de lancer un FGS si l'app n'est pas au premier plan.
+        }
     }
 
     @Override
