@@ -124,6 +124,10 @@ Item {
         }
         MenuSeparator {}
         MenuItem {
+            text: "Relais de synchronisation"
+            onTriggered: relaysDialog.open()
+        }
+        MenuItem {
             text: "Gérer les rayons"
             onTriggered: aislesDialog.open()
         }
@@ -991,6 +995,89 @@ Item {
         }
 
         onAccepted: AppController.leaveList(leaveDialog.listId)
+    }
+
+    // --- Relais Nostr (synchronisation) ---
+
+    ColoDialog {
+        id: relaysDialog
+        title: "Relais de synchronisation"
+        acceptText: "Enregistrer"
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            text: "Adresses WebSocket des relais Nostr (wss://…). "
+                  + "Une URL par ligne. Plusieurs relais possibles."
+        }
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.max(120,
+                                            Math.min(relaysField.implicitHeight + 16,
+                                                     relaysDialog.scrollMaxHeight))
+            clip: true
+
+            TextArea {
+                id: relaysField
+                width: parent.width
+                wrapMode: TextArea.Wrap
+                color: Theme.text
+                font.pixelSize: 14
+                font.family: "monospace"
+                selectByMouse: true
+                placeholderText: AppController.defaultRelayUrls()
+                background: Rectangle {
+                    radius: 12
+                    color: Theme.surfaceHigh
+                    border.color: Theme.outline
+                }
+            }
+        }
+
+        Button {
+            Layout.fillWidth: true
+            flat: true
+            implicitHeight: 40
+            contentItem: Label {
+                text: "Rétablir par défaut"
+                color: Theme.accent
+                horizontalAlignment: Text.AlignHCenter
+            }
+            onClicked: relaysField.text = AppController.defaultRelayUrls()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            text: "Notifications push (Android, app fermée)"
+        }
+
+        Switch {
+            id: pushEnabledSwitch
+            text: "Activer la veille push"
+        }
+
+        ColoTextField {
+            id: pushUrlField
+            Layout.fillWidth: true
+            placeholderText: AppController.defaultPushBaseUrl()
+            enabled: pushEnabledSwitch.checked
+        }
+
+        onOpened: {
+            relaysField.text = AppController.relayUrls
+            pushEnabledSwitch.checked = AppController.pushEnabled
+            pushUrlField.text = AppController.pushBaseUrl
+        }
+        onAccepted: {
+            AppController.setRelayUrls(relaysField.text)
+            AppController.setPushSettings(pushEnabledSwitch.checked, pushUrlField.text)
+        }
     }
 
     // --- Gestion des rayons personnalisés ---

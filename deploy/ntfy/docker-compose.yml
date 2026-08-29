@@ -1,0 +1,12 @@
+# ntfy — notifications push Colo Course (écoute locale, TLS via nginx /ntfy/).
+# Démarrage : docker compose up -d  (depuis ~/colocourse-ntfy sur le serveur)
+
+services:
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    restart: unless-stopped
+    command: serve --listen-http :8077 --cache-file /var/lib/ntfy/cache.db
+    ports:
+      - "127.0.0.1:8077:8077"
+    volumes:
+      - ./data:/var/lib/ntfy

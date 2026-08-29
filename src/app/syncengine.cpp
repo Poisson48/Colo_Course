@@ -6,8 +6,9 @@
 #include "../core/payload.h"
 #include "../net/crypto.h"
 #include "../net/nostr.h"
+#include "../net/pushclient.h"
 
-#include <QDateTime>
+#include <QHash>
 #include <QDebug>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -641,6 +642,7 @@ void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QStri
     }
 
     m_pendingAcks.erase(it);
+    maybeSendPushWake(listId);
 }
 
 // ---------------------------------------------------------------------------
@@ -678,7 +680,6 @@ void SyncEngine::resetDeltaCounter(const std::string& listId)
 
 void SyncEngine::showNotification(const QString& title, const QString& body, qint64 whenMs)
 {
-    // Android : notification système via JNI. Ailleurs : no-op, on retombe sur le tray.
     if (platformNotify(title, body, whenMs))
         return;
 
@@ -692,6 +693,41 @@ void SyncEngine::showNotification(const QString& title, const QString& body, qin
     }
 #endif
     qInfo() << "[Notification]" << title << "—" << body;
+}
+
+void SyncEngine::maybeSendPushWake(const std::string &listId)
+{
+    if (!m_db)
+        return;
+
+    const auto enabled = m_db->getSetting("pushEnabled");
+    if (enabled && *enabled == "0")
+        return;
+
+    const auto urlOpt = m_db->getSetting("pushBaseUrl");
+    const QString base =
+        urlOpt && !urlOpt->empty()
+            ? QString::fromStdString(*urlOpt)
+            : QStringLiteral("https://colo-apps.les-crevettes-cevenoles.fr/ntfy");
+
+    const auto tagOpt = channelTagForList(listId);
+    if (!tagOpt)
+        return;
+
+    static QHash<QString, qint64> lastPushMs;
+    const QString key = QString::fromStdString(listId);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (lastPushMs.value(key) + 3000 > now)
+        return;
+    lastPushMs[key] = now;
+
+    const auto metaOpt = m_db->getList(listId);
+    const QString title =
+        metaOpt ? QString::fromStdString(metaOpt->title) : key;
+
+    net::sendPushWake(base,
+                      net::pushTopicForChannel(QString::fromStdString(*tagOpt)),
+                      title);
 }
 
 } // namespace app

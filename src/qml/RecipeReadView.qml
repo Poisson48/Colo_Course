@@ -97,21 +97,19 @@ Item {
             }
         }
 
-        // Mode cuisine : étape courante, toujours en haut.
+        // Mode cuisine : étape courante, tout l'écran (ingrédients masqués).
         Rectangle {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.cookMode && root.prepSteps.length > 0
-                                    ? cookPanel.implicitHeight + Theme.pad * 2 : 0
-            visible: Layout.preferredHeight > 0
+            Layout.fillHeight: root.cookMode && root.prepSteps.length > 0
+            Layout.preferredHeight: root.cookMode && root.prepSteps.length > 0 ? 0 : 0
+            visible: root.cookMode && root.prepSteps.length > 0
             color: Theme.surface
 
             ColumnLayout {
                 id: cookPanel
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
+                anchors.fill: parent
                 anchors.margins: Theme.pad
-                spacing: 12
+                spacing: 16
 
                 Label {
                     Layout.fillWidth: true
@@ -126,11 +124,13 @@ Item {
                     text: root.prepSteps.length > root.cookStep
                           ? root.prepSteps[root.cookStep] : ""
                     color: Theme.text
-                    font.pixelSize: 20
+                    font.pixelSize: 22
                     font.weight: Font.Medium
                     wrapMode: Text.WordWrap
-                    lineHeight: 1.45
+                    lineHeight: 1.48
                     lineHeightMode: Text.ProportionalHeight
+                    Layout.fillHeight: true
+                    verticalAlignment: Text.AlignTop
                 }
 
                 RowLayout {
@@ -295,10 +295,11 @@ Item {
             }
         }
 
-        // En-tête ingrédients
+        // En-tête ingrédients (masqué en mode Cuisine)
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 36
+            Layout.preferredHeight: root.cookMode ? 0 : 36
+            visible: !root.cookMode
 
             Label {
                 anchors.left: parent.left
@@ -314,12 +315,13 @@ Item {
             }
         }
 
-        // Liste d'ingrédients
+        // Liste d'ingrédients (masquée en mode Cuisine)
         ListView {
             id: recipeScroll
             objectName: "recipeScroll"
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: !root.cookMode
             clip: true
             model: AppController.items
             spacing: 4
@@ -421,7 +423,7 @@ Item {
     ColumnLayout {
         anchors.centerIn: parent
         width: parent.width - 64
-        visible: AppController.items.count === 0
+        visible: AppController.items.count === 0 && !root.cookMode
         spacing: 8
 
         Label {

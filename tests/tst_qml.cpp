@@ -14,6 +14,7 @@
 #include <QQuickWindow>
 #include <QTemporaryDir>
 #include <QDateTime>
+#include <QFile>
 
 #include "app/appcontroller.h"
 #include "app/itemmodel.h"
@@ -22,6 +23,7 @@
 #include "app/qrimageprovider.h"
 #include "app/theme.h"
 #include "app/updater.h"
+#include "core/recipe_library.h"
 
 // Les avertissements QML (binding cassé, appel sur undefined) ne remontent pas dans
 // QQmlComponent::errors : ils passent par le gestionnaire de messages. On les capture.
@@ -823,6 +825,76 @@ private slots:
         // Glisser A (index 1) sur la ligne de C (index 0) → A rejoint Maison.
         m_ctrl.moveList(1, 0);
         QCOMPARE(db.getList("l-a")->groupId, std::string("g-maison"));
+    }
+
+    // Recettes perso : étapes enregistrées localement ; import catalogue copie la préparation.
+    void test_recipeInstructions() {
+        QTemporaryDir dir;
+        store::Database &db = m_ctrl.db();
+        QVERIFY(db.open(dir.filePath("rec.db")));
+        qobject_cast<app::ListsModel *>(m_ctrl.lists())->reload(db, "dev-A");
+
+        core::ListMeta rec;
+        rec.listId = "rec-perso";
+        rec.key = std::vector<uint8_t>(32, 7);
+        rec.title = "Ma soupe";
+        rec.titleVer = {1, "dev-A"};
+        rec.lamport = 1;
+        rec.created = 100;
+        rec.kind = "recipe";
+        QVERIFY(db.createList(rec));
+
+        const QString steps = QStringLiteral("Couper les légumes\nFaire bouillir\nMixer");
+        m_ctrl.setRecipeInstructions(QStringLiteral("rec-perso"), steps);
+        QCOMPARE(m_ctrl.recipeInstructions(QStringLiteral("rec-perso")), steps);
+
+        QString libPath = QStringLiteral(COLO_QML_DIR);
+        libPath.replace(QStringLiteral("/src/qml"),
+                        QStringLiteral("/data/recipe_library.json"));
+        QFile libFile(libPath);
+        QVERIFY(libFile.open(QIODevice::ReadOnly));
+        QVERIFY(core::RecipeLibrary::loadFromJson(libFile.readAll()));
+
+        const core::LibraryRecipe *lib = nullptr;
+        for (size_t i = 0; i < core::RecipeLibrary::count(); ++i) {
+            const auto *r = core::RecipeLibrary::recipeAt(i);
+            if (r && !r->instructions.isEmpty()) {
+                lib = r;
+                break;
+            }
+        }
+        QVERIFY2(lib, "catalogue avec instructions");
+        QVERIFY(m_ctrl.addRecipeFromLibrary(lib->id));
+
+        QString importedId;
+        for (const auto &m : db.getLists()) {
+            if (m.kind == "recipe" && m.title == lib->title.toStdString()) {
+                importedId = QString::fromStdString(m.listId);
+                break;
+            }
+        }
+        QVERIFY(!importedId.isEmpty());
+        QCOMPARE(m_ctrl.recipeInstructions(importedId), lib->instructions);
+    }
+
+    void test_createRecipeOpensPrepPrompt() {
+        QTemporaryDir dir;
+        store::Database &db = m_ctrl.db();
+        QVERIFY(db.open(dir.filePath("rec2.db")));
+        qobject_cast<app::ListsModel *>(m_ctrl.lists())->reload(db, "dev-A");
+
+        m_ctrl.createRecipe(QStringLiteral("Recette neuve"));
+
+        QString newId;
+        for (const auto &m : db.getLists()) {
+            if (m.kind == "recipe" && m.title == "Recette neuve") {
+                newId = QString::fromStdString(m.listId);
+                break;
+            }
+        }
+        QVERIFY(!newId.isEmpty());
+        QVERIFY(m_ctrl.takePendingPrepPrompt(newId));
+        QVERIFY(!m_ctrl.takePendingPrepPrompt(newId));
     }
 };
 

@@ -33,6 +33,8 @@
 #include "../core/zip.h"
 #include "../net/crypto.h"
 #include "../net/relaypool.h"
+#include "../net/crypto.h"
+#include "../net/pushclient.h"
 
 namespace app {
 
@@ -405,11 +407,16 @@ bool AppController::init() {
 
     // --- Setup relay pool ---
     // Load relay URLs from settings (or use defaults).
+    static const QString kLegacyRelays =
+        QStringLiteral("wss://relay.damus.io,wss://nos.lol,wss://relay.nostr.band,"
+                       "wss://offchain.pub");
     auto relaysSetting = m_db.getSetting("relays");
     QList<QUrl> relayUrls;
     if (relaysSetting && !relaysSetting->empty()) {
-        const QString relaysStr = QString::fromStdString(*relaysSetting);
-        for (const QString& u : relaysStr.split(QLatin1Char(','), Qt::SkipEmptyParts))
+        QString relaysStr = QString::fromStdString(*relaysSetting);
+        if (relaysStr == kLegacyRelays)
+            relaysStr.clear(); // bascule vers le relais Colo Course par défaut
+        for (const QString &u : relaysStr.split(QLatin1Char(','), Qt::SkipEmptyParts))
             relayUrls.append(QUrl(u.trimmed()));
     }
     if (relayUrls.isEmpty()) {
@@ -458,6 +465,8 @@ bool AppController::init() {
     m_relayPool.connectAll();
     m_syncEngine.subscribeAllLists();
     m_online = m_relayPool.isOnline();
+
+    refreshPushTopics();
 
     return true;
 }
@@ -556,6 +565,152 @@ bool AppController::hasDisplayName() const {
     return m_hasDisplayName;
 }
 
+namespace {
+
+bool isValidRelayUrl(const QUrl &url)
+{
+    if (!url.isValid() || url.host().isEmpty())
+        return false;
+    const QString scheme = url.scheme().toLower();
+    return scheme == QLatin1String("wss") || scheme == QLatin1String("ws");
+}
+
+QStringList parseRelayUrlText(const QString &text)
+{
+    QStringList out;
+    for (const QString &part :
+         text.split(QRegularExpression(QStringLiteral("[\\n,]+")), Qt::SkipEmptyParts)) {
+        const QString trimmed = part.trimmed();
+        if (!trimmed.isEmpty())
+            out.append(trimmed);
+    }
+    return out;
+}
+
+} // namespace
+
+QString AppController::relayUrls()
+{
+    const auto v = m_db.getSetting("relays");
+    if (v && !v->empty())
+        return QString::fromStdString(*v).replace(QLatin1Char(','), QLatin1Char('\n'));
+    QStringList parts;
+    for (const QUrl &u : net::RelayPool::defaultRelays())
+        parts.append(u.toString());
+    return parts.join(QLatin1Char('\n'));
+}
+
+QString AppController::defaultRelayUrls() const
+{
+    QStringList parts;
+    for (const QUrl &u : net::RelayPool::defaultRelays())
+        parts.append(u.toString());
+    return parts.join(QLatin1Char('\n'));
+}
+
+void AppController::setRelayUrls(const QString &text)
+{
+    if (!m_db.isOpen())
+        return;
+
+    QList<QUrl> urls;
+    for (const QString &line : parseRelayUrlText(text)) {
+        const QUrl url(line);
+        if (!isValidRelayUrl(url)) {
+            emit toast(QStringLiteral("URL de relais invalide : %1").arg(line));
+            return;
+        }
+        urls.append(url);
+    }
+    if (urls.isEmpty()) {
+        emit toast(QStringLiteral("Indiquez au moins un relais wss://"));
+        return;
+    }
+
+    QStringList stored;
+    for (const QUrl &u : urls)
+        stored.append(u.toString());
+    m_db.setSetting("relays", stored.join(QLatin1Char(',')).toStdString());
+
+    m_relayPool.setRelays(urls);
+    m_relayPool.connectAll();
+    m_syncEngine.subscribeAllLists();
+    m_syncEngine.catchUpOnForeground();
+
+    const bool online = m_relayPool.isOnline();
+    if (online != m_online) {
+        m_online = online;
+        emit onlineChanged();
+    }
+    emit relayUrlsChanged();
+    emit toast(urls.size() > 1
+                   ? QStringLiteral("Relais mis à jour (%1)").arg(urls.size())
+                   : QStringLiteral("Relais mis à jour"));
+}
+
+void AppController::resetRelayUrls()
+{
+    setRelayUrls(defaultRelayUrls());
+}
+
+bool AppController::pushEnabled()
+{
+    const auto v = m_db.getSetting("pushEnabled");
+    return !v || *v != "0";
+}
+
+QString AppController::pushBaseUrl()
+{
+    const auto v = m_db.getSetting("pushBaseUrl");
+    if (v && !v->empty())
+        return QString::fromStdString(*v);
+    return defaultPushBaseUrl();
+}
+
+QString AppController::defaultPushBaseUrl() const
+{
+    return QStringLiteral("https://colo-apps.les-crevettes-cevenoles.fr/ntfy");
+}
+
+void AppController::setPushSettings(bool enabled, const QString &baseUrl)
+{
+    if (!m_db.isOpen())
+        return;
+
+    const QString trimmed = baseUrl.trimmed();
+    if (enabled && !trimmed.isEmpty()) {
+        const QUrl u(trimmed);
+        if (!u.isValid() || u.scheme().isEmpty()) {
+            emit toast(QStringLiteral("URL push invalide"));
+            return;
+        }
+    }
+
+    m_db.setSetting("pushEnabled", enabled ? "1" : "0");
+    if (!trimmed.isEmpty())
+        m_db.setSetting("pushBaseUrl", trimmed.toStdString());
+
+    refreshPushTopics();
+    emit pushSettingsChanged();
+    emit toast(enabled ? QStringLiteral("Notifications push activées")
+                       : QStringLiteral("Notifications push désactivées"));
+}
+
+void AppController::refreshPushTopics()
+{
+    if (!pushEnabled()) {
+        platformConfigurePush(QString(), {});
+        return;
+    }
+
+    QStringList topics;
+    for (const auto &meta : m_db.getLists()) {
+        topics.append(net::pushTopicForChannel(
+            QString::fromStdString(net::deriveChannelTag(meta.key))));
+    }
+    platformConfigurePush(pushBaseUrl(), topics);
+}
+
 void AppController::createList(const QString &title) {
     core::ListMeta meta;
     // listId: 16 random bytes → base64url 22 chars  (§1)
@@ -630,8 +785,18 @@ void AppController::createRecipe(const QString &title) {
         m_listsModel->reload(m_db, m_deviceId.toStdString());
         m_recipesModel->reload(m_db, m_deviceId.toStdString());
         m_syncEngine.onListJoined(meta.listId);
-        emit toast(QStringLiteral("Recette créée"));
+        const QString id = QString::fromStdString(meta.listId);
+        m_pendingPrepListId = id;
+        openList(id);
+        emit toast(QStringLiteral("Recette créée — ajoutez les étapes"));
     }
+}
+
+bool AppController::takePendingPrepPrompt(const QString &listId) {
+    if (m_pendingPrepListId != listId)
+        return false;
+    m_pendingPrepListId.clear();
+    return true;
 }
 
 bool AppController::addRecipeFromLibrary(const QString &libraryId, int targetServings) {
@@ -698,6 +863,7 @@ bool AppController::addRecipeFromLibrary(const QString &libraryId, int targetSer
 
     emit toast(QStringLiteral("« %1 » ajoutée — %2 ingrédient(s) pour %3 personne(s)")
                    .arg(lib->title).arg(added).arg(target));
+    openList(QString::fromStdString(meta.listId));
     return true;
 }
 
@@ -1393,6 +1559,7 @@ void AppController::leaveList(const QString &listId) {
     if (m_db.deleteList(id)) {
         m_listsModel->remove(listId);
         m_recipesModel->remove(listId);
+        refreshPushTopics();
         emit toast(recipe
             ? QStringLiteral("Recette supprimée de cet appareil")
             : QStringLiteral("Liste supprimée de cet appareil"));
@@ -1400,10 +1567,12 @@ void AppController::leaveList(const QString &listId) {
 }
 
 void AppController::handleJoinUrl(const QUrl &url) {
-    if (joinList(url.toString()))
+    if (joinList(url.toString())) {
+        refreshPushTopics();
         emit toast(QStringLiteral("Liste rejointe — synchronisation en cours"));
-    else
+    } else {
         emit toast(QStringLiteral("Lien d'invitation invalide"));
+    }
 }
 
 void AppController::setDisplayName(const QString &name) {

@@ -31,4 +31,7 @@ void platformVibrate(int ms);
 // dans un rayon, sans le toucher pendant des minutes).
 void platformKeepScreenOn(bool on);
 
+// Android : veille ntfy pour notifications push app fermée. baseUrl vide = arrêt.
+void platformConfigurePush(const QString &baseUrl, const QStringList &topics);
+
 } // namespace app

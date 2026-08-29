@@ -16,12 +16,14 @@ add_library(net STATIC
     net/nostr.cpp
     net/relayclient.cpp
     net/relaypool.cpp
+    net/pushclient.cpp
 )
 
 target_include_directories(net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 target_link_libraries(net PUBLIC
     Qt6::Core
+    Qt6::Network
     Qt6::WebSockets
 )
 

@@ -59,6 +59,14 @@ Item {
 
     // L'écran reste allumé pour toute l'app (Main.qml), pas seulement en mode Courses.
 
+    Component.onCompleted: maybeOpenPrepPrompt()
+    onListIdChanged: maybeOpenPrepPrompt()
+
+    function maybeOpenPrepPrompt() {
+        if (root.isRecipe && AppController.takePendingPrepPrompt(root.listId))
+            Qt.callLater(function() { prepDialog.open() })
+    }
+
     function closeSearch() {
         searchOpen = false
         searchField.text = ""
@@ -1747,11 +1755,21 @@ Item {
         title: "Préparation"
         acceptText: "Enregistrer"
 
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            text: "Une étape par ligne — elles seront numérotées à l'affichage. "
+                  + "Ex. : « Couper les oignons », puis « Faire revenir la viande »."
+        }
+
         ScrollView {
             id: prepEditScroll
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(prepField.implicitHeight + 16,
-                                             prepDialog.scrollMaxHeight)
+            Layout.preferredHeight: Math.max(220,
+                                            Math.min(prepField.implicitHeight + 16,
+                                                     prepDialog.scrollMaxHeight))
             clip: true
 
             TextArea {
@@ -1759,8 +1777,9 @@ Item {
                 width: prepEditScroll.availableWidth
                 wrapMode: TextArea.Wrap
                 color: Theme.text
-                font.pixelSize: 14
+                font.pixelSize: 15
                 selectByMouse: true
+                placeholderText: "1. Couper les légumes\n2. Faire mijoter 30 min\n3. …"
                 background: Rectangle {
                     radius: 12
                     color: Theme.surfaceHigh
@@ -1769,7 +1788,10 @@ Item {
             }
         }
 
-        onOpened: prepField.text = AppController.recipeInstructions(root.listId)
+        onOpened: {
+            prepField.text = AppController.recipeInstructions(root.listId)
+            prepField.forceActiveFocus()
+        }
         onAccepted: AppController.setRecipeInstructions(root.listId, prepField.text)
     }
 

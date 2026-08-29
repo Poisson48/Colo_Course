@@ -146,6 +146,9 @@ private:
     // pas l'heure de réception de la notif.
     void showNotification(const QString& title, const QString& body, qint64 whenMs = 0);
 
+    // Réveil ntfy pour les autres appareils (après publish ack).
+    void maybeSendPushWake(const std::string &listId);
+
     store::Database* m_db     = nullptr;
     net::RelayPool*  m_pool   = nullptr;
     QString          m_deviceId;

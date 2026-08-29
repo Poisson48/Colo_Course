@@ -27,7 +27,7 @@ import java.io.OutputStream;
 // pour ne dépendre d'aucun namespace Gradle.
 public class Platform {
 
-    private static final String CHANNEL_ID = "colocourse.sync";
+    public static final String CHANNEL_ID = "colocourse.sync";
     private static final int    NOTIFICATION_ID = 4545;
     private static final int    PERMISSION_REQUEST = 4545;
 
@@ -59,6 +59,11 @@ public class Platform {
 
     public static void showNotification(Context ctx, String title, String body) {
         showNotification(ctx, title, body, 0L);
+    }
+
+    // ntfy : démarre ou arrête la veille push (topics = colo-{channelTag}).
+    public static void configurePush(Context ctx, String baseUrl, String[] topics) {
+        PushService.configure(ctx, baseUrl, topics);
     }
 
     // whenMs > 0 : horodatage de la notification = heure de la modification

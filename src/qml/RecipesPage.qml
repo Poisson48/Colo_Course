@@ -471,6 +471,14 @@ Item {
             placeholderText: "Nom de la recette"
         }
 
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            text: "Ensuite : ingrédients en bas de l'écran, étapes via « Préparation »."
+        }
+
         onOpened: {
             recipeNameField.text = ""
             recipeNameField.forceActiveFocus()

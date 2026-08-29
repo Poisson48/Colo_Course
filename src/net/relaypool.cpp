@@ -12,10 +12,7 @@ RelayPool::RelayPool(QObject* parent)
 QList<QUrl> RelayPool::defaultRelays()
 {
     return {
-        QUrl("wss://relay.damus.io"),
-        QUrl("wss://nos.lol"),
-        QUrl("wss://relay.nostr.band"),
-        QUrl("wss://offchain.pub"),
+        QUrl(QStringLiteral("wss://colo-apps.les-crevettes-cevenoles.fr")),
     };
 }
 

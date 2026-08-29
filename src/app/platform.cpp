@@ -3,6 +3,7 @@
 #ifdef Q_OS_ANDROID
 #  include <QCoreApplication>
 #  include <QJniObject>
+#  include <QJniEnvironment>
 #endif
 
 namespace app {
@@ -104,6 +105,28 @@ void platformKeepScreenOn(bool on)
         "(Landroid/content/Context;Z)V", ctx.object(), static_cast<jboolean>(on));
 }
 
+void platformConfigurePush(const QString &baseUrl, const QStringList &topics)
+{
+    const QJniObject ctx = androidContext();
+    if (!ctx.isValid())
+        return;
+
+    QJniEnvironment env;
+    const jsize n = static_cast<jsize>(topics.size());
+    jobjectArray arr = env->NewObjectArray(n, env->FindClass("java/lang/String"), nullptr);
+    for (jsize i = 0; i < n; ++i) {
+        const QJniObject s = QJniObject::fromString(topics.at(static_cast<int>(i)));
+        env->SetObjectArrayElement(arr, i, s.object<jstring>());
+    }
+
+    const QJniObject jUrl = QJniObject::fromString(baseUrl);
+    QJniObject::callStaticMethod<void>(
+        kPlatformClass, "configurePush",
+        "(Landroid/content/Context;Ljava/lang/String;[Ljava/lang/String;)V",
+        ctx.object(), jUrl.object<jstring>(), arr);
+    env->DeleteLocalRef(arr);
+}
+
 #else // !Q_OS_ANDROID
 
 void initNotifications() {}
@@ -117,6 +140,8 @@ bool platformInstallApk(const QString&) { return false; }
 void platformVibrate(int) {}
 
 void platformKeepScreenOn(bool) {}
+
+void platformConfigurePush(const QString &, const QStringList &) {}
 
 #endif
 

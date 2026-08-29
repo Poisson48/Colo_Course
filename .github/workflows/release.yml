@@ -107,8 +107,8 @@ jobs:
           signature qui changeait à chaque build : une dernière désinstallation est
           nécessaire avant d'installer celui-ci.*
 
-          **Limite connue** : app fermée = pas de réception. Les changements sont récupérés
-          à l'ouverture ou au retour au premier plan.
+          **Limite connue** : sans notifications push activées, les changements arrivent
+          à l'ouverture de l'app. Activez la veille push dans Réglages → Relais (Android).
           EOF
           } > notes.md
 

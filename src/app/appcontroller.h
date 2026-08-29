@@ -129,6 +129,11 @@ class AppController : public QObject {
     // demande. Sans ça, tout le monde s'appelle « Moi » et les notifications
     // deviennent illisibles (« 2 articles modifiés par Moi »).
     Q_PROPERTY(bool hasDisplayName READ hasDisplayName NOTIFY displayNameChanged)
+    // Relais Nostr pour la synchronisation (une ou plusieurs URLs wss://, séparées
+    // par des virgules en base ; affichées une par ligne dans l'UI).
+    Q_PROPERTY(QString relayUrls READ relayUrls NOTIFY relayUrlsChanged)
+    Q_PROPERTY(bool pushEnabled READ pushEnabled NOTIFY pushSettingsChanged)
+    Q_PROPERTY(QString pushBaseUrl READ pushBaseUrl NOTIFY pushSettingsChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -153,13 +158,19 @@ public:
     QString deviceId() const;
     QString displayName() const;
     bool    hasDisplayName() const;
+    QString relayUrls();
+    bool    pushEnabled();
+    QString pushBaseUrl();
 
     store::Database &db() { return m_db; }
 
 public slots:
     void createList(const QString &title);
-    // Crée une recette (kind=recipe) dans la bibliothèque.
+    // Crée une recette (kind=recipe) dans la bibliothèque et l'ouvre (invite à saisir
+    // la préparation si vide).
     void createRecipe(const QString &title);
+    // true une seule fois après createRecipe : ouvrir le dialogue de préparation.
+    Q_INVOKABLE bool takePendingPrepPrompt(const QString &listId);
     // Ajoute une recette du catalogue intégré à la bibliothèque personnelle.
     Q_INVOKABLE bool addRecipeFromLibrary(const QString &libraryId, int targetServings = 0);
     // Ingrédients du catalogue, quantités mises à l'échelle pour `targetServings`.
@@ -270,6 +281,15 @@ public slots:
 
     void setDisplayName(const QString &name);
 
+    // Relais de synchronisation (wss://…). Une URL par ligne ou virgule.
+    Q_INVOKABLE void setRelayUrls(const QString &text);
+    Q_INVOKABLE void resetRelayUrls();
+    Q_INVOKABLE QString defaultRelayUrls() const;
+
+    Q_INVOKABLE void setPushSettings(bool enabled, const QString &baseUrl);
+    Q_INVOKABLE QString defaultPushBaseUrl() const;
+    void refreshPushTopics();
+
     // Presse-papiers, et partage natif (feuille de partage Android ; ailleurs :
     // copie dans le presse-papiers). Retourne false si le partage a échoué.
     void copyToClipboard(const QString &text);
@@ -292,6 +312,8 @@ signals:
     void favoritesChanged();
     void customAislesChanged();
     void displayNameChanged();
+    void relayUrlsChanged();
+    void pushSettingsChanged();
     // Emitted when QML should push the item page.
     void listOpened(const QString &listId, const QString &title);
     // Titre changé (ici ou par un autre appareil) : l'en-tête de la liste ouverte suit.
@@ -331,6 +353,7 @@ private:
     QString          m_displayName;
     bool             m_hasDisplayName = false;
     std::string      m_openListId;   // liste actuellement chargée dans m_itemModel
+    QString          m_pendingPrepListId; // recette neuve → proposer la préparation
     int              m_imageRevision = 0;
 };
 
