@@ -117,7 +117,7 @@ Item {
                     required property int memberCount
 
                     width: recipesView.width - recipesView.leftMargin - recipesView.rightMargin
-                    height: 72
+                    height: Math.max(76, card.implicitHeight)
 
                     background: Rectangle {
                         radius: 12
@@ -135,9 +135,13 @@ Item {
                             Layout.fillWidth: true
                             text: card.name
                             color: Theme.text
-                            font.pixelSize: 16
+                            font.pixelSize: 17
                             font.weight: Font.DemiBold
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 2
                             elide: Text.ElideRight
+                            lineHeight: 1.25
+                            lineHeightMode: Text.ProportionalHeight
                         }
 
                         Label {
@@ -151,7 +155,9 @@ Item {
                                 return parts.join(" · ")
                             }
                             color: Theme.textDim
-                            font.pixelSize: 13
+                            font.pixelSize: 14
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 2
                             elide: Text.ElideRight
                         }
                     }
@@ -233,7 +239,7 @@ Item {
                     required property int ingredientCount
 
                     width: catalogView.width - catalogView.leftMargin - catalogView.rightMargin
-                    height: 72
+                    height: Math.max(76, libCard.implicitHeight)
 
                     background: Rectangle {
                         radius: 12
@@ -251,9 +257,13 @@ Item {
                             Layout.fillWidth: true
                             text: libCard.title
                             color: Theme.text
-                            font.pixelSize: 16
+                            font.pixelSize: 17
                             font.weight: Font.DemiBold
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 2
                             elide: Text.ElideRight
+                            lineHeight: 1.25
+                            lineHeightMode: Text.ProportionalHeight
                         }
 
                         Label {
@@ -270,7 +280,9 @@ Item {
                                 return parts.join(" · ")
                             }
                             color: Theme.textDim
-                            font.pixelSize: 13
+                            font.pixelSize: 14
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 2
                             elide: Text.ElideRight
                         }
                     }
@@ -351,8 +363,10 @@ Item {
             text: catalogDetail.recipeTitle
             wrapMode: Text.WordWrap
             color: Theme.text
-            font.pixelSize: 16
+            font.pixelSize: 20
             font.weight: Font.DemiBold
+            lineHeight: 1.28
+            lineHeightMode: Text.ProportionalHeight
         }
 
         ServingsStepper {
@@ -398,7 +412,9 @@ Item {
                         }
                         wrapMode: Text.WordWrap
                         color: Theme.text
-                        font.pixelSize: 14
+                        font.pixelSize: 15
+                        lineHeight: 1.35
+                        lineHeightMode: Text.ProportionalHeight
                     }
                 }
             }
@@ -426,7 +442,9 @@ Item {
                 text: catalogDetail.instructionsText
                 wrapMode: Text.WordWrap
                 color: Theme.text
-                font.pixelSize: 14
+                font.pixelSize: 15
+                lineHeight: 1.45
+                lineHeightMode: Text.ProportionalHeight
             }
         }
 

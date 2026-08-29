@@ -34,13 +34,18 @@ Item {
         ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
         : listTitle
 
-    // Sous-titre dans la barre (Main.qml) : combien il reste à lire / acheter.
+    // Sous-titre dans la barre (Main.qml) : reste à acheter, ou ingrédients d'une recette.
     readonly property string pageSubtitle: {
         if (selectionMode || shoppingMode || searchOpen)
             return ""
         const total = AppController.items.count
         if (total === 0)
             return ""
+        if (isRecipe) {
+            const n = AppController.recipeTargetServings(listId)
+            const ing = total + (total > 1 ? " ingrédients" : " ingrédient")
+            return ing + " · pour " + n + (n > 1 ? " personnes" : " personne")
+        }
         const left = total - AppController.items.doneCount
         if (left === 0)
             return "Tout est pris"
@@ -347,7 +352,7 @@ Item {
                 ColoTextField {
                     id: searchField
                     Layout.fillWidth: true
-                    hint: "Rechercher un article"
+                    hint: root.isRecipe ? "Rechercher un ingrédient" : "Rechercher un article"
                     onTextChanged: AppController.items.filter = text
                 }
 
@@ -397,32 +402,49 @@ Item {
             }
         }
 
-        // Préparation (recettes personnelles) — aperçu multiligne.
+        // Préparation (recettes) — aperçu lisible, tap = lecture plein écran.
         Rectangle {
             id: prepBar
             Layout.fillWidth: true
             Layout.preferredHeight: root.isRecipe && !root.shoppingMode
                                     && prepBar.prepText.length > 0
-                                    ? Math.min(prepPreview.implicitHeight + Theme.pad * 2, 88) : 0
+                                    ? Math.min(prepCol.implicitHeight + Theme.pad * 2, 120) : 0
             visible: Layout.preferredHeight > 0
             clip: true
             color: Theme.surface
 
             property string prepText: AppController.recipeInstructions(root.listId)
 
-            Label {
-                id: prepPreview
+            ColumnLayout {
+                id: prepCol
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 anchors.leftMargin: Theme.pad
                 anchors.rightMargin: Theme.pad
-                text: prepBar.prepText
-                color: Theme.textDim
-                font.pixelSize: 13
-                wrapMode: Text.WordWrap
-                maximumLineCount: 3
-                elide: Text.ElideRight
+                spacing: 4
+
+                Label {
+                    Layout.fillWidth: true
+                    text: "Préparation"
+                    color: Theme.accent
+                    font.pixelSize: 11
+                    font.weight: Font.DemiBold
+                    font.capitalization: Font.AllUppercase
+                }
+
+                Label {
+                    id: prepPreview
+                    Layout.fillWidth: true
+                    text: prepBar.prepText
+                    color: Theme.text
+                    font.pixelSize: 15
+                    lineHeight: 1.38
+                    lineHeightMode: Text.ProportionalHeight
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 4
+                    elide: Text.ElideRight
+                }
             }
 
             MouseArea {
@@ -1154,7 +1176,7 @@ Item {
     // Lecture seule : lire nom, description et photos avant d'éditer.
     ColoDialog {
         id: readDialog
-        title: "Article"
+        title: root.isRecipe ? "Ingrédient" : "Article"
         acceptText: "Modifier"
 
         property string itemId: ""
@@ -1685,7 +1707,9 @@ Item {
                 text: AppController.recipeInstructions(root.listId)
                 wrapMode: Text.WordWrap
                 color: Theme.text
-                font.pixelSize: 14
+                font.pixelSize: 16
+                lineHeight: 1.45
+                lineHeightMode: Text.ProportionalHeight
             }
         }
 
