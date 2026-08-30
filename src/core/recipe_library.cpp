@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include <QHash>
+#include <QMutex>
 #include <QSet>
 #include <QRegularExpression>
 
@@ -18,10 +19,7 @@ std::vector<LibraryRecipe> RecipeLibrary::s_recipes;
 // spécialisé (Qt fournit qHash, pas std::hash), et cette instanciation serait
 // rejetée à la compilation (static_assert de <bits/hashtable_policy.h>).
 static QHash<QString, size_t> s_idIndex;
-
-QString RecipeLibrary::normalizeSearchText(const QString &s) {
-    return normalizeIngredientKey(s);
-}
+static QMutex s_mutex;
 
 static QString jsonStringField(const nlohmann::json &node, const char *key) {
     if (!node.contains(key))
@@ -49,9 +47,12 @@ static int jsonIntField(const nlohmann::json &node, const char *key, int fallbac
     return fallback;
 }
 
-bool RecipeLibrary::loadFromJson(const QByteArray &json) {
-    s_recipes.clear();
-    s_idIndex.clear();
+static bool parseJsonInto(const QByteArray &json,
+                          std::vector<LibraryRecipe> &recipes,
+                          QHash<QString, size_t> &idIndex)
+{
+    recipes.clear();
+    idIndex.clear();
 
     nlohmann::json root;
     try {
@@ -114,40 +115,68 @@ bool RecipeLibrary::loadFromJson(const QByteArray &json) {
 
             rec.instructions = jsonStringField(node, "instructions");
 
-            QString blob = normalizeIngredientKey(rec.title) + QLatin1Char(' ') + normalizeIngredientKey(rec.category);
+            QString blob = normalizeIngredientKey(rec.title) + QLatin1Char(' ')
+                           + normalizeIngredientKey(rec.category);
             for (const auto &ing : rec.ingredients)
                 blob += QLatin1Char(' ') + normalizeIngredientKey(ing.name);
             if (!rec.instructions.isEmpty())
                 blob += QLatin1Char(' ') + normalizeIngredientKey(rec.instructions);
             rec.searchBlob = blob;
 
-            s_idIndex[rec.id] = s_recipes.size();
-            s_recipes.push_back(std::move(rec));
+            idIndex[rec.id] = recipes.size();
+            recipes.push_back(std::move(rec));
         } catch (const nlohmann::json::exception &) {
             continue;
         }
     }
-    return !s_recipes.empty();
+    return !recipes.empty();
+}
+
+QString RecipeLibrary::normalizeSearchText(const QString &s) {
+    return normalizeIngredientKey(s);
+}
+
+bool RecipeLibrary::loadFromJson(const QByteArray &json) {
+    std::vector<LibraryRecipe> recipes;
+    QHash<QString, size_t> idIndex;
+    if (!parseJsonInto(json, recipes, idIndex)) {
+        QMutexLocker lock(&s_mutex);
+        s_recipes.clear();
+        s_idIndex.clear();
+        return false;
+    }
+
+    QMutexLocker lock(&s_mutex);
+    s_recipes = std::move(recipes);
+    s_idIndex = std::move(idIndex);
+    return true;
 }
 
 int RecipeLibrary::count() {
+    QMutexLocker lock(&s_mutex);
     return static_cast<int>(s_recipes.size());
 }
 
 const LibraryRecipe *RecipeLibrary::recipeAt(int index) {
+    QMutexLocker lock(&s_mutex);
     if (index < 0 || index >= static_cast<int>(s_recipes.size()))
         return nullptr;
     return &s_recipes[static_cast<size_t>(index)];
 }
 
 const LibraryRecipe *RecipeLibrary::recipeById(const QString &id) {
+    QMutexLocker lock(&s_mutex);
     const auto it = s_idIndex.constFind(id);
     if (it == s_idIndex.constEnd())
         return nullptr;
-    return recipeAt(static_cast<int>(it.value()));
+    const int index = static_cast<int>(it.value());
+    if (index < 0 || index >= static_cast<int>(s_recipes.size()))
+        return nullptr;
+    return &s_recipes[static_cast<size_t>(index)];
 }
 
 std::vector<int> RecipeLibrary::filterIndices(const QString &query, const QString &category) {
+    QMutexLocker lock(&s_mutex);
     const QString q = normalizeIngredientKey(query);
     const QStringList tokens = q.split(QRegularExpression(QStringLiteral("\\s+")),
                                       Qt::SkipEmptyParts);
@@ -203,6 +232,7 @@ std::vector<int> RecipeLibrary::filterIndices(const QString &query, const QStrin
 }
 
 std::vector<QString> RecipeLibrary::categories() {
+    QMutexLocker lock(&s_mutex);
     QHash<QString, int> counts;
     for (const LibraryRecipe &rec : s_recipes) {
         if (!rec.category.isEmpty())
