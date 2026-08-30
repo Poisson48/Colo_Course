@@ -8,6 +8,26 @@ Item {
 
     readonly property string pageTitle: "Recettes"
 
+    function handleBack() {
+        if (catalogDetail.opened) {
+            catalogDetail.close()
+            return true
+        }
+        if (createDialog.opened) {
+            createDialog.close()
+            return true
+        }
+        if (leaveDialog.opened) {
+            leaveDialog.close()
+            return true
+        }
+        if (addToListPicker.opened) {
+            addToListPicker.close()
+            return true
+        }
+        return false
+    }
+
     function escapeHtml(s) {
         return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     }
@@ -284,73 +304,91 @@ Item {
                 }
             }
 
-            ScrollView {
-                id: categoryScroll
+            ListModel { id: categoryChipModel }
+
+            function rebuildCategoryChips() {
+                categoryChipModel.clear()
+                const n = AppController.recipeLibraryCount
+                categoryChipModel.append({
+                    name: "",
+                    label: "Toutes (" + n + ")"
+                })
+                const cats = AppController.recipeLibraryCategories()
+                for (let i = 0; i < cats.length; i++) {
+                    const c = cats[i]
+                    categoryChipModel.append({
+                        name: c.name,
+                        label: c.name + " (" + c.count + ")"
+                    })
+                }
+            }
+
+            Component.onCompleted: rebuildCategoryChips()
+
+            Connections {
+                target: AppController
+                function onRecipeLibraryCountChanged() {
+                    catalogPanel.rebuildCategoryChips()
+                }
+            }
+
+            ListView {
+                id: categoryList
                 Layout.fillWidth: true
                 Layout.preferredHeight: visible ? 40 : 0
                 Layout.leftMargin: Theme.gap
                 Layout.rightMargin: Theme.gap
                 visible: AppController.recipeLibraryCount > 0
                 clip: true
-                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                spacing: 8
+                orientation: ListView.Horizontal
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.HorizontalFlick
+                interactive: categoryChipModel.count > 0
+                model: categoryChipModel
+
                 ScrollBar.vertical.policy: ScrollBar.AlwaysOff
-                contentWidth: categoryRow.implicitWidth
+                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
 
-                Row {
-                    id: categoryRow
-                    spacing: 8
-
-                    Repeater {
-                        model: {
-                            const _n = AppController.recipeLibraryCount
-                            const chips = [{
-                                name: "",
-                                label: "Toutes (" + _n + ")"
-                            }]
-                            const cats = AppController.recipeLibraryCategories()
-                            for (let i = 0; i < cats.length; i++) {
-                                const c = cats[i]
-                                chips.push({
-                                    name: c.name,
-                                    label: c.name + " (" + c.count + ")"
-                                })
-                            }
-                            return chips
-                        }
-
-                        delegate: Button {
-                            required property string name
-                            required property string label
-
-                            flat: true
-                            implicitHeight: 32
-                            implicitWidth: chipLabel.implicitWidth + 20
-                            padding: 0
-
-                            background: Rectangle {
-                                radius: 16
-                                color: catalogPanel.catalogCategory === parent.name
-                                       ? Theme.accent : Theme.surface
-                                border.color: catalogPanel.catalogCategory === parent.name
-                                              ? Theme.accent : Theme.outline
-                                border.width: 1
-                            }
-
-                            contentItem: Label {
-                                id: chipLabel
-                                text: parent.label
-                                color: catalogPanel.catalogCategory === parent.name
-                                       ? Theme.onAccent : Theme.text
-                                font.pixelSize: 13
-                                font.weight: catalogPanel.catalogCategory === parent.name
-                                             ? Font.DemiBold : Font.Normal
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            onClicked: catalogPanel.applyCatalogCategory(name)
-                        }
+                // Ne pas faire défiler le catalogue quand on glisse verticalement sur les chips.
+                WheelHandler {
+                    onWheel: (event) => {
+                        if (Math.abs(event.angleDelta.y) >= Math.abs(event.angleDelta.x))
+                            event.accepted = true
                     }
+                }
+
+                delegate: Button {
+                    required property string name
+                    required property string label
+
+                    flat: true
+                    height: categoryList.height
+                    implicitWidth: chipLabel.implicitWidth + 20
+                    padding: 0
+
+                    background: Rectangle {
+                        radius: 16
+                        color: catalogPanel.catalogCategory === name
+                               ? Theme.accent : Theme.surface
+                        border.color: catalogPanel.catalogCategory === name
+                                      ? Theme.accent : Theme.outline
+                        border.width: 1
+                    }
+
+                    contentItem: Label {
+                        id: chipLabel
+                        text: label
+                        color: catalogPanel.catalogCategory === name
+                               ? Theme.onAccent : Theme.text
+                        font.pixelSize: 13
+                        font.weight: catalogPanel.catalogCategory === name
+                                     ? Font.DemiBold : Font.Normal
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    onClicked: catalogPanel.applyCatalogCategory(name)
                 }
             }
 

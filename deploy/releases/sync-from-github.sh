@@ -22,18 +22,21 @@ mkdir -p "$DEST"
 log() { printf '[%s] %s\n' "$(date -Iseconds)" "$*"; }
 
 # Dernière release stable (non draft, non prerelease).
+curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: ColoCourse-Releases' \
+  "$API" -o "$TMP/releases.json"
+
 RELEASE_JSON="$(
-  curl -fsSL -H 'Accept: application/vnd.github+json' -H 'User-Agent: ColoCourse-Releases' \
-    "$API" | python3 - "$TMP/release_meta.json" <<'PY'
+  python3 - "$TMP/releases.json" "$TMP/release_meta.json" <<'PY'
 import json, sys
-releases = json.load(sys.stdin)
+with open(sys.argv[1], encoding="utf-8") as f:
+    releases = json.load(f)
 for r in releases:
     if r.get("draft") or r.get("prerelease"):
         continue
     tag = (r.get("tag_name") or "").lstrip("vV")
     if not tag:
         continue
-    with open(sys.argv[1], "w", encoding="utf-8") as f:
+    with open(sys.argv[2], "w", encoding="utf-8") as f:
         json.dump(r, f, ensure_ascii=False)
     print(tag)
     break
@@ -156,8 +159,8 @@ with open(tmp_manifest, "w", encoding="utf-8") as f:
     f.write("\n")
 os.replace(tmp_manifest, os.path.join(dest, "manifest.json"))
 
-# Conserver uniquement les artefacts de la version courante.
-keep = {apk_name, appimage_name, "manifest.json"}
+# Conserver uniquement les artefacts de la version courante (+ catalogue recettes).
+keep = {apk_name, appimage_name, "manifest.json", "recipe_library.json", "recipes-manifest.json"}
 for name in os.listdir(dest):
     if name not in keep:
         path = os.path.join(dest, name)

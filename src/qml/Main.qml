@@ -41,20 +41,36 @@ ApplicationWindow {
     // fenêtre. Sans ce handler, il quittait l'app — depuis une liste ouverte comme
     // depuis un dialogue, ce qui ressemble à un plantage. On l'absorbe tant qu'il
     // reste quelque chose à refermer, et on ne quitte qu'à la racine.
-    onClosing: function (close) {
-        close.accepted = false
+    function handleSystemBack() {
+        if (closeTopOverlay())
+            return true
 
         const page = stack.currentItem
-        if (window.closeTopPopup(page))
-            return
+        if (closeTopPopup(page))
+            return true
         if (page && typeof page.handleBack === "function" && page.handleBack())
-            return
+            return true
         if (stack.depth > 1) {
-            stack.pop()
-            return
+            // Recette ouverte : retour direct à Mes listes (pas un dépilement intermédiaire).
+            if (page && page.isRecipe) {
+                while (stack.depth > 1)
+                    stack.pop(StackView.Immediate)
+            } else {
+                stack.pop()
+            }
+            return true
         }
+        return false
+    }
 
-        close.accepted = true
+    onClosing: function (close) {
+        close.accepted = !handleSystemBack()
+    }
+
+    Shortcut {
+        sequences: ["Back", "Escape"]
+        context: Qt.ApplicationShortcut
+        onActivated: handleSystemBack()
     }
 
     // Un Popup a pour parent visuel l'Overlay, mais reste déclaré dans la page :
@@ -66,6 +82,21 @@ ApplicationWindow {
         const kids = page.data
         for (let i = kids.length - 1; i >= 0; --i) {
             const child = kids[i]
+            if (child && child.opened === true && typeof child.close === "function") {
+                child.close()
+                return true
+            }
+        }
+        return false
+    }
+
+    // ColoDialog et la plupart des modales sont parentés à Overlay.overlay.
+    function closeTopOverlay() {
+        if (!window.Overlay || !window.Overlay.overlay)
+            return false
+        const overlay = window.Overlay.overlay
+        for (let i = overlay.children.length - 1; i >= 0; --i) {
+            const child = overlay.children[i]
             if (child && child.opened === true && typeof child.close === "function") {
                 child.close()
                 return true
@@ -95,14 +126,8 @@ ApplicationWindow {
                     color: Theme.text
                     size: 22
                 }
-                // Même chemin que le bouton retour Android : la flèche doit sortir du
-                // mode sélection avant de quitter la page.
-                onClicked: {
-                    const page = stack.currentItem
-                    if (page && typeof page.handleBack === "function" && page.handleBack())
-                        return
-                    stack.pop()
-                }
+                // Même chemin que le bouton retour Android.
+                onClicked: handleSystemBack()
             }
 
             ColumnLayout {

@@ -5,6 +5,16 @@ au lieu de l'API GitHub. Le serveur synchronise la dernière release depuis GitH
 
 ## Installation sur le serveur
 
+**Tout en une commande** (nginx + scripts + cron + première synchro + vérif) :
+
+```bash
+cd /opt/colo-apps/Colo_Course   # ou autre clone du dépôt
+git pull
+sudo ./deploy/releases/install-all.sh
+```
+
+Étapes manuelles équivalentes :
+
 ```bash
 sudo mkdir -p /var/lib/colo-apps/releases
 sudo cp deploy/releases/sync-from-github.sh /opt/colo-apps/
