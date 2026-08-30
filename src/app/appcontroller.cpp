@@ -450,12 +450,13 @@ bool AppController::init() {
         emit imageRevisionChanged();
     });
 
-    // Des modifications peuvent dormir dans l'outbox depuis la session précédente
-    // (app fermée hors ligne) : purger celles déjà livrées avant d'afficher le bandeau.
-    m_syncEngine.reconcileOutbox();
+    // Des modifications peuvent dormir dans l'outbox (session précédente hors ligne).
+    // Ne pas purger avant d'avoir tenté un flush si le relais est joignable.
     m_pendingChanges = m_db.outboxCount();
     if (m_pendingChanges > 0)
         m_syncEngine.catchUpOnForeground();
+    else
+        m_syncEngine.reconcileOutbox();
 
     // Toute écriture locale (ajout, cochage, suppression) doit partir au relais.
     // Sans cette connexion, l'app modifie sa base et ne synchronise jamais rien.

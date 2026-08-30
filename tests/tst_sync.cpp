@@ -501,6 +501,50 @@ private slots:
         QVERIFY(spyB.count() >= 1);
     }
 
+    // reconcileOutbox au démarrage ne doit pas vider l'outbox hors ligne
+    // (événement marqué « seen » à la création mais jamais publié).
+    void test_reconcilePreservesOfflineOutbox()
+    {
+        FakeRelay relay;
+        QVERIFY(relay.listen(0));
+
+        const std::string listId = "list-sync-f";
+        ListMeta meta = makeListMeta(listId, 0x33);
+
+        Peer A;
+        QVERIFY(A.init(relay.url(), "devA", meta));
+        QVERIFY(waitFor([&]{ return relay.peerCount() >= 1; }, 3000));
+        waitMs(100);
+
+        const quint16 port = relay.port();
+        relay.closeAndDisconnectAll();
+        waitMs(300);
+
+        A.model->addItem(QStringLiteral("Pommes"), QStringLiteral("6"));
+        A.engine->onLocalChange(listId);
+        waitMs(500);
+
+        QCOMPARE(A.db.outboxCount(), 1);
+
+        A.engine->reconcileOutbox();
+        QCOMPARE(A.db.outboxCount(), 1);
+
+        QVERIFY(relay.listen(port));
+
+        Peer B;
+        QVERIFY(B.init(relay.url(), "devB", meta));
+        QSignalSpy spyB(B.engine.get(), &SyncEngine::remoteChanges);
+
+        QVERIFY(waitFor([&]{ return relay.peerCount() >= 2; }, 10000));
+        A.engine->catchUpOnForeground();
+
+        QVERIFY(waitFor([&]{
+            B.reloadModel();
+            return B.itemNames().contains(QStringLiteral("Pommes"));
+        }, 10000));
+        QVERIFY(spyB.count() >= 1);
+    }
+
     // ── (d) Corrupted / wrong-key event → ignored silently, no crash ───────
     void test_corruptedEventIgnored()
     {

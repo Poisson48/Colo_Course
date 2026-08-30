@@ -557,10 +557,12 @@ void SyncEngine::onRelayOnline(bool online)
 
 void SyncEngine::catchUpOnForeground()
 {
-    reconcileOutbox();
     if (!m_pool || !m_pool->isOnline())
         return;
+
+    // Republier d'abord : reconcile ne doit pas retirer l'outbox avant un envoi.
     flushOutbox();
+    reconcileOutbox();
     subscribeAllLists();
 }
 
@@ -696,6 +698,10 @@ void SyncEngine::reconcileStuckOutbox()
     const bool online = m_pool && m_pool->isOnline();
     bool changed = false;
     for (const auto& row : m_db->outboxPeekAllEntries()) {
+        // Laisser le temps à flushOutbox de republier (reconnexion, démarrage).
+        if (now - row.created < kOutboxStaleMs)
+            continue;
+
         const QJsonDocument doc = QJsonDocument::fromJson(
             QByteArray::fromStdString(row.eventJson));
         if (!doc.isObject()) {
@@ -710,24 +716,26 @@ void SyncEngine::reconcileStuckOutbox()
             continue;
         }
 
+        // Hors ligne : conserver l'outbox jusqu'à un flush réussi.
+        if (!online)
+            continue;
+
         const std::string eventId = evOpt->id.toStdString();
-        // Déjà publié (marqué seen à l'envoi ou reçu en echo) : l'outbox est obsolète.
+        // Après 45 s en ligne : l'événement a été republié plusieurs fois ;
+        // s'il est « seen » (marqué à l'envoi ou echo reçu), l'outbox est obsolète.
         if (m_db->isEventSeen(eventId)) {
-            qInfo() << "[SyncEngine] purging delivered outbox entry" << evOpt->id.left(12);
+            qInfo() << "[SyncEngine] purging stale delivered outbox entry" << evOpt->id.left(12);
             m_db->outboxRemove(row.rowid);
             m_pendingAcks.erase(evOpt->id);
             changed = true;
             continue;
         }
 
-        // Sans accusé après un délai : on abandonne l'entrée (flushOutbox republie
-        // tant qu'elle est là ; au-delà de 45 s on évite un bandeau bloqué à vie).
-        if (online && now - row.created >= kOutboxStaleMs) {
-            qInfo() << "[SyncEngine] purging stale unacked outbox entry" << evOpt->id.left(12);
-            m_db->outboxRemove(row.rowid);
-            m_pendingAcks.erase(evOpt->id);
-            changed = true;
-        }
+        // Sans accusé après 45 s en ligne : débloquer le bandeau (événement perdu).
+        qInfo() << "[SyncEngine] purging stale unacked outbox entry" << evOpt->id.left(12);
+        m_db->outboxRemove(row.rowid);
+        m_pendingAcks.erase(evOpt->id);
+        changed = true;
     }
     if (changed) {
         emit outboxChanged();
