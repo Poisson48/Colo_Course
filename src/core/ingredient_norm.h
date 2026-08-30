@@ -17,4 +17,8 @@ QString canonicalIngredientName(const QString &s);
 // (Lait, LAIT, lait → lait).
 QString normalizeManualIngredientName(const QString &s);
 
+// Extrait l'ingrédient de base en retirant préparations et découpes
+// (« beurre fondu » → « beurre », « courgettes en tranches » → « courgettes »).
+QString baseIngredientName(const QString &s);
+
 } // namespace core

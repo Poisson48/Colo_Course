@@ -115,6 +115,21 @@ static void test_ingredientNorm() {
     EXPECT_EQ(core::canonicalIngredientName(QString("oeuf")), QString("œufs"));
 }
 
+static void test_baseIngredientName() {
+    EXPECT_EQ(core::baseIngredientName(QString("beurre fondu")), QString("beurre"));
+    EXPECT_EQ(core::baseIngredientName(QString("Beurre fondu")), QString("beurre"));
+    EXPECT_EQ(core::baseIngredientName(QString("courgettes en tranches")), QString("courgettes"));
+    EXPECT_EQ(core::baseIngredientName(QString("courgette en tranche")), QString("courgette"));
+    EXPECT_EQ(core::baseIngredientName(QString("fromage râpé")), QString("fromage"));
+    EXPECT_EQ(core::canonicalIngredientName(QString("beurre fondu")), QString("beurre"));
+    EXPECT_EQ(core::canonicalIngredientName(QString("courgettes en tranches")), QString("courgettes"));
+    EXPECT_EQ(core::ingredientMatchKey(QString("beurre fondu")), QString("beurre"));
+    EXPECT_EQ(core::ingredientMatchKey(QString("beurre")), QString("beurre"));
+    EXPECT_EQ(core::baseIngredientName(QString("crème fraîche")), QString("crème fraîche"));
+    EXPECT_EQ(core::baseIngredientName(QString("bœuf haché")), QString("bœuf haché"));
+    EXPECT_EQ(core::baseIngredientName(QString("huile d'olive")), QString("huile d'olive"));
+}
+
 static void test_normalizeManualIngredientName() {
     EXPECT_EQ(core::normalizeManualIngredientName(QString("Lait")), QString("lait"));
     EXPECT_EQ(core::normalizeManualIngredientName(QString("LAIT")), QString("lait"));
@@ -149,6 +164,7 @@ int main() {
     test_zipRejectsGarbage();
     test_recipeScale();
     test_ingredientNorm();
+    test_baseIngredientName();
     test_normalizeManualIngredientName();
     test_canonicalPreservesQualifier();
     test_mergeQuantities();

@@ -95,6 +95,7 @@ _MATCH_ALIASES: dict[str, str] = {
     "épinards": "epinards",
     "yaourt": "yaourts", "yaourts": "yaourts",
     "banane": "bananes", "bananes": "bananes",
+    "beurre": "beurre",
 }
 
 # Clé canonique → nom d'affichage préféré (singulier court → pluriel).
@@ -104,25 +105,141 @@ _CANONICAL_NAMES: dict[str, str] = {
     "courgettes": "courgettes", "poivrons": "poivrons", "champignons": "champignons",
     "citrons": "citrons", "pates": "pâtes", "epinards": "épinards",
     "yaourts": "yaourts", "bananes": "bananes",
+    "beurre": "beurre",
 }
 
 
+_PROTECTED_COMPOUNDS = (
+    "creme fraiche", "pomme de terre", "pommes de terre", "huile d'olive", "huile d olive",
+    "beurre sale", "beurre doux", "fromage frais", "levure chimique", "levure de boulanger",
+    "pate feuilletee", "pate brisee", "pate a pizza", "sauce tomate", "lait de coco",
+    "lait de vache", "boeuf hache", "viande hachee",
+)
+
+_PREP_SUFFIX_RES: list[tuple[re.Pattern[str], str | None]] = [
+    (re.compile(r"(?:\s*,\s*|\s+)en petits morceaux$", re.I), "en petits morceaux"),
+    (re.compile(r"(?:\s*,\s*|\s+)en petits dés$", re.I), "en petits dés"),
+    (re.compile(r"(?:\s*,\s*|\s+)en petits cubes$", re.I), "en petits cubes"),
+    (re.compile(r"(?:\s*,\s*|\s+)en fines lamelles$", re.I), "en fines lamelles"),
+    (re.compile(r"(?:\s*,\s*|\s+)en fines tranches$", re.I), "en fines tranches"),
+    (re.compile(r"(?:\s*,\s*|\s+)en tranches$", re.I), "en tranches"),
+    (re.compile(r"(?:\s*,\s*|\s+)en tranche$", re.I), "en tranche"),
+    (re.compile(r"(?:\s*,\s*|\s+)en lamelles$", re.I), "en lamelles"),
+    (re.compile(r"(?:\s*,\s*|\s+)en lamelle$", re.I), "en lamelle"),
+    (re.compile(r"(?:\s*,\s*|\s+)en rondelles$", re.I), "en rondelles"),
+    (re.compile(r"(?:\s*,\s*|\s+)en rondelle$", re.I), "en rondelle"),
+    (re.compile(r"(?:\s*,\s*|\s+)en morceaux$", re.I), "en morceaux"),
+    (re.compile(r"(?:\s*,\s*|\s+)en morceau$", re.I), "en morceau"),
+    (re.compile(r"(?:\s*,\s*|\s+)en dés$", re.I), "en dés"),
+    (re.compile(r"(?:\s*,\s*|\s+)en cubes$", re.I), "en cubes"),
+    (re.compile(r"(?:\s*,\s*|\s+)en cube$", re.I), "en cube"),
+    (re.compile(r"(?:\s*,\s*|\s+)en lanières$", re.I), "en lanières"),
+    (re.compile(r"(?:\s*,\s*|\s+)en copeaux$", re.I), "en copeaux"),
+    (re.compile(r"(?:\s*,\s*|\s+)coupé en [^,;]+$", re.I), None),
+    (re.compile(r"(?:\s*,\s*|\s+)coupés en [^,;]+$", re.I), None),
+    (re.compile(r"(?:\s*,\s*|\s+)coupée en [^,;]+$", re.I), None),
+    (re.compile(r"(?:\s*,\s*|\s+)coupées en [^,;]+$", re.I), None),
+    (re.compile(r"(?:\s*,\s*|\s+)finement émincé$", re.I), "finement émincé"),
+    (re.compile(r"(?:\s*,\s*|\s+)finement émincée$", re.I), "finement émincée"),
+    (re.compile(r"(?:\s*,\s*|\s+)émincé$", re.I), "émincé"),
+    (re.compile(r"(?:\s*,\s*|\s+)émincée$", re.I), "émincée"),
+    (re.compile(r"(?:\s*,\s*|\s+)pelé et haché$", re.I), "pelé et haché"),
+    (re.compile(r"(?:\s*,\s*|\s+)pelée et hachée$", re.I), "pelée et hachée"),
+    (re.compile(r"(?:\s*,\s*|\s+)haché finement$", re.I), "haché finement"),
+    (re.compile(r"(?:\s*,\s*|\s+)hachée finement$", re.I), "hachée finement"),
+    (re.compile(r"(?:\s*,\s*|\s+)fondu$", re.I), "fondu"),
+    (re.compile(r"(?:\s*,\s*|\s+)fondue$", re.I), "fondue"),
+    (re.compile(r"(?:\s*,\s*|\s+)fondus$", re.I), "fondus"),
+    (re.compile(r"(?:\s*,\s*|\s+)en pommade$", re.I), "en pommade"),
+    (re.compile(r"(?:\s*,\s*|\s+)tiédi$", re.I), "tiédi"),
+    (re.compile(r"(?:\s*,\s*|\s+)ramolli$", re.I), "ramolli"),
+]
+
+_HERB_FRESH_RE = re.compile(
+    r"^((?:basilic|persil|coriandre|menthe|cerfeuil|ciboulette)(?:\s+\w+){0,2})\s+fra[iî]che?$",
+    re.I,
+)
+_GRATED_RE = re.compile(r"^(.+?)\s+r[aâ]p[eé](?:e|es|ée|ées)?$", re.I)
+_GRATED_CHEESE_HINTS = ("fromage", "parmesan", "gruyere", "cheddar", "mozzarella", "emmental", "comte")
+
+
+def _is_protected_compound(norm_key: str) -> bool:
+    if norm_key in _PROTECTED_COMPOUNDS:
+        return True
+    return any(norm_key.startswith(p + " ") for p in _PROTECTED_COMPOUNDS)
+
+
+def _strip_one_prep_suffix(name: str) -> tuple[str, str | None]:
+    name = name.strip()
+    for pattern, label in _PREP_SUFFIX_RES:
+        m = pattern.search(name)
+        if m:
+            stripped = label if label else m.group(0).strip().lstrip(", ")
+            return name[: m.start()].strip(), stripped
+
+    m = _HERB_FRESH_RE.match(name)
+    if m:
+        return m.group(1).strip(), "fraîche"
+
+    m = _GRATED_RE.match(name)
+    if m:
+        base = m.group(1).strip()
+        base_key = app_norm_key(base)
+        if any(h in base_key for h in _GRATED_CHEESE_HINTS):
+            return base, "râpé"
+
+    return name, None
+
+
+def base_ingredient_name(s: str) -> str:
+    """Extrait l'ingrédient de base (aligné avec baseIngredientName() C++)."""
+    base, _ = extract_base_ingredient(s)
+    return base
+
+
+def extract_base_ingredient(s: str) -> tuple[str, list[str]]:
+    """Retourne (nom de base, modificateurs de préparation retirés)."""
+    trimmed = s.strip()
+    if not trimmed:
+        return trimmed, []
+
+    if _is_protected_compound(app_norm_key(trimmed)):
+        return trimmed, []
+
+    result = trimmed
+    prep_parts: list[str] = []
+    for _ in range(4):
+        nxt, part = _strip_one_prep_suffix(result)
+        if not part:
+            break
+        prep_parts.append(part)
+        result = nxt
+
+    result = result.strip()
+    if not result:
+        return trimmed, prep_parts
+    if prep_parts:
+        return result.lower(), prep_parts
+    return result, prep_parts
+
+
 def ingredient_match_key(s: str) -> str:
-    key = app_norm_key(s)
+    key = app_norm_key(base_ingredient_name(s))
     return _MATCH_ALIASES.get(key, key)
 
 
 def canonical_ingredient_name(s: str) -> str:
-    trimmed = s.strip()
-    if not trimmed:
-        return trimmed
-    norm_key = app_norm_key(trimmed)
+    base = base_ingredient_name(s)
+    if not base:
+        return base
+
+    norm_key = app_norm_key(base)
     match_key = _MATCH_ALIASES.get(norm_key)
     if match_key is None:
-        return trimmed
+        return base
     if norm_key == match_key:
-        return trimmed
-    return _CANONICAL_NAMES.get(match_key, trimmed)
+        return base
+    return _CANONICAL_NAMES.get(match_key, base)
 
 
 def truncate(s: str, limit: int) -> tuple[str, bool]:
@@ -225,6 +342,12 @@ def normalize_ingredient(raw: dict, stats: dict) -> dict | None:
     if not name:
         return None
 
+    name, prep_parts = extract_base_ingredient(name)
+    if prep_parts:
+        prep_note = ", ".join(prep_parts)
+        note = f"{prep_note}; {note}".strip("; ") if note else prep_note
+        stats["prep_modifiers_stripped"] += 1
+
     name = canonical_ingredient_name(name)
 
     name, trunc_n = truncate(name, MAX_NAME_LEN)
@@ -326,6 +449,7 @@ def normalize_library(data: dict) -> tuple[dict, dict]:
         "duplicate_titles_removed": 0,
         "duplicate_ids_removed": 0,
         "duplicate_ingredients_removed": 0,
+        "prep_modifiers_stripped": 0,
         "truncated_fields": 0,
     }
 
@@ -402,6 +526,7 @@ def main() -> int:
     print(f"  rejetées (id/title manquant)    : {stats['dropped_missing_id_or_title']}")
     print(f"  rejetées (ingrédients invalides): {stats['dropped_bad_ingredients']}")
     print(f"  ingrédients dupliqués retirés   : {stats['duplicate_ingredients_removed']}")
+    print(f"  préparations retirées (nom)     : {stats['prep_modifiers_stripped']}")
     print(f"  champs tronqués (name/qty/note) : {stats['truncated_fields']}")
 
     if stats["output_count"] < args.target:
