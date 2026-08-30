@@ -1082,12 +1082,13 @@ Item {
         if (name.length === 0)
             return
 
-        // Deux « Lait » dans une liste partagée, c'est le doublon classique : chacun
-        // l'ajoute de son côté. On prévient, on n'interdit pas — deux paquets de
-        // pâtes, ça existe.
-        const existing = AppController.items.existingName(name)
-        if (existing.length > 0) {
-            duplicateItemDialog.existingName = existing
+        const match = AppController.items.matchingItem(name)
+        if (match.itemId) {
+            duplicateItemDialog.existingName = match.name
+            duplicateItemDialog.existingQty = match.qty || ""
+            duplicateItemDialog.pendingQty = qtyField.text.trim()
+            duplicateItemDialog.pendingNote = addNoteField.text.trim()
+            duplicateItemDialog.matchItemId = match.itemId
             duplicateItemDialog.open()
             return
         }
@@ -1096,7 +1097,8 @@ Item {
     }
 
     function commitItem() {
-        AppController.items.addItem(nameField.text.trim(),
+        const normalizedName = AppController.items.normalizeIngredientName(nameField.text.trim())
+        AppController.items.addItem(normalizedName,
                                     qtyField.text.trim(),
                                     addNoteField.text.trim(),
                                     addAisleBox.aisle)
@@ -1111,15 +1113,20 @@ Item {
         nameField.forceActiveFocus()
     }
 
-    // Ajout depuis un favori : la quantité et le rayon mémorisés font gagner la saisie.
-    // Déjà présent dans la liste ? On le dit sans rien ajouter (pas de doublon silencieux).
+    // Ajout depuis un favori : fusion si déjà présent, sinon ajout direct.
     function addFavorite(fav) {
-        const existing = AppController.items.existingName(fav.name)
-        if (existing.length > 0) {
-            AppController.toast("« " + existing + " » est déjà dans la liste")
+        const match = AppController.items.matchingItem(fav.name)
+        if (match.itemId) {
+            if (fav.qty && fav.qty.length > 0) {
+                AppController.items.mergeQuantity(match.itemId, fav.qty)
+                AppController.toast("Quantité de « " + match.name + " » augmentée")
+            } else {
+                AppController.toast("« " + match.name + " » est déjà dans la liste")
+            }
             return
         }
-        AppController.items.addItem(fav.name, fav.qty, "", fav.aisle)
+        AppController.items.addItem(AppController.items.normalizeIngredientName(fav.name),
+                                    fav.qty, "", fav.aisle)
     }
 
     function escapeHtml(s) {
@@ -1566,11 +1573,17 @@ Item {
             }
         }
 
-        onAccepted: AppController.items.editItem(editDialog.itemId,
-                                                 editName.text.trim(),
-                                                 editQty.text.trim(),
-                                                 editNote.text.trim(),
-                                                 editAisle.aisle)
+        onAccepted: {
+            const nm = AppController.items.normalizeIngredientName(editName.text.trim())
+            if (AppController.items.hasDuplicateName(nm, editDialog.itemId)) {
+                AppController.toast("« " + nm + " » est déjà sur la liste")
+                return
+            }
+            AppController.items.editItem(editDialog.itemId, nm,
+                                         editQty.text.trim(),
+                                         editNote.text.trim(),
+                                         editAisle.aisle)
+        }
     }
 
     // Sélecteur d'images, chargé au premier besoin seulement.
@@ -1798,20 +1811,95 @@ Item {
     ColoDialog {
         id: duplicateItemDialog
         title: "Déjà dans la liste"
-        acceptText: "Ajouter quand même"
+        showAccept: false
+        acceptText: ""
 
         property string existingName: ""
+        property string existingQty: ""
+        property string pendingQty: ""
+        property string pendingNote: ""
+        property string matchItemId: ""
 
         Label {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             color: Theme.textDim
             font.pixelSize: 14
-            text: "« " + duplicateItemDialog.existingName + " » est déjà sur la liste. "
-                  + "L'ajouter une seconde fois ?"
+            text: {
+                let msg = "« " + duplicateItemDialog.existingName + " » est déjà sur la liste"
+                if (duplicateItemDialog.existingQty.length > 0)
+                    msg += " (" + duplicateItemDialog.existingQty + ")"
+                msg += ". Que souhaitez-vous faire ?"
+                return msg
+            }
         }
 
-        onAccepted: root.commitItem()
+        Button {
+            Layout.fillWidth: true
+            flat: true
+            implicitHeight: Theme.touchTarget
+            contentItem: Label {
+                text: "C'est suffisant"
+                color: Theme.accent
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: {
+                duplicateItemDialog.close()
+                nameField.text = ""
+                qtyField.text = ""
+                addNoteField.text = ""
+                nameField.forceActiveFocus()
+            }
+        }
+
+        Button {
+            Layout.fillWidth: true
+            flat: true
+            visible: duplicateItemDialog.pendingQty.length > 0
+                    || duplicateItemDialog.pendingNote.length > 0
+            implicitHeight: Theme.touchTarget
+            contentItem: Label {
+                text: duplicateItemDialog.pendingQty.length > 0
+                      ? "Augmenter la quantité" : "Ajouter la note"
+                color: Theme.accent
+                font.pixelSize: 15
+                font.weight: Font.DemiBold
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: {
+                AppController.items.mergeQuantity(duplicateItemDialog.matchItemId,
+                                                  duplicateItemDialog.pendingQty,
+                                                  duplicateItemDialog.pendingNote)
+                duplicateItemDialog.close()
+                nameField.text = ""
+                qtyField.text = ""
+                addNoteField.text = ""
+                root.aisleManual = false
+                addAisleBox.aisle = ""
+                nameField.forceActiveFocus()
+            }
+        }
+
+        Button {
+            Layout.fillWidth: true
+            flat: true
+            implicitHeight: Theme.touchTarget
+            contentItem: Label {
+                text: "Ajouter quand même"
+                color: Theme.textDim
+                font.pixelSize: 15
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+            onClicked: {
+                duplicateItemDialog.close()
+                root.commitItem()
+            }
+        }
     }
 
     ColoDialog {

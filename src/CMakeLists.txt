@@ -36,6 +36,7 @@ add_library(core STATIC
     core/zip.cpp
     core/recipe_library.cpp
     core/recipe_scale.cpp
+    core/ingredient_norm.cpp
 )
 
 target_include_directories(core PUBLIC

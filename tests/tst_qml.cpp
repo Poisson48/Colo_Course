@@ -87,9 +87,8 @@ private slots:
     }
 
     // Captures d'écran pour le README. Ne tourne que si COLO_SHOT_DIR est défini
-    // (sinon on n'impose pas un serveur graphique à la CI de tests). À lancer avec :
-    //   QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-    //   COLO_SHOT_DIR=docs/screenshots ./tst_qml
+    // (sinon on n'impose pas un serveur graphique à la CI de tests).
+    // Exemple: QT_QPA_PLATFORM=offscreen COLO_SHOT_DIR=docs/screenshots ./tst_qml
     void screenshots() {
         const QString outDir = qEnvironmentVariable("COLO_SHOT_DIR");
         if (outDir.isEmpty())
@@ -432,11 +431,7 @@ private slots:
 
         QVERIFY2(g_warnings.isEmpty(), qPrintable(g_warnings.join(QStringLiteral("\n"))));
 
-        // Voir l'écran sans téléphone ni serveur X :
-        //   QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
-        //   COLO_SCREENSHOT=/tmp/ui.png ./tst_qml
-        // Le rendu logiciel dessine hors écran ; c'est le seul moyen de vérifier ce qui
-        // ne se voit pas (icônes manquantes, thème clair illisible) autrement qu'à l'œil.
+        // Voir l'écran sans téléphone ni serveur X (QT_QPA_PLATFORM=offscreen COLO_SCREENSHOT=/tmp/ui.png).
         if (qEnvironmentVariableIsSet("COLO_SCREENSHOT"))
             win->grabWindow().save(qEnvironmentVariable("COLO_SCREENSHOT"));
 
@@ -728,14 +723,30 @@ private slots:
             QVERIFY(db.upsertItem(it));
         };
 
-        // Destination « Semaine » avec un article déjà présent (« Eau », déjà pris).
+        // Destination « Semaine » avec des œufs déjà présents.
         makeList("l-dest", "Semaine");
-        addItem("l-dest", "d-eau", "Eau", true);
-        // Source « Courants » : deux à acheter, plus un supprimé (ne doit pas être repris).
+        addItem("l-dest", "d-oeufs", "Œufs", false);
+        {
+            core::Item it; it.listId = "l-dest"; it.itemId = "d-oeufs"; it.created = 2000;
+            it.by = "dev-A"; it.name = "Œufs"; it.qty = "2"; it.done = false;
+            const core::Ver v{1, "dev-A"};
+            it.nameVer = it.qtyVer = it.noteVer = it.aisleVer = it.orderVer =
+                it.doneVer = it.delVer = v;
+            QVERIFY(db.upsertItem(it));
+        }
+        // Source « Courants » : œufs + PQ (œufs fusionnés, PQ ajouté).
         makeList("l-src", "Courants");
-        addItem("l-src", "s-bieres", "Bières", false);
-        addItem("l-src", "s-pq",     "PQ",     false);
-        addItem("l-src", "s-old",    "Ancien", false);
+        addItem("l-src", "s-oeufs", "oeufs", false);
+        {
+            core::Item it; it.listId = "l-src"; it.itemId = "s-oeufs"; it.created = 2001;
+            it.by = "dev-A"; it.name = "oeufs"; it.qty = "3"; it.done = false;
+            const core::Ver v{1, "dev-A"};
+            it.nameVer = it.qtyVer = it.noteVer = it.aisleVer = it.orderVer =
+                it.doneVer = it.delVer = v;
+            QVERIFY(db.upsertItem(it));
+        }
+        addItem("l-src", "s-pq", "PQ", false);
+        addItem("l-src", "s-old", "Ancien", false);
         {
             core::Item t; t.listId = "l-src"; t.itemId = "s-old"; t.del = true;
             t.delVer = {2, "dev-A"};
@@ -744,19 +755,24 @@ private slots:
 
         m_ctrl.importListInto("l-dest", "l-src");
 
-        // La destination a ses 3 articles vivants (Eau + Bières + PQ), l'ancien exclu.
+        // La destination a 2 articles vivants (Œufs fusionnés + PQ), l'ancien exclu.
         QStringList destNames;
-        bool eauStillDone = false, importedAllToBuy = true;
+        QString oeufsQty;
+        bool importedAllToBuy = true;
         for (const auto &it : db.getItems("l-dest")) {
             if (it.del) continue;
             destNames << QString::fromStdString(it.name);
-            if (it.name == "Eau") eauStillDone = it.done;   // l'existant n'est pas touché
-            else if (it.done) importedAllToBuy = false;      // les importés sont à acheter
+            if (it.name == "Œufs" || it.name == "oeufs") {
+                oeufsQty = QString::fromStdString(it.qty);
+                if (it.done) importedAllToBuy = false;
+            } else if (it.done) {
+                importedAllToBuy = false;
+            }
         }
         destNames.sort();
-        QCOMPARE(destNames, (QStringList{"Bières", "Eau", "PQ"}));
-        QVERIFY(eauStillDone);          // « Eau » garde son état coché
-        QVERIFY(importedAllToBuy);      // « Bières » et « PQ » arrivent à acheter
+        QCOMPARE(destNames, (QStringList{"PQ", "Œufs"}));
+        QCOMPARE(oeufsQty, QStringLiteral("5"));  // 2 + 3 fusionnés
+        QVERIFY(importedAllToBuy);
 
         // La source reste intacte : ses deux articles vivants sont toujours là.
         int srcAlive = 0;
@@ -856,7 +872,7 @@ private slots:
         QVERIFY(core::RecipeLibrary::loadFromJson(libFile.readAll()));
 
         const core::LibraryRecipe *lib = nullptr;
-        for (size_t i = 0; i < core::RecipeLibrary::count(); ++i) {
+        for (int i = 0; i < core::RecipeLibrary::count(); ++i) {
             const auto *r = core::RecipeLibrary::recipeAt(i);
             if (r && !r->instructions.isEmpty()) {
                 lib = r;

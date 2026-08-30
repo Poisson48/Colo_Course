@@ -1,5 +1,6 @@
 #include "recipe_library.h"
 
+#include "ingredient_norm.h"
 #include "recipe_scale.h"
 
 #include <algorithm>
@@ -18,21 +19,8 @@ std::vector<LibraryRecipe> RecipeLibrary::s_recipes;
 // rejetée à la compilation (static_assert de <bits/hashtable_policy.h>).
 static QHash<QString, size_t> s_idIndex;
 
-static QString deaccent(const QString &s) {
-    QString out;
-    for (const QChar c : s.normalized(QString::NormalizationForm_D)) {
-        if (c.category() != QChar::Mark_NonSpacing)
-            out += c;
-    }
-    return out;
-}
-
-static QString normKey(const QString &s) {
-    return deaccent(s.trimmed().toLower());
-}
-
 QString RecipeLibrary::normalizeSearchText(const QString &s) {
-    return normKey(s);
+    return normalizeIngredientKey(s);
 }
 
 static QString jsonStringField(const nlohmann::json &node, const char *key) {
@@ -96,7 +84,7 @@ bool RecipeLibrary::loadFromJson(const QByteArray &json) {
             if (rec.id.isEmpty() || rec.title.isEmpty())
                 continue;
 
-            const QString titleKey = normKey(rec.title);
+            const QString titleKey = normalizeIngredientKey(rec.title);
             if (seenTitles.contains(titleKey))
                 continue;
             seenTitles.insert(titleKey);
@@ -112,7 +100,8 @@ bool RecipeLibrary::loadFromJson(const QByteArray &json) {
                     ing.note = jsonStringField(ingNode, "note");
                     if (ing.name.isEmpty())
                         continue;
-                    const QString ingKey = normKey(ing.name);
+                    ing.name = canonicalIngredientName(ing.name);
+                    const QString ingKey = ingredientMatchKey(ing.name);
                     if (seenIng.contains(ingKey))
                         continue;
                     seenIng.insert(ingKey);
@@ -125,11 +114,11 @@ bool RecipeLibrary::loadFromJson(const QByteArray &json) {
 
             rec.instructions = jsonStringField(node, "instructions");
 
-            QString blob = normKey(rec.title) + QLatin1Char(' ') + normKey(rec.category);
+            QString blob = normalizeIngredientKey(rec.title) + QLatin1Char(' ') + normalizeIngredientKey(rec.category);
             for (const auto &ing : rec.ingredients)
-                blob += QLatin1Char(' ') + normKey(ing.name);
+                blob += QLatin1Char(' ') + normalizeIngredientKey(ing.name);
             if (!rec.instructions.isEmpty())
-                blob += QLatin1Char(' ') + normKey(rec.instructions);
+                blob += QLatin1Char(' ') + normalizeIngredientKey(rec.instructions);
             rec.searchBlob = blob;
 
             s_idIndex[rec.id] = s_recipes.size();
@@ -159,7 +148,7 @@ const LibraryRecipe *RecipeLibrary::recipeById(const QString &id) {
 }
 
 std::vector<int> RecipeLibrary::filterIndices(const QString &query) {
-    const QString q = normKey(query);
+    const QString q = normalizeIngredientKey(query);
     const QStringList tokens = q.split(QRegularExpression(QStringLiteral("\\s+")),
                                       Qt::SkipEmptyParts);
 
@@ -171,9 +160,9 @@ std::vector<int> RecipeLibrary::filterIndices(const QString &query) {
         if (!tokens.isEmpty()) {
             bool allMatch = true;
             int score = 0;
-            const QString titleNorm = normKey(rec.title);
-            const QString catNorm   = normKey(rec.category);
-            const QString instrNorm = normKey(rec.instructions);
+            const QString titleNorm = normalizeIngredientKey(rec.title);
+            const QString catNorm   = normalizeIngredientKey(rec.category);
+            const QString instrNorm = normalizeIngredientKey(rec.instructions);
             for (const QString &tok : tokens) {
                 if (!rec.searchBlob.contains(tok)) {
                     allMatch = false;
@@ -184,7 +173,7 @@ std::vector<int> RecipeLibrary::filterIndices(const QString &query) {
                 if (catNorm.contains(tok))
                     score += 8;
                 for (const auto &ing : rec.ingredients) {
-                    if (normKey(ing.name).contains(tok))
+                    if (normalizeIngredientKey(ing.name).contains(tok))
                         score += 5;
                 }
                 if (instrNorm.contains(tok))

@@ -90,9 +90,23 @@ public:
     void    setDisplayQtyScale(double scale);
     bool canReorder() const;
 
-    // Nom d'un article déjà présent (comparaison insensible à la casse et aux
-    // espaces), ou chaîne vide. Sert à prévenir avant d'ajouter un doublon.
+    // Nom d'un article déjà présent (comparaison insensible à la casse, aux
+    // accents et aux alias courants), ou chaîne vide.
     Q_INVOKABLE QString existingName(const QString &name) const;
+
+    // Infos sur un article correspondant : itemId, name, qty (vide si absent).
+    Q_INVOKABLE QVariantMap matchingItem(const QString &name) const;
+
+    // Augmente la quantité d'un article existant (fusion intelligente).
+    Q_INVOKABLE void mergeQuantity(const QString &itemId, const QString &additionalQty,
+                                   const QString &additionalNote = {});
+
+    // Normalise un nom d'ingrédient saisi à la main (casse uniforme, alias).
+    Q_INVOKABLE QString normalizeIngredientName(const QString &name) const;
+
+    // true si un autre article (hors exceptItemId) porte déjà ce nom.
+    Q_INVOKABLE bool hasDuplicateName(const QString &name,
+                                      const QString &exceptItemId = {}) const;
 
     // Champ `image` courant (shas séparés par des espaces), pour rafraîchir
     // le dialogue d'édition après un ajout / retrait de photo.

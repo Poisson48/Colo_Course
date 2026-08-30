@@ -417,7 +417,7 @@ private slots:
     void test_reconnect() {
         auto relay = std::make_unique<FakeRelay>();
         QVERIFY(relay->listen());
-        quint16 port = relay->port();
+        Q_UNUSED(relay->port());
 
         net::RelayClient client(relay->url());
         QSignalSpy connSpy(&client, &net::RelayClient::connected);

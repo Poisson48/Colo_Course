@@ -3,6 +3,7 @@
 #include "core/csv.h"
 #include "core/zip.h"
 #include "core/recipe_scale.h"
+#include "core/ingredient_norm.h"
 
 #include <QString>
 
@@ -105,6 +106,39 @@ static void test_recipeScale() {
     EXPECT_EQ(core::scaleQuantity(QString("poivre"), 2.0), QString("poivre"));
 }
 
+static void test_ingredientNorm() {
+    EXPECT_EQ(core::normalizeIngredientKey(QString("Œufs")), QString("oeufs"));
+    EXPECT_EQ(core::normalizeIngredientKey(QString(" Lait ")), QString("lait"));
+    EXPECT_EQ(core::ingredientMatchKey(QString("oeuf")), QString("oeufs"));
+    EXPECT_EQ(core::ingredientMatchKey(QString("Oeufs")), QString("oeufs"));
+    EXPECT_EQ(core::ingredientMatchKey(QString("Oignon")), QString("oignons"));
+    EXPECT_EQ(core::canonicalIngredientName(QString("oeuf")), QString("œufs"));
+}
+
+static void test_normalizeManualIngredientName() {
+    EXPECT_EQ(core::normalizeManualIngredientName(QString("Lait")), QString("lait"));
+    EXPECT_EQ(core::normalizeManualIngredientName(QString("LAIT")), QString("lait"));
+    EXPECT_EQ(core::normalizeManualIngredientName(QString("  Lait  ")), QString("lait"));
+    EXPECT_EQ(core::normalizeManualIngredientName(QString("oeuf")), QString("œufs"));
+}
+
+static void test_mergeQuantities() {
+    EXPECT_EQ(core::mergeQuantities(QString("2"), QString("3")), QString("5"));
+    EXPECT_EQ(core::mergeQuantities(QString("200 g"), QString("100 g")), QString("300 g"));
+    EXPECT_EQ(core::mergeQuantities(QString(""), QString("2")), QString("2"));
+    EXPECT_EQ(core::mergeQuantities(QString("1"), QString("")), QString("1"));
+    EXPECT_EQ(core::mergeQuantities(QString("poivre"), QString("sel")),
+              QString("poivre + sel"));
+    EXPECT_EQ(core::mergeQuantities(QString("2"), QString("200 g")),
+              QString("2 + 200 g"));
+}
+
+static void test_canonicalPreservesQualifier() {
+    EXPECT_EQ(core::canonicalIngredientName(QString("huile de tournesol")),
+              QString("huile de tournesol"));
+    EXPECT_EQ(core::canonicalIngredientName(QString("oeuf")), QString("œufs"));
+}
+
 int main() {
     std::printf("=== tst_dataexchange ===\n");
     test_csvEscape();
@@ -114,6 +148,10 @@ int main() {
     test_zipRoundTrip();
     test_zipRejectsGarbage();
     test_recipeScale();
+    test_ingredientNorm();
+    test_normalizeManualIngredientName();
+    test_canonicalPreservesQualifier();
+    test_mergeQuantities();
     std::printf("\nResults: %d/%d passed, %d failed\n", g_passed, g_total, g_failed);
     return g_failed == 0 ? 0 : 1;
 }

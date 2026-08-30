@@ -66,12 +66,63 @@ PARENTHETICAL_RE = re.compile(r"\(([^()]{1,120})\)")
 def deaccent(s: str) -> str:
     """Retire les diacritiques -- équivalent Python de la fonction Qt côté C++."""
     n = unicodedata.normalize("NFD", s)
-    return "".join(c for c in n if unicodedata.category(c) != "Mn")
+    out = "".join(c for c in n if unicodedata.category(c) != "Mn")
+    out = out.replace("œ", "oe").replace("Œ", "Oe")
+    return out
 
 
 def app_norm_key(s: str) -> str:
-    """Reproduit exactement `normKey()` de src/core/recipe_library.cpp."""
+    """Reproduit exactement `normalizeIngredientKey()` de src/core/ingredient_norm.cpp."""
     return deaccent(s.strip().lower())
+
+
+# Alias → clé de correspondance (aligné avec ingredient_norm.cpp).
+_MATCH_ALIASES: dict[str, str] = {
+    "oeuf": "oeufs", "oeufs": "oeufs",
+    "oignon": "oignons", "oignons": "oignons",
+    "gousse d ail": "ail", "gousses d ail": "ail",
+    "gousse d'ail": "ail", "gousses d'ail": "ail", "ail": "ail",
+    "tomate": "tomates", "tomates": "tomates",
+    "pomme de terre": "pommes de terre", "pommes de terre": "pommes de terre",
+    "patate": "pommes de terre", "patates": "pommes de terre",
+    "carotte": "carottes", "carottes": "carottes",
+    "courgette": "courgettes", "courgettes": "courgettes",
+    "poivron": "poivrons", "poivrons": "poivrons",
+    "champignon": "champignons", "champignons": "champignons",
+    "citron": "citrons", "citrons": "citrons",
+    "pate": "pates", "pâte": "pates", "pates": "pates", "pâtes": "pates",
+    "epinard": "epinards", "épinard": "epinards", "epinards": "epinards",
+    "épinards": "epinards",
+    "yaourt": "yaourts", "yaourts": "yaourts",
+    "banane": "bananes", "bananes": "bananes",
+}
+
+# Clé canonique → nom d'affichage préféré (singulier court → pluriel).
+_CANONICAL_NAMES: dict[str, str] = {
+    "oeufs": "œufs", "oignons": "oignons", "ail": "ail", "tomates": "tomates",
+    "pommes de terre": "pommes de terre", "carottes": "carottes",
+    "courgettes": "courgettes", "poivrons": "poivrons", "champignons": "champignons",
+    "citrons": "citrons", "pates": "pâtes", "epinards": "épinards",
+    "yaourts": "yaourts", "bananes": "bananes",
+}
+
+
+def ingredient_match_key(s: str) -> str:
+    key = app_norm_key(s)
+    return _MATCH_ALIASES.get(key, key)
+
+
+def canonical_ingredient_name(s: str) -> str:
+    trimmed = s.strip()
+    if not trimmed:
+        return trimmed
+    norm_key = app_norm_key(trimmed)
+    match_key = _MATCH_ALIASES.get(norm_key)
+    if match_key is None:
+        return trimmed
+    if norm_key == match_key:
+        return trimmed
+    return _CANONICAL_NAMES.get(match_key, trimmed)
 
 
 def truncate(s: str, limit: int) -> tuple[str, bool]:
@@ -174,6 +225,8 @@ def normalize_ingredient(raw: dict, stats: dict) -> dict | None:
     if not name:
         return None
 
+    name = canonical_ingredient_name(name)
+
     name, trunc_n = truncate(name, MAX_NAME_LEN)
     qty, trunc_q = truncate(qty, MAX_QTY_LEN)
     note, trunc_no = truncate(note, MAX_NOTE_LEN)
@@ -216,7 +269,7 @@ def normalize_recipe(raw: dict, stats: dict) -> dict | None:
         ing = normalize_ingredient(raw_ing, stats)
         if not ing:
             continue
-        key = app_norm_key(ing["name"])
+        key = ingredient_match_key(ing["name"])
         if key in seen_ing_keys:
             stats["duplicate_ingredients_removed"] += 1
             continue

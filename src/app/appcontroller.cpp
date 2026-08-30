@@ -3,6 +3,7 @@
 #include "../core/recipe_library.h"
 #include "recipe_library_loader.h"
 #include "../core/recipe_scale.h"
+#include "../core/ingredient_norm.h"
 
 #include <QRegularExpression>
 #include "platform.h"
@@ -1109,63 +1110,126 @@ void AppController::importListInto(const QString &destListId, const QString &sou
             qtyFactor = static_cast<double>(target) / base;
     }
 
-    // Les articles importés arrivent après ceux déjà présents : leur `order` part de
-    // maintenant (ms epoch), forcément au-delà des `order` existants issus d'un
-    // `created` passé. Tout est ajouté tel quel, sans fusion (choix : simple et littéral).
     const int64_t now = QDateTime::currentMSecsSinceEpoch();
 
-    int copied = 0;
+    // Cache local des articles destination (évite N lectures SQLite à l'import).
+    std::vector<core::Item> destItems = m_db.getItems(destOpt->listId);
+    const auto findDestItem = [&](const std::string &id) -> core::Item * {
+        for (auto &it : destItems) {
+            if (it.itemId == id && !it.del)
+                return &it;
+        }
+        return nullptr;
+    };
+
+    std::map<QString, std::string> destByKey;
+    for (const auto &existing : destItems) {
+        if (existing.del)
+            continue;
+        const QString key = core::ingredientMatchKey(QString::fromStdString(existing.name));
+        if (!key.isEmpty() && !destByKey.count(key))
+            destByKey[key] = existing.itemId;
+    }
+
+    int added = 0;
+    int merged = 0;
+    int offset = 0;
     for (const auto &src : m_db.getItems(srcOpt->listId)) {
-        if (src.del) continue;  // les tombstones de la source ne sont pas repris
+        if (src.del) continue;
+
+        const QString srcName = core::canonicalIngredientName(QString::fromStdString(src.name));
+        const QString matchKey = core::ingredientMatchKey(srcName);
+        const QString srcQty = core::scaleQuantity(QString::fromStdString(src.qty), qtyFactor);
+
+        const auto destIt = destByKey.find(matchKey);
+        if (!matchKey.isEmpty() && destIt != destByKey.end()) {
+            core::Item *found = findDestItem(destIt->second);
+            if (found) {
+                const int64_t lamport = m_db.bumpLamport(destOpt->listId);
+                const core::Ver ver{ lamport, m_deviceId.toStdString() };
+
+                const QString mergedQty = core::mergeQuantities(
+                    QString::fromStdString(found->qty), srcQty);
+                found->qty     = mergedQty.toStdString();
+                found->qtyVer  = ver;
+                found->done    = false;
+                found->doneVer = ver;
+                found->doneAt  = 0;
+                found->touched = now;
+
+                const QString srcNote = QString::fromStdString(src.note).trimmed();
+                const QString destNote = QString::fromStdString(found->note).trimmed();
+                if (!srcNote.isEmpty() && destNote != srcNote) {
+                    const QString combined = destNote.isEmpty()
+                        ? srcNote
+                        : destNote + QStringLiteral(" · ") + srcNote;
+                    found->note    = combined.toStdString();
+                    found->noteVer = ver;
+                }
+
+                if (m_db.upsertItem(*found))
+                    ++merged;
+                continue;
+            }
+        }
 
         const int64_t lamport = m_db.bumpLamport(destOpt->listId);
         const core::Ver ver{ lamport, m_deviceId.toStdString() };
 
         core::Item item;
         item.listId  = destOpt->listId;
-        // itemId neuf : garder celui de la source ferait entrer en collision les deux
-        // listes si l'une était un jour fusionnée avec l'autre.
         item.itemId  = QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString();
-        item.created = now + copied;   // préserve l'ordre relatif des articles importés
+        item.created = now + offset;
         item.by      = m_deviceId.toStdString();
-        item.name    = src.name;
+        item.name    = srcName.toStdString();
         item.nameVer = ver;
-        const QString srcQty = QString::fromStdString(src.qty);
-        item.qty     = core::scaleQuantity(srcQty, qtyFactor).toStdString();
+        item.qty     = srcQty.toStdString();
         item.qtyVer  = ver;
         item.note    = src.note;
         item.noteVer = ver;
-        // Rayon de la source, ou suggestion locale si vide (import de recette → courses).
         item.aisle    = src.aisle.empty()
-            ? m_db.suggestAisleForName(src.name)
+            ? m_db.suggestAisleForName(item.name)
             : src.aisle;
         item.aisleVer = ver;
-        item.image    = src.image;   // blob adressé par contenu, déjà en base
+        item.image    = src.image;
         item.imageVer = ver;
-        item.order    = now + copied;  // à la suite des articles déjà dans la destination
+        item.order    = now + offset;
         item.orderVer = ver;
-        item.done    = false;          // recopiés « à acheter »
+        item.done    = false;
         item.doneVer = ver;
         item.doneAt  = 0;
         item.del     = false;
         item.delVer  = ver;
         item.touched = now;
 
-        if (m_db.upsertItem(item)) ++copied;
+        if (m_db.upsertItem(item)) {
+            ++added;
+            destItems.push_back(item);
+            if (!matchKey.isEmpty())
+                destByKey[matchKey] = item.itemId;
+            ++offset;
+        }
     }
 
-    // Si la destination est la liste actuellement ouverte, rafraîchir son écran.
     if (m_openListId == destOpt->listId)
         m_itemModel.load(m_db, destOpt->listId, m_deviceId.toStdString());
 
     m_listsModel->reload(m_db, m_deviceId.toStdString());
     m_recipesModel->reload(m_db, m_deviceId.toStdString());
-    m_syncEngine.onLocalChange(destOpt->listId);  // publier les ajouts aux autres pairs
+    m_syncEngine.onLocalChange(destOpt->listId);
 
-    emit toast(copied > 0
-        ? QStringLiteral("%1 article(s) importé(s) depuis « %2 »")
-              .arg(copied).arg(QString::fromStdString(srcOpt->title))
-        : QStringLiteral("Rien à importer (liste vide)"));
+    if (added == 0 && merged == 0) {
+        emit toast(QStringLiteral("Rien à importer (liste vide)"));
+    } else if (merged > 0 && added == 0) {
+        emit toast(QStringLiteral("%1 article(s) fusionné(s) avec la liste depuis « %2 »")
+                       .arg(merged).arg(QString::fromStdString(srcOpt->title)));
+    } else if (merged > 0) {
+        emit toast(QStringLiteral("%1 ajouté(s), %2 fusionné(s) depuis « %3 »")
+                       .arg(added).arg(merged).arg(QString::fromStdString(srcOpt->title)));
+    } else {
+        emit toast(QStringLiteral("%1 article(s) importé(s) depuis « %2 »")
+                       .arg(added).arg(QString::fromStdString(srcOpt->title)));
+    }
 }
 
 QVariantList AppController::otherLists(const QString &exceptListId) {
@@ -1436,9 +1500,10 @@ QString AppController::createGroup(const QString &name) {
 void AppController::renameGroup(const QString &groupId, const QString &name) {
     const QString trimmed = name.trimmed();
     if (groupId.isEmpty() || trimmed.isEmpty()) return;
-    if (m_db.renameGroup(groupId.toStdString(), trimmed.toStdString()))
+    if (m_db.renameGroup(groupId.toStdString(), trimmed.toStdString())) {
         m_listsModel->reload(m_db, m_deviceId.toStdString());
         m_recipesModel->reload(m_db, m_deviceId.toStdString());
+    }
 }
 
 void AppController::deleteGroup(const QString &groupId) {
@@ -1451,9 +1516,10 @@ void AppController::deleteGroup(const QString &groupId) {
 }
 
 void AppController::setListGroup(const QString &listId, const QString &groupId) {
-    if (m_db.setListGroup(listId.toStdString(), groupId.toStdString()))
+    if (m_db.setListGroup(listId.toStdString(), groupId.toStdString())) {
         m_listsModel->reload(m_db, m_deviceId.toStdString());
         m_recipesModel->reload(m_db, m_deviceId.toStdString());
+    }
 }
 
 QVariantList AppController::groups() {

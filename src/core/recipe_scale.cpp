@@ -50,6 +50,80 @@ static QString formatNumber(double value, bool integerPreferred) {
     return out;
 }
 
+static QString formatMergedNumber(double value, bool integerPreferred) {
+    if (integerPreferred || std::fabs(value - std::round(value)) < 0.05)
+        return QString::number(std::round(value));
+
+    const double rounded = std::round(value * 10.0) / 10.0;
+    QString out = QString::number(rounded, 'f', 1);
+    if (out.endsWith(QLatin1String(".0")))
+        out.chop(2);
+    return out;
+}
+
+struct ParsedQty {
+    double value = -1.0;
+    QString unit;   // vide = compteur sans unité
+    bool valid = false;
+};
+
+static ParsedQty parseQuantity(const QString &qty) {
+    ParsedQty out;
+    const QString trimmed = qty.trimmed();
+    if (trimmed.isEmpty())
+        return out;
+
+    static const QRegularExpression re(
+        R"(^(\d+(?:[.,]\d+)?|\d+\s*/\s*\d+)\s*(.*)$)");
+    const auto m = re.match(trimmed);
+    if (!m.hasMatch())
+        return out;
+
+    const double base = parseNumberToken(m.captured(1));
+    if (base < 0.0)
+        return out;
+
+    out.value = base;
+    out.unit = m.captured(2).trimmed().toLower();
+    out.valid = true;
+    return out;
+}
+
+static bool unitsCompatible(const QString &a, const QString &b) {
+    if (a == b)
+        return true;
+    if (a.isEmpty() && b.isEmpty())
+        return true;
+    if (a.isEmpty() || b.isEmpty())
+        return false;
+    return a.compare(b, Qt::CaseInsensitive) == 0;
+}
+
+QString mergeQuantities(const QString &existing, const QString &additional) {
+    const QString a = existing.trimmed();
+    const QString b = additional.trimmed();
+    if (a.isEmpty())
+        return b;
+    if (b.isEmpty())
+        return a;
+
+    const ParsedQty pa = parseQuantity(a);
+    const ParsedQty pb = parseQuantity(b);
+    if (pa.valid && pb.valid && unitsCompatible(pa.unit, pb.unit)) {
+        const double sum = pa.value + pb.value;
+        const bool integerPreferred = pa.unit.isEmpty()
+            || pa.unit == QLatin1String("g")
+            || pa.unit == QLatin1String("mg")
+            || pa.unit == QLatin1String("ml");
+        const QString num = formatMergedNumber(sum, integerPreferred);
+        if (pa.unit.isEmpty())
+            return num;
+        return num + QLatin1Char(' ') + pa.unit;
+    }
+
+    return a + QStringLiteral(" + ") + b;
+}
+
 QString scaleQuantity(const QString &qty, double factor) {
     if (qty.trimmed().isEmpty() || factor <= 0.0 || std::fabs(factor - 1.0) < 1e-6)
         return qty.trimmed();

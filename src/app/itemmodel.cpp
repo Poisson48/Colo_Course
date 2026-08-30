@@ -1,5 +1,6 @@
 #include "itemmodel.h"
 
+#include "../core/ingredient_norm.h"
 #include "../core/recipe_scale.h"
 
 #include <QUuid>
@@ -319,16 +320,99 @@ QString ItemModel::existingName(const QString &name) const {
     if (needle.isEmpty())
         return {};
 
-    // On cherche dans m_items et pas dans m_rows : un doublon reste un doublon même
-    // si un filtre de recherche le cache à l'écran.
+    const QString matchKey = core::ingredientMatchKey(needle);
     for (const auto &item : m_items) {
         if (item.del)
             continue;
         const QString existing = QString::fromStdString(item.name).trimmed();
-        if (existing.compare(needle, Qt::CaseInsensitive) == 0)
+        if (core::ingredientMatchKey(existing) == matchKey)
             return existing;
     }
     return {};
+}
+
+QVariantMap ItemModel::matchingItem(const QString &name) const {
+    QVariantMap out;
+    const QString needle = name.trimmed();
+    if (needle.isEmpty())
+        return out;
+
+    const QString matchKey = core::ingredientMatchKey(needle);
+    for (const auto &item : m_items) {
+        if (item.del)
+            continue;
+        const QString existing = QString::fromStdString(item.name).trimmed();
+        if (core::ingredientMatchKey(existing) == matchKey) {
+            out.insert(QStringLiteral("itemId"), QString::fromStdString(item.itemId));
+            out.insert(QStringLiteral("name"), existing);
+            out.insert(QStringLiteral("qty"), QString::fromStdString(item.qty));
+            return out;
+        }
+    }
+    return out;
+}
+
+void ItemModel::mergeQuantity(const QString &itemId, const QString &additionalQty,
+                              const QString &additionalNote) {
+    if (!m_db)
+        return;
+
+    const std::string id = itemId.toStdString();
+    auto it = std::find_if(m_items.begin(), m_items.end(),
+                           [&](const core::Item &i){ return i.itemId == id; });
+    if (it == m_items.end() || it->del)
+        return;
+
+    const QString merged = core::mergeQuantities(
+        QString::fromStdString(it->qty), additionalQty.trimmed());
+
+    const int64_t lamport = m_db->bumpLamport(m_listId);
+    const core::Ver ver{ lamport, m_deviceId };
+    it->qty     = merged.toStdString();
+    it->qtyVer  = ver;
+    it->done    = false;
+    it->doneVer = ver;
+    it->doneAt  = 0;
+    it->touched = QDateTime::currentMSecsSinceEpoch();
+
+    const QString note = additionalNote.trimmed();
+    if (!note.isEmpty()) {
+        const QString existing = QString::fromStdString(it->note).trimmed();
+        if (existing != note) {
+            const QString combined = existing.isEmpty()
+                ? note
+                : existing + QStringLiteral(" · ") + note;
+            it->note    = combined.toStdString();
+            it->noteVer = ver;
+        }
+    }
+
+    if (!m_db->upsertItem(*it))
+        return;
+
+    emit localChanged(m_listId);
+    emit aisleNamesChanged();
+
+    const int pos = findRow(itemId);
+    if (pos >= 0) {
+        m_rows[static_cast<size_t>(pos)].item = *it;
+        const QModelIndex idx = index(pos);
+        emit dataChanged(idx, idx, { QtyRole, NoteRole, DoneRole, DoneAtRole });
+    }
+    emit doneCountChanged();
+    emit refreshed();
+}
+
+QString ItemModel::normalizeIngredientName(const QString &name) const {
+    return core::normalizeManualIngredientName(name);
+}
+
+bool ItemModel::hasDuplicateName(const QString &name,
+                                 const QString &exceptItemId) const {
+    const auto match = matchingItem(name);
+    if (match.isEmpty())
+        return false;
+    return match.value(QStringLiteral("itemId")).toString() != exceptItemId;
 }
 
 QString ItemModel::itemImage(const QString &itemId) const {

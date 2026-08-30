@@ -457,15 +457,34 @@ private slots:
 
         ItemModel model;
         model.load(db, listId, "dev-A");
-        model.addItem("Lait", "1L");
 
-        QCOMPARE(model.existingName("lait"),  QStringLiteral("Lait")); // casse ignorée
-        QCOMPARE(model.existingName(" Lait "), QStringLiteral("Lait")); // espaces ignorés
+        // Normalisation à la saisie : Lait, LAIT → lait
+        QCOMPARE(model.normalizeIngredientName("LAIT"), QStringLiteral("lait"));
+        QCOMPARE(model.normalizeIngredientName("Lait"), QStringLiteral("lait"));
+
+        model.addItem("lait", "1L");
+
+        QCOMPARE(model.existingName("lait"),  QStringLiteral("lait"));
+        QCOMPARE(model.existingName(" Lait "), QStringLiteral("lait"));
+        QCOMPARE(model.existingName("LAIT"), QStringLiteral("lait"));
         QVERIFY(model.existingName("Pain").isEmpty());
         QVERIFY(model.existingName("").isEmpty());
 
+        // Alias : œuf ↔ œufs
+        model.addItem("œufs", "2");
+        QCOMPARE(model.existingName("oeuf"), QStringLiteral("œufs"));
+        QCOMPARE(model.existingName("Oeufs"), QStringLiteral("œufs"));
+
+        // matchingItem + mergeQuantity
+        const auto match = model.matchingItem("oeufs");
+        QCOMPARE(match.value(QStringLiteral("name")).toString(), QStringLiteral("œufs"));
+        model.mergeQuantity(match.value(QStringLiteral("itemId")).toString(), "3");
+        const auto afterMerge = model.matchingItem("oeufs");
+        QCOMPARE(afterMerge.value(QStringLiteral("qty")).toString(), QStringLiteral("5"));
+
         // Un article supprimé n'est plus un doublon.
-        model.removeItem(model.data(model.index(0), ItemModel::ItemIdRole).toString());
+        const auto laitMatch = model.matchingItem("Lait");
+        model.removeItem(laitMatch.value(QStringLiteral("itemId")).toString());
         QVERIFY(model.existingName("Lait").isEmpty());
     }
 
@@ -1104,7 +1123,8 @@ private slots:
 
         bool found = false;
         for (const auto &it : ctrl.db().getItems("shop")) {
-            if (it.name == "Lait") {
+            if (QString::fromStdString(it.name).compare(
+                    QStringLiteral("Lait"), Qt::CaseInsensitive) == 0) {
                 found = true;
                 QCOMPARE(it.aisle, std::string("Crèmerie"));
                 QVERIFY(!it.done);
