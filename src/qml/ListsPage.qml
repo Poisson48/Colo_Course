@@ -8,6 +8,16 @@ Item {
 
     readonly property string pageTitle: "Mes listes"
 
+    function openRecipesPage() {
+        const stack = root.StackView.view
+        if (!stack)
+            return
+        const cur = stack.currentItem
+        if (cur && cur.pageTitle === "Recettes")
+            return
+        stack.push(recipesLoadingPage)
+    }
+
     // Vrai le temps qu'une poignée de déplacement est tenue : fige le défilement des
     // listes pour que le glissement l'emporte sur écran tactile.
     property bool rowDragging: false
@@ -134,7 +144,7 @@ Item {
         MenuSeparator {}
         MenuItem {
             text: "Recettes"
-            onTriggered: root.StackView.view.push(recipesPageComponent)
+            onTriggered: root.openRecipesPage()
         }
         MenuSeparator {}
         MenuItem {
@@ -206,7 +216,7 @@ Item {
                     }
                 }
 
-                onClicked: root.StackView.view.push(recipesPageComponent)
+                onClicked: root.openRecipesPage()
             }
 
             // Sans catégories de listes, aérer la zone sous « Recettes ».
@@ -1201,6 +1211,31 @@ Item {
         }
 
         onAccepted: AppController.deleteAisle(aisleDeleteDialog.aisle)
+    }
+
+    Component {
+        id: recipesLoadingPage
+        Item {
+            readonly property string pageTitle: "Recettes"
+
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.background
+            }
+
+            BusyIndicator {
+                anchors.centerIn: parent
+                running: true
+            }
+
+            Component.onCompleted: {
+                Qt.callLater(function () {
+                    const stack = root.StackView.view
+                    if (stack)
+                        stack.replace(recipesPageComponent)
+                })
+            }
+        }
     }
 
     Component {

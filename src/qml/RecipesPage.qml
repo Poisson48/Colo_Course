@@ -8,6 +8,14 @@ Item {
 
     readonly property string pageTitle: "Recettes"
 
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.background
+        z: -1
+    }
+
+    Component.onDestruction: AppController.releaseRecipeLibraryCatalog()
+
     function handleBack() {
         if (catalogDetail.opened) {
             catalogDetail.close()
@@ -267,12 +275,28 @@ Item {
             }
         }
 
-        // --- Catalogue intégré ---
-        ColumnLayout {
-            id: catalogPanel
+        // --- Catalogue intégré (chargé à la demande : 30k recettes) ---
+        Loader {
+            id: catalogLoader
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: tabBar.currentIndex === 1
+            active: tabBar.currentIndex === 1
+            sourceComponent: catalogPanelComponent
+
+            onActiveChanged: {
+                if (active)
+                    AppController.prepareRecipeLibraryCatalog()
+                else
+                    AppController.releaseRecipeLibraryCatalog()
+            }
+        }
+    }
+
+    Component {
+        id: catalogPanelComponent
+        ColumnLayout {
+            id: catalogPanel
+            anchors.fill: parent
             spacing: Theme.gap
 
             property string catalogCategory: ""
@@ -408,6 +432,7 @@ Item {
                 Layout.leftMargin: Theme.gap
                 Layout.rightMargin: Theme.gap
                 visible: AppController.recipeLibraryCount > 0 && catalogView.count === 0
+                          && !AppController.recipeLibrary.loading
                 text: {
                     if (catalogSearch.text.length > 0 && catalogPanel.catalogCategory.length > 0)
                         return "Aucun résultat dans « " + catalogPanel.catalogCategory
@@ -424,6 +449,7 @@ Item {
             Button {
                 Layout.alignment: Qt.AlignHCenter
                 visible: AppController.recipeLibraryCount > 0 && catalogView.count === 0
+                          && !AppController.recipeLibrary.loading
                           && (catalogSearch.text.length > 0 || catalogPanel.catalogCategory.length > 0)
                 flat: true
                 implicitHeight: Theme.touchTarget
@@ -458,6 +484,14 @@ Item {
                 }
                 color: Theme.textDim
                 font.pixelSize: 12
+            }
+
+            BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: Theme.gap
+                visible: AppController.recipeLibrary.loading
+                         && AppController.recipeLibraryCount > 0
+                running: visible
             }
 
             ListView {

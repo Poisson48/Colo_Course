@@ -18,6 +18,7 @@ std::vector<LibraryRecipe> RecipeLibrary::s_recipes;
 // spécialisé (Qt fournit qHash, pas std::hash), et cette instanciation serait
 // rejetée à la compilation (static_assert de <bits/hashtable_policy.h>).
 static QHash<QString, size_t> s_idIndex;
+static std::vector<RecipeLibrary::CategoryStat> s_categoryStats;
 static QMutex s_mutex;
 
 static QString jsonStringField(const nlohmann::json &node, const char *key) {
@@ -152,16 +153,39 @@ bool RecipeLibrary::installParsed(RecipeLibraryParseResult &&parsed)
         QMutexLocker lock(&s_mutex);
         s_recipes.clear();
         s_idIndex.clear();
+        s_categoryStats.clear();
         return false;
     }
     QMutexLocker lock(&s_mutex);
     s_recipes = std::move(parsed.recipes);
     s_idIndex = std::move(parsed.idIndex);
+    RecipeLibrary::rebuildCategoryStatsLocked();
     return true;
 }
 
 bool RecipeLibrary::loadFromJson(const QByteArray &json) {
     return installParsed(parseJsonData(json));
+}
+
+void RecipeLibrary::rebuildCategoryStatsLocked()
+{
+    QHash<QString, int> counts;
+    for (const LibraryRecipe &rec : s_recipes) {
+        if (!rec.category.isEmpty())
+            ++counts[rec.category];
+    }
+
+    s_categoryStats.clear();
+    s_categoryStats.reserve(static_cast<size_t>(counts.size()));
+    for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
+        s_categoryStats.push_back({ it.key(), it.value() });
+
+    std::sort(s_categoryStats.begin(), s_categoryStats.end(),
+              [](const CategoryStat &a, const CategoryStat &b) {
+                  if (a.count != b.count)
+                      return a.count > b.count;
+                  return a.name < b.name;
+              });
 }
 
 int RecipeLibrary::count() {
@@ -255,24 +279,7 @@ std::vector<QString> RecipeLibrary::categories() {
 std::vector<RecipeLibrary::CategoryStat> RecipeLibrary::categoryStats()
 {
     QMutexLocker lock(&s_mutex);
-    QHash<QString, int> counts;
-    for (const LibraryRecipe &rec : s_recipes) {
-        if (!rec.category.isEmpty())
-            ++counts[rec.category];
-    }
-
-    std::vector<CategoryStat> sorted;
-    sorted.reserve(static_cast<size_t>(counts.size()));
-    for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
-        sorted.push_back({ it.key(), it.value() });
-
-    std::sort(sorted.begin(), sorted.end(),
-              [](const CategoryStat &a, const CategoryStat &b) {
-                  if (a.count != b.count)
-                      return a.count > b.count;
-                  return a.name < b.name;
-              });
-    return sorted;
+    return s_categoryStats;
 }
 
 } // namespace core

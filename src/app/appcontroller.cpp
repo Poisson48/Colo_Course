@@ -980,6 +980,14 @@ void AppController::setRecipeLibraryCategoryFilter(const QString &category) {
     m_recipeLibraryModel->setCategoryFilter(category);
 }
 
+void AppController::prepareRecipeLibraryCatalog() {
+    m_recipeLibraryModel->activateCatalog();
+}
+
+void AppController::releaseRecipeLibraryCatalog() {
+    m_recipeLibraryModel->deactivateCatalog();
+}
+
 QString AppController::recipeInstructions(const QString &listId) {
     if (!m_db.isOpen() || !isRecipe(listId))
         return {};

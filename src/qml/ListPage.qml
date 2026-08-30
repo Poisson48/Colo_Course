@@ -9,6 +9,12 @@ Item {
     required property string listId
     required property string listTitle
 
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.background
+        z: -1
+    }
+
     // Recette : pas de mode Courses, action « Ajouter à une liste ».
     readonly property bool isRecipe: AppController.isRecipe(listId)
 

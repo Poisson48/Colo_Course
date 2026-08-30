@@ -2,6 +2,8 @@
 
 #include "../core/recipe_library.h"
 
+#include <QtConcurrent>
+
 namespace app {
 
 RecipeLibraryModel::RecipeLibraryModel(QObject *parent)
@@ -9,8 +11,46 @@ RecipeLibraryModel::RecipeLibraryModel(QObject *parent)
 {
 }
 
+RecipeLibraryModel::~RecipeLibraryModel()
+{
+    if (m_rebuildWatcher) {
+        m_rebuildWatcher->cancel();
+        m_rebuildWatcher->waitForFinished();
+    }
+}
+
 void RecipeLibraryModel::reloadFromLibrary() {
-    rebuild();
+    m_stale = true;
+    if (m_catalogActive)
+        rebuildAsync();
+}
+
+void RecipeLibraryModel::activateCatalog() {
+    if (m_catalogActive) {
+        if (m_stale)
+            rebuildAsync();
+        return;
+    }
+    m_catalogActive = true;
+    rebuildAsync();
+}
+
+void RecipeLibraryModel::deactivateCatalog() {
+    m_catalogActive = false;
+    m_stale = false;
+    if (m_rebuildWatcher) {
+        m_rebuildWatcher->cancel();
+        m_rebuildWatcher->waitForFinished();
+        m_rebuildWatcher->deleteLater();
+        m_rebuildWatcher = nullptr;
+    }
+    if (!m_indices.empty() || m_loading) {
+        beginResetModel();
+        m_indices.clear();
+        endResetModel();
+        emit countChanged();
+        setLoading(false);
+    }
 }
 
 int RecipeLibraryModel::rowCount(const QModelIndex &parent) const {
@@ -66,16 +106,18 @@ void RecipeLibraryModel::setFilter(const QString &filter) {
     if (m_filter == filter)
         return;
     m_filter = filter;
-    rebuild();
     emit filterChanged();
+    if (m_catalogActive)
+        rebuildAsync();
 }
 
 void RecipeLibraryModel::setCategoryFilter(const QString &category) {
     if (m_categoryFilter == category)
         return;
     m_categoryFilter = category;
-    rebuild();
     emit categoryFilterChanged();
+    if (m_catalogActive)
+        rebuildAsync();
 }
 
 QString RecipeLibraryModel::libraryIdAt(int row) const {
@@ -91,11 +133,45 @@ int RecipeLibraryModel::ingredientCount(const QString &libraryId) const {
     return rec ? static_cast<int>(rec->ingredients.size()) : 0;
 }
 
-void RecipeLibraryModel::rebuild() {
-    beginResetModel();
-    m_indices = core::RecipeLibrary::filterIndices(m_filter, m_categoryFilter);
-    endResetModel();
-    emit countChanged();
+void RecipeLibraryModel::setLoading(bool loading) {
+    if (m_loading == loading)
+        return;
+    m_loading = loading;
+    emit loadingChanged();
+}
+
+void RecipeLibraryModel::rebuildAsync() {
+    if (!m_catalogActive)
+        return;
+
+    if (m_rebuildWatcher && m_rebuildWatcher->isRunning())
+        return;
+
+    setLoading(true);
+    const QString filter = m_filter;
+    const QString category = m_categoryFilter;
+
+    if (!m_rebuildWatcher) {
+        m_rebuildWatcher = new QFutureWatcher<std::vector<int>>(this);
+        connect(m_rebuildWatcher, &QFutureWatcher<std::vector<int>>::finished, this,
+                [this]() {
+                    if (!m_catalogActive) {
+                        setLoading(false);
+                        return;
+                    }
+                    std::vector<int> indices = m_rebuildWatcher->result();
+                    beginResetModel();
+                    m_indices = std::move(indices);
+                    endResetModel();
+                    emit countChanged();
+                    m_stale = false;
+                    setLoading(false);
+                });
+    }
+
+    m_rebuildWatcher->setFuture(QtConcurrent::run([filter, category]() {
+        return core::RecipeLibrary::filterIndices(filter, category);
+    }));
 }
 
 } // namespace app

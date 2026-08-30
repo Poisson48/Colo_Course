@@ -62,6 +62,8 @@ public:
     static std::vector<CategoryStat> categoryStats();
 
 private:
+    static void rebuildCategoryStatsLocked();
+
     static std::vector<LibraryRecipe> s_recipes;
 };
 

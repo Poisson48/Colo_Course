@@ -183,6 +183,9 @@ public slots:
     Q_INVOKABLE QVariantList recipeLibraryCategories() const;
     Q_INVOKABLE int recipeLibraryCategoryCount(const QString &category) const;
     Q_INVOKABLE void setRecipeLibraryCategoryFilter(const QString &category);
+    // Charge le modèle catalogue (coûteux) seulement quand l'onglet est ouvert.
+    Q_INVOKABLE void prepareRecipeLibraryCatalog();
+    Q_INVOKABLE void releaseRecipeLibraryCatalog();
     // Préparation d'une recette personnelle (local, non synchronisé).
     Q_INVOKABLE QString recipeInstructions(const QString &listId);
     Q_INVOKABLE void setRecipeInstructions(const QString &listId, const QString &text);
