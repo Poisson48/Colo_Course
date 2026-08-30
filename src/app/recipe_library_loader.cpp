@@ -8,6 +8,7 @@
 #include <QFutureWatcher>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMetaType>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -15,6 +16,8 @@
 #include <QTimer>
 #include <QDebug>
 #include <QtConcurrent>
+
+Q_DECLARE_METATYPE(core::RecipeLibraryParseResult)
 
 namespace app {
 
@@ -37,12 +40,13 @@ QTimer &remoteCheckTimer()
     return s_timer;
 }
 
-bool loadJsonFile(const QString &path)
+void ensureParseResultMetaType()
 {
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly))
-        return false;
-    return core::RecipeLibrary::loadFromJson(f.readAll());
+    static const bool once = [] {
+        qRegisterMetaType<core::RecipeLibraryParseResult>();
+        return true;
+    }();
+    Q_UNUSED(once);
 }
 
 QByteArray readLibraryJsonBytes()
@@ -101,6 +105,58 @@ void fetchManifest(std::function<void(RecipesManifest)> onResult)
     });
 }
 
+void applyParsedOnMain(QObject *context,
+                       core::RecipeLibraryParseResult parsed,
+                       const QByteArray &cacheJson,
+                       bool writeCache,
+                       std::function<void(bool updated)> onDone)
+{
+    auto apply = [parsed = std::move(parsed), cacheJson, writeCache, onDone]() mutable {
+        if (!core::RecipeLibrary::installParsed(std::move(parsed))) {
+            if (onDone)
+                onDone(false);
+            return;
+        }
+
+        if (writeCache && !cacheJson.isEmpty() && !saveCacheAtomically(cacheJson)) {
+            qWarning() << "[RecipeLibrary] impossible d'écrire le cache local";
+            if (onDone)
+                onDone(false);
+            return;
+        }
+
+        qInfo() << "[RecipeLibrary] catalogue prêt :" << core::RecipeLibrary::count()
+                << "recettes";
+        if (onDone)
+            onDone(true);
+    };
+
+    if (context)
+        QTimer::singleShot(0, context, std::move(apply));
+    else
+        apply();
+}
+
+void parseAndApplyAsync(QObject *context,
+                         const QByteArray &json,
+                         bool writeCache,
+                         std::function<void(bool updated)> onDone)
+{
+    ensureParseResultMetaType();
+    auto *watcher = new QFutureWatcher<core::RecipeLibraryParseResult>(context);
+    QObject::connect(watcher, &QFutureWatcher<core::RecipeLibraryParseResult>::finished, context,
+                     [watcher, context, json, writeCache, onDone]() {
+                         core::RecipeLibraryParseResult parsed = watcher->result();
+                         watcher->deleteLater();
+                         applyParsedOnMain(context, std::move(parsed), json, writeCache, onDone);
+                     });
+    watcher->setFuture(QtConcurrent::run([json]() -> core::RecipeLibraryParseResult {
+        if (json.isEmpty())
+            return {};
+        return core::RecipeLibrary::parseJsonData(json);
+    }));
+}
+
 void downloadAndApply(const RecipesManifest &manifest,
                       QObject *context,
                       std::function<void(bool updated)> onDone)
@@ -123,43 +179,16 @@ void downloadAndApply(const RecipesManifest &manifest,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
 
     QNetworkReply *reply = netManager().get(req);
-    QObject::connect(reply, &QNetworkReply::finished, reply, [reply, manifest, context, onDone]() {
+    QObject::connect(reply, &QNetworkReply::finished, reply, [reply, context, onDone]() {
         reply->deleteLater();
         const QByteArray body = reply->readAll();
-        const bool netOk = reply->error() == QNetworkReply::NoError;
-
-        auto apply = [body, manifest, netOk, onDone]() {
-            if (!netOk) {
-                qWarning() << "[RecipeLibrary] téléchargement échoué";
-                if (onDone)
-                    onDone(false);
-                return;
-            }
-
-            if (!core::RecipeLibrary::loadFromJson(body)) {
-                qWarning() << "[RecipeLibrary] JSON distant invalide";
-                if (onDone)
-                    onDone(false);
-                return;
-            }
-
-            if (!saveCacheAtomically(body)) {
-                qWarning() << "[RecipeLibrary] impossible d'écrire le cache local";
-                if (onDone)
-                    onDone(false);
-                return;
-            }
-
-            qInfo() << "[RecipeLibrary] catalogue mis à jour :"
-                    << core::RecipeLibrary::count() << "recettes";
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[RecipeLibrary] téléchargement échoué :" << reply->errorString();
             if (onDone)
-                onDone(true);
-        };
-
-        if (context)
-            QTimer::singleShot(0, context, apply);
-        else
-            apply();
+                onDone(false);
+            return;
+        }
+        parseAndApplyAsync(context, body, true, onDone);
     });
 }
 
@@ -208,13 +237,13 @@ void loadRecipeLibraryAsync(QObject *context,
                             std::function<void(bool ok)> onInitialLoad,
                             std::function<void()> onRemoteUpdated)
 {
-    auto *watcher = new QFutureWatcher<QByteArray>(context);
-    QObject::connect(watcher, &QFutureWatcher<QByteArray>::finished, context,
+    ensureParseResultMetaType();
+    auto *watcher = new QFutureWatcher<core::RecipeLibraryParseResult>(context);
+    QObject::connect(watcher, &QFutureWatcher<core::RecipeLibraryParseResult>::finished, context,
                      [watcher, context, onInitialLoad, onRemoteUpdated]() {
-                         const QByteArray json = watcher->result();
+                         core::RecipeLibraryParseResult parsed = watcher->result();
                          watcher->deleteLater();
-                         const bool ok = !json.isEmpty()
-                                         && core::RecipeLibrary::loadFromJson(json);
+                         const bool ok = core::RecipeLibrary::installParsed(std::move(parsed));
                          if (onInitialLoad)
                              onInitialLoad(ok);
 
@@ -241,8 +270,8 @@ void loadRecipeLibraryAsync(QObject *context,
                              timer.start();
                      });
 
-    watcher->setFuture(QtConcurrent::run([]() -> QByteArray {
-        return readLibraryJsonBytes();
+    watcher->setFuture(QtConcurrent::run([]() -> core::RecipeLibraryParseResult {
+        return core::RecipeLibrary::parseJsonData(readLibraryJsonBytes());
     }));
 }
 

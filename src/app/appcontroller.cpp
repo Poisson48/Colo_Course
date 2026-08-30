@@ -957,10 +957,10 @@ QString AppController::libraryInstructions(const QString &libraryId) {
 
 QVariantList AppController::recipeLibraryCategories() const {
     QVariantList out;
-    for (const QString &name : core::RecipeLibrary::categories()) {
+    for (const auto &cat : core::RecipeLibrary::categoryStats()) {
         out.append(QVariantMap{
-            { QStringLiteral("name"), name },
-            { QStringLiteral("count"), recipeLibraryCategoryCount(name) },
+            { QStringLiteral("name"), cat.name },
+            { QStringLiteral("count"), cat.count },
         });
     }
     return out;
@@ -969,7 +969,11 @@ QVariantList AppController::recipeLibraryCategories() const {
 int AppController::recipeLibraryCategoryCount(const QString &category) const {
     if (category.isEmpty())
         return core::RecipeLibrary::count();
-    return static_cast<int>(core::RecipeLibrary::filterIndices(QString(), category).size());
+    for (const auto &cat : core::RecipeLibrary::categoryStats()) {
+        if (cat.name == category)
+            return cat.count;
+    }
+    return 0;
 }
 
 void AppController::setRecipeLibraryCategoryFilter(const QString &category) {

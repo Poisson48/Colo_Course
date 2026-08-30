@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QHash>
 #include <QString>
 #include <vector>
 
@@ -23,10 +24,24 @@ struct LibraryRecipe {
     std::vector<LibraryIngredient> ingredients;
 };
 
+// Résultat d'un parse hors thread UI (ne touche pas la bibliothèque globale).
+struct RecipeLibraryParseResult {
+    std::vector<LibraryRecipe> recipes;
+    QHash<QString, size_t>     idIndex;
+    bool                       ok = false;
+};
+
 // Bibliothèque intégrée (JSON embarqué au build). Lecture seule.
 class RecipeLibrary {
 public:
+    static RecipeLibraryParseResult parseJsonData(const QByteArray &json);
+    static bool installParsed(RecipeLibraryParseResult &&parsed);
     static bool loadFromJson(const QByteArray &json);
+
+    struct CategoryStat {
+        QString name;
+        int     count = 0;
+    };
 
     static int count();
     static const LibraryRecipe *recipeAt(int index);
@@ -42,6 +57,9 @@ public:
 
     // Catégories distinctes du catalogue, triées par effectif décroissant.
     static std::vector<QString> categories();
+
+    // Catégories + effectifs en un seul passage (évite N× filterIndices).
+    static std::vector<CategoryStat> categoryStats();
 
 private:
     static std::vector<LibraryRecipe> s_recipes;

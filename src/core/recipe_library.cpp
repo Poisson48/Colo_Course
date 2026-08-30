@@ -1,7 +1,6 @@
-#include "recipe_library.h"
-
 #include "ingredient_norm.h"
 #include "recipe_scale.h"
+#include "recipe_library.h"
 
 #include <algorithm>
 
@@ -136,20 +135,33 @@ QString RecipeLibrary::normalizeSearchText(const QString &s) {
     return normalizeIngredientKey(s);
 }
 
-bool RecipeLibrary::loadFromJson(const QByteArray &json) {
-    std::vector<LibraryRecipe> recipes;
-    QHash<QString, size_t> idIndex;
-    if (!parseJsonInto(json, recipes, idIndex)) {
+RecipeLibraryParseResult RecipeLibrary::parseJsonData(const QByteArray &json)
+{
+    RecipeLibraryParseResult out;
+    out.ok = parseJsonInto(json, out.recipes, out.idIndex);
+    if (!out.ok) {
+        out.recipes.clear();
+        out.idIndex.clear();
+    }
+    return out;
+}
+
+bool RecipeLibrary::installParsed(RecipeLibraryParseResult &&parsed)
+{
+    if (!parsed.ok) {
         QMutexLocker lock(&s_mutex);
         s_recipes.clear();
         s_idIndex.clear();
         return false;
     }
-
     QMutexLocker lock(&s_mutex);
-    s_recipes = std::move(recipes);
-    s_idIndex = std::move(idIndex);
+    s_recipes = std::move(parsed.recipes);
+    s_idIndex = std::move(parsed.idIndex);
     return true;
+}
+
+bool RecipeLibrary::loadFromJson(const QByteArray &json) {
+    return installParsed(parseJsonData(json));
 }
 
 int RecipeLibrary::count() {
@@ -232,6 +244,16 @@ std::vector<int> RecipeLibrary::filterIndices(const QString &query, const QStrin
 }
 
 std::vector<QString> RecipeLibrary::categories() {
+    const auto stats = categoryStats();
+    std::vector<QString> out;
+    out.reserve(stats.size());
+    for (const CategoryStat &c : stats)
+        out.push_back(c.name);
+    return out;
+}
+
+std::vector<RecipeLibrary::CategoryStat> RecipeLibrary::categoryStats()
+{
     QMutexLocker lock(&s_mutex);
     QHash<QString, int> counts;
     for (const LibraryRecipe &rec : s_recipes) {
@@ -239,24 +261,18 @@ std::vector<QString> RecipeLibrary::categories() {
             ++counts[rec.category];
     }
 
-    struct CatCount { QString name; int count; };
-    std::vector<CatCount> sorted;
+    std::vector<CategoryStat> sorted;
     sorted.reserve(static_cast<size_t>(counts.size()));
     for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
         sorted.push_back({ it.key(), it.value() });
 
     std::sort(sorted.begin(), sorted.end(),
-              [](const CatCount &a, const CatCount &b) {
+              [](const CategoryStat &a, const CategoryStat &b) {
                   if (a.count != b.count)
                       return a.count > b.count;
                   return a.name < b.name;
               });
-
-    std::vector<QString> out;
-    out.reserve(sorted.size());
-    for (const CatCount &c : sorted)
-        out.push_back(c.name);
-    return out;
+    return sorted;
 }
 
 } // namespace core
