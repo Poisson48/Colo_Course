@@ -18,7 +18,16 @@ Item {
         if (cur && cur.pageTitle === "Recettes")
             return
         root.recipesNavBusy = true
-        stack.push(recipesPageComponent, {}, StackView.Immediate)
+        recipesNavReset.restart()
+        const pushed = stack.push(recipesPageComponent, {}, StackView.Immediate)
+        if (!pushed)
+            root.recipesNavBusy = false
+    }
+
+    Timer {
+        id: recipesNavReset
+        interval: 4000
+        onTriggered: root.recipesNavBusy = false
     }
 
     Connections {

@@ -105,14 +105,15 @@ Item {
             }
         }
 
-        Item {
+        StackLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            currentIndex: tabBar.currentIndex
 
         // --- Mes recettes ---
         ColumnLayout {
-            anchors.fill: parent
-            visible: tabBar.currentIndex === 0
+            Layout.fillWidth: true
+            Layout.fillHeight: true
             spacing: 0
 
             ColoTextField {
@@ -283,22 +284,35 @@ Item {
             }
         }
 
-        ColumnLayout {
-            id: catalogPanel
-            anchors.fill: parent
-            visible: tabBar.currentIndex === 1
-            spacing: Theme.gap
+        Loader {
+            id: catalogLoader
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            active: tabBar.currentIndex === 1
+            asynchronous: false
+            sourceComponent: catalogPanelComponent
 
-            property string catalogCategory: ""
-
-            onVisibleChanged: {
-                if (visible) {
+            onActiveChanged: {
+                if (active) {
                     AppController.prepareRecipeLibraryCatalog()
-                    rebuildCategoryChips()
+                    if (item)
+                        item.rebuildCategoryChips()
                 } else {
                     AppController.releaseRecipeLibraryCatalog()
                 }
             }
+        }
+        }
+    }
+
+    Component {
+        id: catalogPanelComponent
+        ColumnLayout {
+            id: catalogPanel
+            anchors.fill: parent
+            spacing: Theme.gap
+
+            property string catalogCategory: ""
 
             function applyCatalogCategory(cat) {
                 catalogCategory = cat
@@ -346,11 +360,12 @@ Item {
                 }
             }
 
+            Component.onCompleted: rebuildCategoryChips()
+
             Connections {
                 target: AppController
                 function onRecipeLibraryCountChanged() {
-                    if (catalogPanel.visible)
-                        catalogPanel.rebuildCategoryChips()
+                    catalogPanel.rebuildCategoryChips()
                 }
             }
 
@@ -626,7 +641,6 @@ Item {
                                                       libCard.category, libCard.baseServings)
                 }
             }
-        }
         }
     }
 
