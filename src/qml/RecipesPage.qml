@@ -276,6 +276,84 @@ Item {
                 }
             }
 
+            property string catalogCategory: ""
+
+            function syncCatalogCategory() {
+                AppController.recipeLibrary.categoryFilter = catalogCategory
+            }
+
+            Component.onCompleted: syncCatalogCategory()
+
+            ScrollView {
+                id: categoryScroll
+                Layout.fillWidth: true
+                Layout.preferredHeight: visible ? 40 : 0
+                Layout.leftMargin: Theme.gap
+                Layout.rightMargin: Theme.gap
+                visible: AppController.recipeLibraryCount > 0
+                clip: true
+                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+                contentWidth: categoryRow.implicitWidth
+
+                Row {
+                    id: categoryRow
+                    spacing: 8
+
+                    Repeater {
+                        model: {
+                            const _n = AppController.recipeLibraryCount
+                            const chips = [{
+                                name: "",
+                                label: "Toutes (" + _n + ")"
+                            }]
+                            const cats = AppController.recipeLibraryCategories()
+                            for (let i = 0; i < cats.length; i++) {
+                                const c = cats[i]
+                                chips.push({
+                                    name: c.name,
+                                    label: c.name + " (" + c.count + ")"
+                                })
+                            }
+                            return chips
+                        }
+
+                        delegate: Rectangle {
+                            required property string name
+                            required property string label
+
+                            height: 32
+                            width: chipText.implicitWidth + 20
+                            radius: 16
+                            color: catalogCategory === name
+                                   ? Theme.accent : Theme.surface
+                            border.color: catalogCategory === name
+                                          ? Theme.accent : Theme.outline
+                            border.width: 1
+
+                            Label {
+                                id: chipText
+                                anchors.centerIn: parent
+                                text: label
+                                color: catalogCategory === name
+                                       ? Theme.onAccent : Theme.text
+                                font.pixelSize: 13
+                                font.weight: catalogCategory === name
+                                             ? Font.DemiBold : Font.Normal
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    catalogCategory = name
+                                    syncCatalogCategory()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             Label {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.gap
@@ -292,7 +370,14 @@ Item {
                 Layout.leftMargin: Theme.gap
                 Layout.rightMargin: Theme.gap
                 visible: AppController.recipeLibraryCount > 0 && catalogView.count === 0
-                text: "Aucun résultat pour « " + catalogSearch.text + " »."
+                text: {
+                    if (catalogSearch.text.length > 0 && catalogCategory.length > 0)
+                        return "Aucun résultat dans « " + catalogCategory
+                               + " » pour « " + catalogSearch.text + " »."
+                    if (catalogCategory.length > 0)
+                        return "Aucune recette dans « " + catalogCategory + " »."
+                    return "Aucun résultat pour « " + catalogSearch.text + " »."
+                }
                 wrapMode: Text.WordWrap
                 color: Theme.textDim
                 font.pixelSize: 15
@@ -301,11 +386,12 @@ Item {
             Button {
                 Layout.alignment: Qt.AlignHCenter
                 visible: AppController.recipeLibraryCount > 0 && catalogView.count === 0
-                          && catalogSearch.text.length > 0
+                          && (catalogSearch.text.length > 0 || catalogCategory.length > 0)
                 flat: true
                 implicitHeight: Theme.touchTarget
                 contentItem: Label {
-                    text: "Effacer la recherche"
+                    text: catalogCategory.length > 0 && catalogSearch.text.length === 0
+                          ? "Toutes les catégories" : "Effacer les filtres"
                     color: Theme.accent
                     font.pixelSize: 14
                     font.weight: Font.DemiBold
@@ -313,6 +399,8 @@ Item {
                 onClicked: {
                     catalogSearch.text = ""
                     AppController.recipeLibrary.filter = ""
+                    catalogCategory = ""
+                    syncCatalogCategory()
                 }
             }
 
@@ -320,9 +408,17 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.gap
                 Layout.rightMargin: Theme.gap
-                visible: catalogSearch.text.length > 0 && catalogView.count > 0
-                text: catalogView.count + " sur ~"
-                      + AppController.recipeLibraryCount + " recettes"
+                visible: (catalogSearch.text.length > 0 || catalogCategory.length > 0)
+                          && catalogView.count > 0
+                text: {
+                    let s = catalogView.count + " recette"
+                            + (catalogView.count > 1 ? "s" : "")
+                    if (catalogCategory.length > 0)
+                        s += " · " + catalogCategory
+                    if (catalogSearch.text.length > 0)
+                        s += " · « " + catalogSearch.text + " »"
+                    return s
+                }
                 color: Theme.textDim
                 font.pixelSize: 12
             }

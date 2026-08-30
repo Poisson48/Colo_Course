@@ -3,7 +3,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
-// Lecture d'une recette : personnes et préparation fixes en haut, ingrédients défilants.
+// Lecture d'une recette : personnes, puis onglets Ingrédients / Préparation.
 Item {
     id: root
 
@@ -13,6 +13,8 @@ Item {
 
     signal ingredientClicked(var item)
     signal editPrepRequested()
+
+    property int contentTab: 0
 
     readonly property string prepText: AppController.recipeInstructions(root.listId)
     readonly property var prepSteps: {
@@ -97,7 +99,7 @@ Item {
             }
         }
 
-        // Mode cuisine : étape courante, tout l'écran (ingrédients masqués).
+        // Mode cuisine : étape courante, tout l'écran (onglets masqués).
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: root.cookMode && root.prepSteps.length > 0
@@ -175,275 +177,250 @@ Item {
             }
         }
 
-        // Préparation complète (hors mode cuisine)
-        Rectangle {
+        TabBar {
+            id: contentTabBar
             Layout.fillWidth: true
-            Layout.preferredHeight: !root.cookMode && root.prepText.length > 0
-                                    ? Math.min(prepCol.height, 220) + Theme.pad * 2 : 0
-            visible: Layout.preferredHeight > 0
-            clip: true
-            color: Theme.surface
-
-            ColumnLayout {
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: Theme.pad
-                spacing: 8
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    Label {
-                        text: "Préparation"
-                        color: Theme.accent
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
-                        font.capitalization: Font.AllUppercase
-                    }
-
-                    Item { Layout.fillWidth: true }
-
-                    ToolButton {
-                        implicitHeight: 32
-                        contentItem: Label {
-                            text: "Modifier"
-                            color: Theme.textDim
-                            font.pixelSize: 13
-                        }
-                        onClicked: root.editPrepRequested()
-                    }
-                }
-
-                Flickable {
-                    id: prepScroll
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Math.min(prepCol.height, 220)
-                    clip: true
-                    contentHeight: prepCol.height
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    Column {
-                        id: prepCol
-                        width: prepScroll.width
-                        spacing: 10
-
-                        Repeater {
-                            model: root.prepSteps
-                            delegate: RowLayout {
-                                required property int index
-                                required property string modelData
-                                width: prepCol.width
-                                spacing: 8
-
-                                Label {
-                                    text: (index + 1) + "."
-                                    color: Theme.accent
-                                    font.pixelSize: 15
-                                    font.weight: Font.DemiBold
-                                    Layout.alignment: Qt.AlignTop
-                                }
-
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: modelData
-                                    color: Theme.text
-                                    font.pixelSize: 15
-                                    wrapMode: Text.WordWrap
-                                    lineHeight: 1.4
-                                    lineHeightMode: Text.ProportionalHeight
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                anchors.bottom: parent.bottom
-                width: parent.width
-                height: 1
-                color: Theme.outline
-            }
-        }
-
-        // Pas de préparation
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: !root.cookMode && root.prepText.length === 0 ? 48 : 0
-            visible: Layout.preferredHeight > 0
-            color: Theme.surface
-
-            Label {
-                anchors.centerIn: parent
-                text: "＋  Ajouter la préparation"
-                color: Theme.accent
-                font.pixelSize: 14
-                font.weight: Font.DemiBold
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                onClicked: root.editPrepRequested()
-            }
-
-            Rectangle {
-                anchors.bottom: parent.bottom
-                width: parent.width
-                height: 1
-                color: Theme.outline
-            }
-        }
-
-        // En-tête ingrédients (masqué en mode Cuisine)
-        Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.cookMode ? 0 : 36
             visible: !root.cookMode
+            Material.accent: Theme.accent
+            currentIndex: root.contentTab
+            onCurrentIndexChanged: root.contentTab = currentIndex
 
-            Label {
-                anchors.left: parent.left
-                anchors.leftMargin: Theme.gap + 4
-                anchors.verticalCenter: parent.verticalCenter
+            TabButton {
                 text: AppController.items.count === 0
                       ? "Ingrédients"
-                      : ("Ingrédients · " + AppController.items.count)
-                color: Theme.accent
-                font.pixelSize: 12
-                font.weight: Font.DemiBold
-                font.capitalization: Font.AllUppercase
+                      : ("Ingrédients (" + AppController.items.count + ")")
+            }
+            TabButton {
+                text: "Préparation"
             }
         }
 
-        // Liste d'ingrédients (masquée en mode Cuisine)
-        ListView {
-            id: recipeScroll
-            objectName: "recipeScroll"
+        StackLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !root.cookMode
-            clip: true
-            model: AppController.items
-            spacing: 4
-            topMargin: 4
-            bottomMargin: Theme.gap
-            boundsBehavior: Flickable.StopAtBounds
+            currentIndex: root.contentTab
 
-            property real savedContentY: 0
-            Connections {
-                target: AppController.items
-                function onModelAboutToBeReset() {
-                    recipeScroll.savedContentY = recipeScroll.contentY
+            // --- Onglet ingrédients ---
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                ListView {
+                    id: recipeScroll
+                    objectName: "recipeScroll"
+                    anchors.fill: parent
+                    clip: true
+                    model: AppController.items
+                    spacing: 4
+                    topMargin: 4
+                    bottomMargin: Theme.gap
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    property real savedContentY: 0
+                    Connections {
+                        target: AppController.items
+                        function onModelAboutToBeReset() {
+                            recipeScroll.savedContentY = recipeScroll.contentY
+                        }
+                        function onModelReset() {
+                            Qt.callLater(function() {
+                                recipeScroll.contentY = recipeScroll.savedContentY
+                                recipeScroll.returnToBounds()
+                            })
+                        }
+                    }
+
+                    delegate: ItemDelegate {
+                        id: ingRow
+                        required property string itemId
+                        required property string name
+                        required property string qty
+                        required property string note
+
+                        width: recipeScroll.width - 2 * Theme.gap
+                        x: Theme.gap
+                        padding: 12
+
+                        background: Rectangle {
+                            radius: 10
+                            color: ingRow.pressed ? Theme.surfaceHigh : Theme.surface
+                            border.color: Theme.outline
+                            border.width: 1
+                        }
+
+                        contentItem: Row {
+                            width: ingRow.availableWidth
+                            spacing: 10
+
+                            Label {
+                                text: "•"
+                                color: Theme.accent
+                                font.pixelSize: 16
+                                font.weight: Font.DemiBold
+                                anchors.top: parent.top
+                                anchors.topMargin: 2
+                            }
+
+                            Column {
+                                width: parent.width - 26
+                                spacing: 2
+
+                                Label {
+                                    width: parent.width
+                                    text: root.filterText.length > 0
+                                          ? root.highlightPlain(ingRow.name, root.filterText)
+                                          : ingRow.name
+                                    textFormat: root.filterText.length > 0
+                                                ? Text.StyledText : Text.PlainText
+                                    color: Theme.text
+                                    font.pixelSize: 16
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                Label {
+                                    width: parent.width
+                                    visible: text.length > 0
+                                    text: {
+                                        const d = root.detailLine(ingRow.qty, ingRow.note)
+                                        return root.filterText.length > 0
+                                               ? root.highlightPlain(d, root.filterText) : d
+                                    }
+                                    textFormat: root.filterText.length > 0
+                                                ? Text.StyledText : Text.PlainText
+                                    color: Theme.textDim
+                                    font.pixelSize: 13
+                                    wrapMode: Text.WordWrap
+                                    maximumLineCount: 3
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        onClicked: root.ingredientClicked({
+                            itemId: ingRow.itemId,
+                            name: ingRow.name,
+                            qty: ingRow.qty,
+                            note: ingRow.note
+                        })
+                    }
                 }
-                function onModelReset() {
-                    Qt.callLater(function() {
-                        recipeScroll.contentY = recipeScroll.savedContentY
-                        recipeScroll.returnToBounds()
-                    })
-                }
-            }
 
-            delegate: ItemDelegate {
-                id: ingRow
-                required property string itemId
-                required property string name
-                required property string qty
-                required property string note
-
-                width: recipeScroll.width - 2 * Theme.gap
-                x: Theme.gap
-                padding: 12
-
-                background: Rectangle {
-                    radius: 10
-                    color: ingRow.pressed ? Theme.surfaceHigh : Theme.surface
-                    border.color: Theme.outline
-                    border.width: 1
-                }
-
-                contentItem: Row {
-                    width: ingRow.availableWidth
-                    spacing: 10
+                ColumnLayout {
+                    anchors.centerIn: parent
+                    width: parent.width - 64
+                    visible: AppController.items.count === 0
+                    spacing: 8
 
                     Label {
-                        text: "•"
-                        color: Theme.accent
-                        font.pixelSize: root.cookMode ? 18 : 16
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        text: root.filterText.length > 0 ? "Aucun résultat" : "Aucun ingrédient"
+                        color: Theme.text
+                        font.pixelSize: 18
                         font.weight: Font.DemiBold
-                        anchors.top: parent.top
-                        anchors.topMargin: 2
                     }
 
-                    Column {
-                        width: parent.width - 26
-                        spacing: 2
+                    Label {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        text: root.filterText.length > 0
+                              ? "Aucun ingrédient ne correspond à « " + root.filterText + " »."
+                              : "Ajoutez le premier ingrédient dans la barre ci-dessous."
+                        color: Theme.textDim
+                        font.pixelSize: 14
+                    }
+                }
+            }
 
-                        Label {
-                            width: parent.width
-                            text: root.filterText.length > 0
-                                  ? root.highlightPlain(ingRow.name, root.filterText)
-                                  : ingRow.name
-                            textFormat: root.filterText.length > 0
-                                        ? Text.StyledText : Text.PlainText
-                            color: Theme.text
-                            font.pixelSize: root.cookMode ? 18 : 16
-                            font.weight: root.cookMode ? Font.DemiBold : Font.Normal
-                            wrapMode: Text.WordWrap
-                        }
+            // --- Onglet préparation ---
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
 
-                        Label {
-                            width: parent.width
-                            visible: text.length > 0
-                            text: {
-                                const d = root.detailLine(ingRow.qty, ingRow.note)
-                                return root.filterText.length > 0
-                                       ? root.highlightPlain(d, root.filterText) : d
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.pad
+                    spacing: 8
+                    visible: root.prepText.length > 0
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        Item { Layout.fillWidth: true }
+
+                        ToolButton {
+                            implicitHeight: 32
+                            contentItem: Label {
+                                text: "Modifier"
+                                color: Theme.textDim
+                                font.pixelSize: 13
                             }
-                            textFormat: root.filterText.length > 0
-                                        ? Text.StyledText : Text.PlainText
-                            color: Theme.textDim
-                            font.pixelSize: root.cookMode ? 15 : 13
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 3
-                            elide: Text.ElideRight
+                            onClicked: root.editPrepRequested()
+                        }
+                    }
+
+                    ScrollView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+
+                        Column {
+                            id: prepCol
+                            width: parent.width
+                            spacing: 12
+
+                            Repeater {
+                                model: root.prepSteps
+                                delegate: RowLayout {
+                                    required property int index
+                                    required property string modelData
+                                    width: prepCol.width
+                                    spacing: 8
+
+                                    Label {
+                                        text: (index + 1) + "."
+                                        color: Theme.accent
+                                        font.pixelSize: 15
+                                        font.weight: Font.DemiBold
+                                        Layout.alignment: Qt.AlignTop
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: modelData
+                                        color: Theme.text
+                                        font.pixelSize: 15
+                                        wrapMode: Text.WordWrap
+                                        lineHeight: 1.45
+                                        lineHeightMode: Text.ProportionalHeight
+                                    }
+                                }
+                            }
                         }
                     }
                 }
 
-                onClicked: root.ingredientClicked({
-                    itemId: ingRow.itemId,
-                    name: ingRow.name,
-                    qty: ingRow.qty,
-                    note: ingRow.note
-                })
+                // Pas de préparation
+                Item {
+                    anchors.fill: parent
+                    visible: root.prepText.length === 0
+
+                    Label {
+                        anchors.centerIn: parent
+                        text: "＋  Ajouter la préparation"
+                        color: Theme.accent
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: root.editPrepRequested()
+                    }
+                }
             }
-        }
-    }
-
-    ColumnLayout {
-        anchors.centerIn: parent
-        width: parent.width - 64
-        visible: AppController.items.count === 0 && !root.cookMode
-        spacing: 8
-
-        Label {
-            Layout.fillWidth: true
-            horizontalAlignment: Text.AlignHCenter
-            text: root.filterText.length > 0 ? "Aucun résultat" : "Aucun ingrédient"
-            color: Theme.text
-            font.pixelSize: 18
-            font.weight: Font.DemiBold
-        }
-
-        Label {
-            Layout.fillWidth: true
-            horizontalAlignment: Text.AlignHCenter
-            wrapMode: Text.WordWrap
-            text: root.filterText.length > 0
-                  ? "Aucun ingrédient ne correspond à « " + root.filterText + " »."
-                  : "Ajoutez le premier ingrédient dans la barre ci-dessous."
-            color: Theme.textDim
-            font.pixelSize: 14
         }
     }
 }

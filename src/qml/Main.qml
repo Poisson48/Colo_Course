@@ -77,10 +77,10 @@ ApplicationWindow {
     // Barre supérieure : titre de la page courante + actions fournies par la page.
     header: Rectangle {
         color: Theme.surface
-        implicitHeight: (stack.currentItem && stack.currentItem.pageSubtitle
-                         && stack.currentItem.pageSubtitle.length > 0) ? 68 : 56
+        implicitHeight: Math.max(56, headerRow.implicitHeight + 8)
 
         RowLayout {
+            id: headerRow
             anchors.fill: parent
             anchors.leftMargin: 4
             anchors.rightMargin: 4
@@ -111,13 +111,18 @@ ApplicationWindow {
                 spacing: 0
 
                 Label {
+                    id: pageTitleLabel
                     Layout.fillWidth: true
                     text: stack.currentItem && stack.currentItem.pageTitle
                           ? stack.currentItem.pageTitle : "Mes listes"
                     color: Theme.text
                     font.pixelSize: 20
                     font.weight: Font.DemiBold
-                    elide: Text.ElideRight
+                    wrapMode: stack.currentItem && stack.currentItem.pageTitleWrap
+                              ? Text.WordWrap : Text.NoWrap
+                    elide: stack.currentItem && stack.currentItem.pageTitleWrap
+                           ? Text.ElideNone : Text.ElideRight
+                    maximumLineCount: stack.currentItem && stack.currentItem.pageTitleWrap ? 3 : 1
                 }
 
                 Label {

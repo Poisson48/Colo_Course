@@ -369,4 +369,17 @@ QString normalizeManualIngredientName(const QString &s) {
     return canon.toLower();
 }
 
+bool isShoppingListExcludedIngredient(const QString &s) {
+    const QString key = ingredientMatchKey(s);
+    if (key == QStringLiteral("eau"))
+        return true;
+
+    // Eau du robinet (froide, chaude, tiède…) — pas l'eau minérale/gazeuse/de fleur.
+    const QString norm = normalizeIngredientKey(baseIngredientName(s));
+    static const QRegularExpression tapWaterRe(
+        QStringLiteral(R"(^eau(?:\s+(?:froide|chaude|tiede|bouillante|demineralisee))?$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    return tapWaterRe.match(norm).hasMatch();
+}
+
 } // namespace core

@@ -44,10 +44,15 @@ MAX_INSTRUCTIONS_LEN = 12000
 _UNIT_WORDS = [
     "cuillères à soupe", "cuillères à café", "cuillere a soupe", "cuillere a cafe",
     "c.à.s", "c.à.c", "càs", "càc",
-    "cuillères", "cuilleres", "sachets", "pincées", "pincees", "gousses", "gousse",
+    "cuillères", "cuilleres", "sachets", "sachet", "pincées", "pincees", "pincée", "pincee",
+    "gousses", "gousse",
     "bottes", "botte", "tranches", "tranche", "paquets", "paquet", "boîtes", "boites",
     "branches", "branche", "feuilles", "feuille", "morceaux", "morceau", "verres",
-    "tasses", "poignées", "poignees", "barquettes", "barquette", "litres", "litre",
+    "tasses", "tasse", "verres", "verre", "poignées", "poignees", "barquettes", "barquette", "litres", "litre",
+    "cuillère", "cuillères", "cuillere", "cuilleres", "cuillère à soupe", "cuillère à café",
+    "cuillere a soupe", "cuillere a cafe", "demi-litre", "demi litre", "demi-tasse", "demi tasse",
+    "demi-verre", "demi verre", "trait", "traits", "goutte", "gouttes", "bol", "bols", "brique", "briques",
+    "boîte", "boite", "boites", "boîtes",
     "kg", "mg", "ml", "cl", "dl", "cs", "cc", "zeste", "zestes", "filet", "filets",
     "pot", "pots", "cube", "cubes", "brin", "brins", "noix", "bouquet", "bouquets",
     "g", "l",
@@ -61,6 +66,24 @@ LEADING_QTY_RE = re.compile(
     re.IGNORECASE,
 )
 PARENTHETICAL_RE = re.compile(r"\(([^()]{1,120})\)")
+
+# Lien « de / d' / du / des » après une unité de mesure.
+_DE_LINK = r"(?:de|d['\u2019]|du|des)\s+"
+# Cuillère (orthographes variées).
+_CUIL = r"cuill(?:i?[èe]res?|ères?|eres?)"
+# Nombre seul dans qty (scrape Marmiton : « 1 » + « tasse de sucre »).
+_BARE_QTY_RE = re.compile(
+    r"^(?:\d+(?:[.,]\d+)?|\d+\s*/\s*\d+|½|¼|¾|0[.,]5)$"
+)
+# Contenants de mesure (pas « noix de muscade » ni « filet de poulet »).
+_MEASURE_UNITS = (
+    rf"{_CUIL}(?:\s+à\s+(?:soupe|café|cafe))?",
+    r"verres?", r"tasses?", r"sachets?", r"bols?", r"briques?",
+    r"poign(?:ées?|ees?)", r"traits?", r"gouttes?", r"barquettes?", r"pots?",
+    r"cubes?", r"gousses?", r"bottes?", r"tranches?", r"paquets?",
+    r"bo[îi]tes?", r"litres?", r"l\b",
+)
+_MEASURE_UNIT_RE = r"(?:" + "|".join(_MEASURE_UNITS) + r")"
 
 
 def deaccent(s: str) -> str:
@@ -336,6 +359,195 @@ def repair_g_qty_split(name: str, qty: str) -> tuple[str, str]:
     return name, qty
 
 
+def _is_bare_qty(qty: str) -> bool:
+    return bool(qty and _BARE_QTY_RE.match(qty.strip()))
+
+
+def _qty_with_unit(count: str, unit: str) -> str:
+    unit = unit.strip()
+    count = count.strip().replace(",", ".")
+    if count in ("0.5", "0,5"):
+        count = "1/2"
+    return f"{count} {unit}".strip()
+
+
+def repair_l_qty_split(name: str, qty: str) -> tuple[str, str]:
+    """Répare « 1 l » + « itre de lait » issu d'un mauvais parseur."""
+    n, q = name.strip(), qty.strip()
+    m = re.match(r"^(\d+(?:[.,]\d+)?)\s*l$", q, re.IGNORECASE)
+    if not m or not n.lower().startswith("itre "):
+        return n, q
+    rest = re.sub(r"^itre\s+", "", n, count=1, flags=re.IGNORECASE)
+    rest = re.sub(rf"^{_DE_LINK}", "", rest, count=1, flags=re.IGNORECASE).strip()
+    if not rest:
+        return n, q
+    return rest, _qty_with_unit(m.group(1), "litre")
+
+
+def reparse_word_container(name: str, qty: str) -> tuple[str, str]:
+    """
+    Extrait qty/name quand la mesure est dans le libellé :
+    « demi litre de lait » → qty « 1/2 litre », name « lait ».
+    """
+    n, q = name.strip(), qty.strip()
+    if not n:
+        return n, q
+
+    bare = q if _is_bare_qty(q) else ("1" if not q else "")
+
+    # 1/2 litre de lait
+    m = re.match(
+        rf"^(?:1/2|1\s*/\s*2|½)\s*-?\s*(?:litre|litres|l)\s+{_DE_LINK}(.+)$",
+        n,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip(), "1/2 litre"
+
+    # demi litre de / d' lait
+    m = re.match(
+        rf"^demi(?:-|\s)?(?:litre|litres|l)\s+{_DE_LINK}(.+)$",
+        n,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip(), "1/2 litre"
+    m = re.match(
+        rf"^demi(?:-|\s)?(?:litre|litres|l)\s+d['\u2019](.+)$",
+        n,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip(), "1/2 litre"
+
+    # demi verre/tasse/cuillère/pot de …
+    m = re.match(
+        rf"^demi(?:-|\s)?(verre|tasse|pot|{_CUIL}(?:\s+à\s+(?:soupe|café|cafe|thé|the))?)\s+{_DE_LINK}(.+)$",
+        n,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(2).strip(), _qty_with_unit("1/2", m.group(1))
+    m = re.match(
+        rf"^demi(?:-|\s)?(verre|tasse|pot|{_CUIL}(?:\s+à\s+(?:soupe|café|cafe|thé|the))?)\s+d['\u2019](.+)$",
+        n,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(2).strip(), _qty_with_unit("1/2", m.group(1))
+
+    # petit pot de crème fraîche
+    m = re.match(
+        rf"^petit\s+pot\s+{_DE_LINK}(.+)$",
+        n,
+        re.IGNORECASE,
+    )
+    if m:
+        count = bare or "1"
+        return m.group(1).strip(), _qty_with_unit(count, "petit pot")
+    m = re.match(rf"^petit\s+pot\s+d['\u2019](.+)$", n, re.IGNORECASE)
+    if m:
+        count = bare or "1"
+        return m.group(1).strip(), _qty_with_unit(count, "petit pot")
+
+    # demi de citron / demi d'ananas
+    m = re.match(rf"^demi\s+{_DE_LINK}(.+)$", n, re.IGNORECASE)
+    if m:
+        return m.group(1).strip(), "1/2"
+    m = re.match(r"^demi\s+d['\u2019](.+)$", n, re.IGNORECASE)
+    if m:
+        return m.group(1).strip(), "1/2"
+
+    # cuillère à soupe/café de sel (avant la variante sans « de »)
+    m = re.match(
+        rf"^{_CUIL}\s+à\s+(soupe|café|cafe|thé|the)\s+{_DE_LINK}(.+)$",
+        n,
+        re.IGNORECASE,
+    )
+    if m:
+        kind = m.group(1).lower()
+        if kind.startswith("s"):
+            unit = "cuillère à soupe"
+        elif kind.startswith("t"):
+            unit = "cuillère à thé"
+        else:
+            unit = "cuillère à café"
+        count = bare or "1"
+        return m.group(2).strip(), _qty_with_unit(count, unit)
+    m = re.match(
+        rf"^{_CUIL}\s+à\s+(soupe|café|cafe|thé|the)\s+d['\u2019](.+)$",
+        n,
+        re.IGNORECASE,
+    )
+    if m:
+        kind = m.group(1).lower()
+        if kind.startswith("s"):
+            unit = "cuillère à soupe"
+        elif kind.startswith("t"):
+            unit = "cuillère à thé"
+        else:
+            unit = "cuillère à café"
+        count = bare or "1"
+        return m.group(2).strip(), _qty_with_unit(count, unit)
+
+    # cuillère à soupe/café + ingrédient (sans « de »)
+    m = re.match(
+        rf"^{_CUIL}\s+à\s+(soupe|café|cafe|thé|the)\s+(.+)$",
+        n,
+        re.IGNORECASE,
+    )
+    if m:
+        kind = m.group(1).lower()
+        if kind.startswith("s"):
+            unit = "cuillère à soupe"
+        elif kind.startswith("t"):
+            unit = "cuillère à thé"
+        else:
+            unit = "cuillère à café"
+        count = bare or "1"
+        return m.group(2).strip(), _qty_with_unit(count, unit)
+
+    # pincée (de) sel
+    m = re.match(
+        rf"^(?:bonne\s+|petite\s+|grosse\s+)?pinc(?:ée|ees?|ee)\s+(?:{_DE_LINK})?(.+)$",
+        n,
+        re.IGNORECASE,
+    )
+    if m:
+        count = bare or "1"
+        return m.group(1).strip(), _qty_with_unit(count, "pincée")
+
+    # sachet levure (sans « de »)
+    m = re.match(r"^(sachets?|sachet)\s+(?!de\s|d['\u2019])(.+)$", n, re.IGNORECASE)
+    if m:
+        count = bare or "1"
+        return m.group(2).strip(), _qty_with_unit(count, m.group(1))
+
+    # Contenant + de/d' + ingrédient (verre, tasse, sachet, cuillère de…)
+    if bare:
+        m = re.match(rf"^({_MEASURE_UNIT_RE})\s+{_DE_LINK}(.+)$", n, re.IGNORECASE)
+        if m:
+            return m.group(2).strip(), _qty_with_unit(bare, m.group(1))
+        m = re.match(rf"^({_MEASURE_UNIT_RE})\s+d['\u2019](.+)$", n, re.IGNORECASE)
+        if m:
+            return m.group(2).strip(), _qty_with_unit(bare, m.group(1))
+
+    return n, q
+
+
+def repair_orphan_de_prefix(name: str, qty: str) -> tuple[str, str]:
+    """Répare les reliquats « de sel », « d'orange » quand la mesure a été perdue."""
+    if qty:
+        return name, qty
+    m = re.match(r"^de\s+(.+)$", name, re.IGNORECASE)
+    if m:
+        return m.group(1).strip(), qty
+    m = re.match(r"^d['\u2019](.+)$", name, re.IGNORECASE)
+    if m:
+        return m.group(1).strip(), qty
+    return name, qty
+
+
 def reparse_ingredient(name: str, qty: str, note: str) -> tuple[str, str, str]:
     """Re-découpe qty/name depuis le libellé brut (répare les scrapes défectueux)."""
     name = re.sub(r"\s{2,}", " ", name.strip())
@@ -343,15 +555,21 @@ def reparse_ingredient(name: str, qty: str, note: str) -> tuple[str, str, str]:
     note = note.strip()
 
     name, qty = repair_g_qty_split(name, qty)
+    name, qty = repair_l_qty_split(name, qty)
+    name, qty = reparse_word_container(name, qty)
 
-    raw = f"{qty} {name}".strip() if qty else name
-    m = LEADING_QTY_RE.match(raw)
-    if m:
-        num, unit, rest = m.group(1), m.group(2) or "", m.group(3).strip()
-        rest = re.sub(r"\s{2,}", " ", rest).strip(" ,;")
-        if rest:
-            qty = f"{num} {unit}".strip()
-            name = rest
+    # Ne pas re-scinder si qty contient déjà une unité (évite de casser « 1 sachet » + « lait »).
+    if not (qty and re.search(r"[a-zA-Zàâäéèêëïîôùûüç]", qty)):
+        raw = f"{qty} {name}".strip() if qty else name
+        m = LEADING_QTY_RE.match(raw)
+        if m:
+            num, unit, rest = m.group(1), m.group(2) or "", m.group(3).strip()
+            rest = re.sub(r"\s{2,}", " ", rest).strip(" ,;")
+            if rest:
+                qty = f"{num} {unit}".strip()
+                name = rest
+
+    name, qty = repair_orphan_de_prefix(name, qty)
 
     name, note = extract_parenthetical_note(name, note)
     return name.strip(" ,;"), qty.strip(), note.strip()
@@ -373,7 +591,10 @@ def normalize_ingredient(raw: dict, stats: dict) -> dict | None:
     if not name:
         return None
 
+    before_name, before_qty = name, qty
     name, qty, note = reparse_ingredient(name, qty, note)
+    if (name, qty) != (before_name, before_qty):
+        stats["word_qty_reparsed"] += 1
     if not name:
         return None
 
@@ -485,6 +706,7 @@ def normalize_library(data: dict) -> tuple[dict, dict]:
         "duplicate_ids_removed": 0,
         "duplicate_ingredients_removed": 0,
         "prep_modifiers_stripped": 0,
+        "word_qty_reparsed": 0,
         "truncated_fields": 0,
     }
 
@@ -562,6 +784,7 @@ def main() -> int:
     print(f"  rejetées (ingrédients invalides): {stats['dropped_bad_ingredients']}")
     print(f"  ingrédients dupliqués retirés   : {stats['duplicate_ingredients_removed']}")
     print(f"  préparations retirées (nom)     : {stats['prep_modifiers_stripped']}")
+    print(f"  qty/name re-scindés (mot-unité) : {stats['word_qty_reparsed']}")
     print(f"  champs tronqués (name/qty/note) : {stats['truncated_fields']}")
 
     if stats["output_count"] < args.target:

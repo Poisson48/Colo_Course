@@ -70,6 +70,14 @@ void RecipeLibraryModel::setFilter(const QString &filter) {
     emit filterChanged();
 }
 
+void RecipeLibraryModel::setCategoryFilter(const QString &category) {
+    if (m_categoryFilter == category)
+        return;
+    m_categoryFilter = category;
+    rebuild();
+    emit categoryFilterChanged();
+}
+
 QString RecipeLibraryModel::libraryIdAt(int row) const {
     if (row < 0 || row >= static_cast<int>(m_indices.size()))
         return {};
@@ -85,7 +93,7 @@ int RecipeLibraryModel::ingredientCount(const QString &libraryId) const {
 
 void RecipeLibraryModel::rebuild() {
     beginResetModel();
-    m_indices = core::RecipeLibrary::filterIndices(m_filter);
+    m_indices = core::RecipeLibrary::filterIndices(m_filter, m_categoryFilter);
     endResetModel();
     emit countChanged();
 }

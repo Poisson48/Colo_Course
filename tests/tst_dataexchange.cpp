@@ -157,6 +157,16 @@ static void test_mergeQuantities() {
               QString("2 + 200 g"));
 }
 
+static void test_shoppingListExcludedIngredient() {
+    EXPECT_TRUE(core::isShoppingListExcludedIngredient(QString("eau")));
+    EXPECT_TRUE(core::isShoppingListExcludedIngredient(QString("Eau froide")));
+    EXPECT_TRUE(core::isShoppingListExcludedIngredient(QString("eau chaude")));
+    EXPECT_TRUE(!core::isShoppingListExcludedIngredient(QString("eau gazeuse")));
+    EXPECT_TRUE(!core::isShoppingListExcludedIngredient(QString("eau minérale")));
+    EXPECT_TRUE(!core::isShoppingListExcludedIngredient(QString("eau de rose")));
+    EXPECT_TRUE(!core::isShoppingListExcludedIngredient(QString("lait")));
+}
+
 static void test_canonicalPreservesQualifier() {
     EXPECT_EQ(core::canonicalIngredientName(QString("huile de tournesol")),
               QString("huile de tournesol"));
@@ -176,6 +186,7 @@ int main() {
     test_baseIngredientName();
     test_normalizeManualIngredientName();
     test_canonicalPreservesQualifier();
+    test_shoppingListExcludedIngredient();
     test_mergeQuantities();
     std::printf("\nResults: %d/%d passed, %d failed\n", g_passed, g_total, g_failed);
     return g_failed == 0 ? 0 : 1;

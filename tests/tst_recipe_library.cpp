@@ -136,6 +136,32 @@ static void test_filterIndices() {
     EXPECT_TRUE(RecipeLibrary::filterIndices(QStringLiteral("introuvable-xyz")).empty());
 }
 
+static void test_filterByCategory() {
+    RecipeLibrary::loadFromJson(QByteArray(kValidJson));
+
+    const auto all = RecipeLibrary::filterIndices(QString());
+    EXPECT_EQ(static_cast<int>(all.size()), RecipeLibrary::count());
+
+    const auto mains = RecipeLibrary::filterIndices(QString(),
+                                                    QStringLiteral("Plat principal"));
+    EXPECT_EQ(static_cast<int>(mains.size()), 1);
+
+    const auto entrees = RecipeLibrary::filterIndices(QString(),
+                                                     QStringLiteral("Entrée"));
+    EXPECT_EQ(static_cast<int>(entrees.size()), 1);
+
+    const auto none = RecipeLibrary::filterIndices(QString(),
+                                                   QStringLiteral("Boisson"));
+    EXPECT_EQ(static_cast<int>(none.size()), 0);
+
+    const auto cats = RecipeLibrary::categories();
+    EXPECT_EQ(static_cast<int>(cats.size()), 2);
+    EXPECT_TRUE(cats[0] == QStringLiteral("Entrée")
+                || cats[0] == QStringLiteral("Plat principal"));
+    EXPECT_TRUE(cats[1] == QStringLiteral("Entrée")
+                || cats[1] == QStringLiteral("Plat principal"));
+}
+
 static void test_rejectsMalformedJson() {
     EXPECT_TRUE(!RecipeLibrary::loadFromJson(QByteArray("")));
     EXPECT_TRUE(!RecipeLibrary::loadFromJson(QByteArray("{ pas du json valide")));
@@ -173,6 +199,7 @@ int main() {
     test_recipeByIdAndAt();
     test_dedupIngredients();
     test_filterIndices();
+    test_filterByCategory();
     test_rejectsMalformedJson();
     test_reloadReplacesPreviousLibrary();
     std::printf("\nResults: %d/%d passed, %d failed\n", g_passed, g_total, g_failed);

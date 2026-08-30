@@ -37,7 +37,11 @@ public:
 
     // Filtre titre, ingrédients et préparation (tokens AND, insensible casse/accents).
     // Tri par pertinence : titre > catégorie > ingrédients > préparation.
-    static std::vector<int> filterIndices(const QString &query);
+    // category : filtre exact sur le champ category (vide = toutes).
+    static std::vector<int> filterIndices(const QString &query, const QString &category = {});
+
+    // Catégories distinctes du catalogue, triées par effectif décroissant.
+    static std::vector<QString> categories();
 
 private:
     static std::vector<LibraryRecipe> s_recipes;

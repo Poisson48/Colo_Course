@@ -1119,9 +1119,19 @@ private slots:
         ing.doneVer = {1, "dev-A"}; ing.delVer = {1, "dev-A"};
         QVERIFY(ctrl.db().upsertItem(ing));
 
+        core::Item water;
+        water.listId = "rec"; water.itemId = "i2"; water.created = 11; water.by = "dev-A";
+        water.name = "eau froide"; water.nameVer = {1, "dev-A"};
+        water.qty = "1 L"; water.qtyVer = {1, "dev-A"};
+        water.noteVer = {1, "dev-A"}; water.aisleVer = {1, "dev-A"};
+        water.order = 11; water.orderVer = {1, "dev-A"};
+        water.doneVer = {1, "dev-A"}; water.delVer = {1, "dev-A"};
+        QVERIFY(ctrl.db().upsertItem(water));
+
         ctrl.importListInto(QStringLiteral("shop"), QStringLiteral("rec"));
 
         bool found = false;
+        bool waterFound = false;
         for (const auto &it : ctrl.db().getItems("shop")) {
             if (QString::fromStdString(it.name).compare(
                     QStringLiteral("Lait"), Qt::CaseInsensitive) == 0) {
@@ -1129,8 +1139,15 @@ private slots:
                 QCOMPARE(it.aisle, std::string("Crèmerie"));
                 QVERIFY(!it.done);
             }
+            if (QString::fromStdString(it.name).compare(
+                    QStringLiteral("eau"), Qt::CaseInsensitive) == 0
+                || QString::fromStdString(it.name).contains(
+                    QStringLiteral("eau"), Qt::CaseInsensitive)) {
+                waterFound = true;
+            }
         }
         QVERIFY(found);
+        QVERIFY(!waterFound);
         QVERIFY(ctrl.isRecipe(QStringLiteral("rec")));
         QVERIFY(!ctrl.isRecipe(QStringLiteral("shop")));
     }

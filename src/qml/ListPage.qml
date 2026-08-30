@@ -37,6 +37,9 @@ Item {
         ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
         : listTitle
 
+    // Recette : titre long affiché sur plusieurs lignes dans la barre (Main.qml).
+    readonly property bool pageTitleWrap: isRecipe && !selectionMode
+
     // Sous-titre dans la barre (Main.qml) : reste à acheter, ou ingrédients d'une recette.
     readonly property string pageSubtitle: {
         if (selectionMode || shoppingMode || searchOpen)

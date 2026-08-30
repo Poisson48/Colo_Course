@@ -147,7 +147,7 @@ const LibraryRecipe *RecipeLibrary::recipeById(const QString &id) {
     return recipeAt(static_cast<int>(it.value()));
 }
 
-std::vector<int> RecipeLibrary::filterIndices(const QString &query) {
+std::vector<int> RecipeLibrary::filterIndices(const QString &query, const QString &category) {
     const QString q = normalizeIngredientKey(query);
     const QStringList tokens = q.split(QRegularExpression(QStringLiteral("\\s+")),
                                       Qt::SkipEmptyParts);
@@ -157,6 +157,8 @@ std::vector<int> RecipeLibrary::filterIndices(const QString &query) {
 
     for (int i = 0; i < static_cast<int>(s_recipes.size()); ++i) {
         const LibraryRecipe &rec = s_recipes[static_cast<size_t>(i)];
+        if (!category.isEmpty() && rec.category != category)
+            continue;
         if (!tokens.isEmpty()) {
             bool allMatch = true;
             int score = 0;
@@ -197,6 +199,33 @@ std::vector<int> RecipeLibrary::filterIndices(const QString &query) {
     std::vector<int> out;
     for (const auto &s : scored)
         out.push_back(s.index);
+    return out;
+}
+
+std::vector<QString> RecipeLibrary::categories() {
+    QHash<QString, int> counts;
+    for (const LibraryRecipe &rec : s_recipes) {
+        if (!rec.category.isEmpty())
+            ++counts[rec.category];
+    }
+
+    struct CatCount { QString name; int count; };
+    std::vector<CatCount> sorted;
+    sorted.reserve(static_cast<size_t>(counts.size()));
+    for (auto it = counts.constBegin(); it != counts.constEnd(); ++it)
+        sorted.push_back({ it.key(), it.value() });
+
+    std::sort(sorted.begin(), sorted.end(),
+              [](const CatCount &a, const CatCount &b) {
+                  if (a.count != b.count)
+                      return a.count > b.count;
+                  return a.name < b.name;
+              });
+
+    std::vector<QString> out;
+    out.reserve(sorted.size());
+    for (const CatCount &c : sorted)
+        out.push_back(c.name);
     return out;
 }
 

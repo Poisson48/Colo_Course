@@ -179,6 +179,9 @@ public slots:
                                                 int targetServings = 0);
     Q_INVOKABLE int libraryBaseServings(const QString &libraryId);
     Q_INVOKABLE QString libraryInstructions(const QString &libraryId);
+    // Catégories du catalogue intégré : [{name, count}, …] triées par effectif.
+    Q_INVOKABLE QVariantList recipeLibraryCategories() const;
+    Q_INVOKABLE int recipeLibraryCategoryCount(const QString &category) const;
     // Préparation d'une recette personnelle (local, non synchronisé).
     Q_INVOKABLE QString recipeInstructions(const QString &listId);
     Q_INVOKABLE void setRecipeInstructions(const QString &listId, const QString &text);

@@ -942,6 +942,23 @@ QString AppController::libraryInstructions(const QString &libraryId) {
     return lib ? lib->instructions : QString();
 }
 
+QVariantList AppController::recipeLibraryCategories() const {
+    QVariantList out;
+    for (const QString &name : core::RecipeLibrary::categories()) {
+        out.append(QVariantMap{
+            { QStringLiteral("name"), name },
+            { QStringLiteral("count"), recipeLibraryCategoryCount(name) },
+        });
+    }
+    return out;
+}
+
+int AppController::recipeLibraryCategoryCount(const QString &category) const {
+    if (category.isEmpty())
+        return core::RecipeLibrary::count();
+    return static_cast<int>(core::RecipeLibrary::filterIndices(QString(), category).size());
+}
+
 QString AppController::recipeInstructions(const QString &listId) {
     if (!m_db.isOpen() || !isRecipe(listId))
         return {};
@@ -1150,6 +1167,10 @@ void AppController::importListInto(const QString &destListId, const QString &sou
         if (src.del) continue;
 
         const QString srcName = core::canonicalIngredientName(QString::fromStdString(src.name));
+        if (srcOpt->isRecipe() && !destOpt->isRecipe()
+            && core::isShoppingListExcludedIngredient(srcName))
+            continue;
+
         const QString matchKey = core::ingredientMatchKey(srcName);
         const QString srcQty = core::scaleQuantity(QString::fromStdString(src.qty), qtyFactor);
 

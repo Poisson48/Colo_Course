@@ -21,4 +21,7 @@ QString normalizeManualIngredientName(const QString &s);
 // (« beurre fondu » → « beurre », « courgettes en tranches » → « courgettes »).
 QString baseIngredientName(const QString &s);
 
+// Ingrédient à ne pas copier d'une recette vers une liste de courses (ex. eau).
+bool isShoppingListExcludedIngredient(const QString &s);
+
 } // namespace core
