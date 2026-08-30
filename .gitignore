@@ -30,6 +30,7 @@ android-build/
 # Local
 *.local
 .env
+data/recipe_catalog.db
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 aqtinstall.log

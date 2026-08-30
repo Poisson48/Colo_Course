@@ -35,6 +35,7 @@ add_library(core STATIC
     core/csv.cpp
     core/zip.cpp
     core/recipe_library.cpp
+    core/recipe_catalog_db.cpp
     core/recipe_scale.cpp
     core/ingredient_norm.cpp
 )
@@ -45,7 +46,7 @@ target_include_directories(core PUBLIC
 )
 
 # core utilise QString pour la bibliothèque de recettes et le scaling des quantités.
-target_link_libraries(core PUBLIC Qt6::Core)
+target_link_libraries(core PUBLIC Qt6::Core Qt6::Sql)
 
 # --- store static library ---
 add_library(store STATIC
@@ -133,13 +134,23 @@ qt_add_executable(colocourse
 )
 
 set(COLO_RECIPE_LIBRARY "${CMAKE_SOURCE_DIR}/data/recipe_library.json")
+set(COLO_RECIPE_CATALOG_DB "${CMAKE_SOURCE_DIR}/data/recipe_catalog.db")
+set(COLO_JSON_TO_DB "${CMAKE_SOURCE_DIR}/scripts/json_to_catalog_db.py")
+
 if(EXISTS "${COLO_RECIPE_LIBRARY}")
-    # FILES est résolu par rapport à CMAKE_CURRENT_SOURCE_DIR (src/), pas à BASE :
-    # il faut le chemin complet, sinon RCC cherche src/recipe_library.json.
+    add_custom_command(
+        OUTPUT "${COLO_RECIPE_CATALOG_DB}"
+        COMMAND python3 "${COLO_JSON_TO_DB}" "${COLO_RECIPE_LIBRARY}" "${COLO_RECIPE_CATALOG_DB}"
+        DEPENDS "${COLO_RECIPE_LIBRARY}" "${COLO_JSON_TO_DB}"
+        COMMENT "Building recipe_catalog.db from JSON"
+    )
+    add_custom_target(recipe_catalog_db DEPENDS "${COLO_RECIPE_CATALOG_DB}")
+    add_dependencies(colocourse recipe_catalog_db)
+
     qt_add_resources(colocourse "recipe_data"
         PREFIX "/data"
         BASE "${CMAKE_SOURCE_DIR}/data"
-        FILES "${COLO_RECIPE_LIBRARY}"
+        FILES "${COLO_RECIPE_CATALOG_DB}"
     )
 else()
     message(WARNING "data/recipe_library.json absent — catalogue intégré vide au build")

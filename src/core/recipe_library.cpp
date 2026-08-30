@@ -1,4 +1,5 @@
 #include "ingredient_norm.h"
+#include "recipe_catalog_db.h"
 #include "recipe_scale.h"
 #include "recipe_library.h"
 
@@ -20,6 +21,7 @@ std::vector<LibraryRecipe> RecipeLibrary::s_recipes;
 static QHash<QString, size_t> s_idIndex;
 static std::vector<RecipeLibrary::CategoryStat> s_categoryStats;
 static QMutex s_mutex;
+static bool s_useCatalogDb = false;
 
 static QString jsonStringField(const nlohmann::json &node, const char *key) {
     if (!node.contains(key))
@@ -152,6 +154,7 @@ bool RecipeLibrary::installParsed(RecipeLibraryParseResult &&parsed)
     if (!parsed.ok)
         return false;
     QMutexLocker lock(&s_mutex);
+    closeCatalogDb();
     s_recipes = std::move(parsed.recipes);
     s_idIndex = std::move(parsed.idIndex);
     RecipeLibrary::rebuildCategoryStatsLocked();
@@ -160,6 +163,32 @@ bool RecipeLibrary::installParsed(RecipeLibraryParseResult &&parsed)
 
 bool RecipeLibrary::loadFromJson(const QByteArray &json) {
     return installParsed(parseJsonData(json));
+}
+
+bool RecipeLibrary::openCatalogDb(const QString &path)
+{
+    QMutexLocker lock(&s_mutex);
+    if (!RecipeCatalogDb::open(path))
+        return false;
+    s_useCatalogDb = true;
+    s_recipes.clear();
+    s_idIndex.clear();
+    s_categoryStats.clear();
+    return true;
+}
+
+void RecipeLibrary::closeCatalogDb()
+{
+    if (s_useCatalogDb) {
+        RecipeCatalogDb::close();
+        s_useCatalogDb = false;
+    }
+}
+
+bool RecipeLibrary::usesCatalogDb()
+{
+    QMutexLocker lock(&s_mutex);
+    return s_useCatalogDb && RecipeCatalogDb::isOpen();
 }
 
 void RecipeLibrary::rebuildCategoryStatsLocked()
@@ -185,11 +214,15 @@ void RecipeLibrary::rebuildCategoryStatsLocked()
 
 int RecipeLibrary::count() {
     QMutexLocker lock(&s_mutex);
+    if (s_useCatalogDb)
+        return RecipeCatalogDb::count();
     return static_cast<int>(s_recipes.size());
 }
 
 const LibraryRecipe *RecipeLibrary::recipeAt(int index) {
     QMutexLocker lock(&s_mutex);
+    if (s_useCatalogDb)
+        return RecipeCatalogDb::recipeAt(index);
     if (index < 0 || index >= static_cast<int>(s_recipes.size()))
         return nullptr;
     return &s_recipes[static_cast<size_t>(index)];
@@ -197,6 +230,8 @@ const LibraryRecipe *RecipeLibrary::recipeAt(int index) {
 
 const LibraryRecipe *RecipeLibrary::recipeById(const QString &id) {
     QMutexLocker lock(&s_mutex);
+    if (s_useCatalogDb)
+        return RecipeCatalogDb::recipeById(id);
     const auto it = s_idIndex.constFind(id);
     if (it == s_idIndex.constEnd())
         return nullptr;
@@ -209,6 +244,8 @@ const LibraryRecipe *RecipeLibrary::recipeById(const QString &id) {
 std::vector<int> RecipeLibrary::filterIndices(const QString &query, const QString &category,
                                               int maxResults, int *totalMatchesOut) {
     QMutexLocker lock(&s_mutex);
+    if (s_useCatalogDb)
+        return RecipeCatalogDb::filterIndices(query, category, maxResults, totalMatchesOut);
     const QString q = normalizeIngredientKey(query);
     const QStringList tokens = q.split(QRegularExpression(QStringLiteral("\\s+")),
                                       Qt::SkipEmptyParts);
@@ -294,6 +331,8 @@ std::vector<QString> RecipeLibrary::categories() {
 std::vector<RecipeLibrary::CategoryStat> RecipeLibrary::categoryStats()
 {
     QMutexLocker lock(&s_mutex);
+    if (s_useCatalogDb)
+        return RecipeCatalogDb::categoryStats();
     return s_categoryStats;
 }
 

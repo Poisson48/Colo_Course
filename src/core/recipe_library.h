@@ -38,6 +38,11 @@ public:
     static bool installParsed(RecipeLibraryParseResult &&parsed);
     static bool loadFromJson(const QByteArray &json);
 
+    // Catalogue SQLite (fichier séparé). Quand ouvert, les accès passent par la base.
+    static bool openCatalogDb(const QString &path);
+    static void closeCatalogDb();
+    static bool usesCatalogDb();
+
     struct CategoryStat {
         QString name;
         int     count = 0;

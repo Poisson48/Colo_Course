@@ -359,10 +359,10 @@ bool AppController::init() {
         return false;
     }
 
-    // Catalogue volumineux : cache local + copie embarquée, MAJ depuis colo-apps si plus récent.
-    m_recipeLibraryLoading = true;
+    // Catalogue SQLite : chargement différé pour ne pas bloquer le démarrage.
+    m_recipeLibraryLoading = false;
     emit recipeLibraryLoadingChanged();
-    loadRecipeLibraryAsync(this,
+    loadRecipeCatalogAsync(this,
                            [this](bool ok) {
                                m_recipeLibraryLoading = false;
                                emit recipeLibraryLoadingChanged();
@@ -382,7 +382,8 @@ bool AppController::init() {
                            [this]() {
                                m_recipeLibraryModel->reloadFromLibrary();
                                emit recipeLibraryCountChanged();
-                           });
+                           },
+                           2500);
 
 
     // Blobs orphelins (photo retirée, liste quittée…) : les purger au démarrage.
@@ -995,6 +996,20 @@ void AppController::setRecipeLibraryCategoryFilter(const QString &category) {
 }
 
 void AppController::prepareRecipeLibraryCatalog() {
+    if (!isRecipeCatalogLoaded()) {
+        m_recipeLibraryLoading = true;
+        emit recipeLibraryLoadingChanged();
+        ensureRecipeCatalogLoaded(this, [this](bool ok) {
+            m_recipeLibraryLoading = false;
+            emit recipeLibraryLoadingChanged();
+            if (ok) {
+                m_recipeLibraryModel->reloadFromLibrary();
+                emit recipeLibraryCountChanged();
+            }
+            m_recipeLibraryModel->activateCatalog();
+        });
+        return;
+    }
     m_recipeLibraryModel->activateCatalog();
 }
 

@@ -1,11 +1,11 @@
 #include "recipe_library_loader.h"
 
+#include "../core/recipe_catalog_db.h"
 #include "../core/recipe_library.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QFutureWatcher>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaType>
@@ -17,6 +17,8 @@
 #include <QDebug>
 #include <QtConcurrent>
 
+#include <vector>
+
 Q_DECLARE_METATYPE(core::RecipeLibraryParseResult)
 
 namespace app {
@@ -27,6 +29,10 @@ constexpr const char *kRecipesManifestUrl =
     "https://colo-apps.les-crevettes-cevenoles.fr/releases/recipes-manifest.json";
 
 constexpr int kRemoteCheckIntervalMs = 6 * 60 * 60 * 1000; // 6 h
+
+bool s_catalogLoaded = false;
+bool s_catalogLoadStarted = false;
+std::vector<std::function<void(bool)>> s_pendingCallbacks;
 
 QNetworkAccessManager &netManager()
 {
@@ -49,56 +55,158 @@ void ensureParseResultMetaType()
     Q_UNUSED(once);
 }
 
-static bool looksLikeRecipeLibraryJson(const QByteArray &json)
+bool looksLikeRecipeLibraryJson(const QByteArray &json)
 {
     return json.size() > 4096 && json.contains("\"recipes\"");
 }
 
-QByteArray readBundledJsonBytes()
+bool isValidCatalogDbFile(const QString &path)
 {
-    QFile bundled(QStringLiteral(":/data/recipe_library.json"));
-    if (!bundled.open(QIODevice::ReadOnly))
-        return {};
-    return bundled.readAll();
+    const QFileInfo info(path);
+    return info.exists() && info.size() > 4096;
 }
 
-QByteArray readLibraryJsonBytes()
+bool copyFileAtomically(const QString &srcPath, const QString &destPath)
 {
-    const QString cache = recipeLibraryCachePath();
-    QFile cached(cache);
-    if (cached.exists() && cached.open(QIODevice::ReadOnly)) {
-        const QByteArray data = cached.readAll();
-        cached.close();
-        if (looksLikeRecipeLibraryJson(data))
-            return data;
-        qWarning() << "[RecipeLibrary] cache local invalide, repli sur copie embarquée";
-        QFile::remove(cache);
+    QDir().mkpath(QFileInfo(destPath).absolutePath());
+    const QString tmp = destPath + QStringLiteral(".tmp");
+    if (QFile::exists(tmp) && !QFile::remove(tmp))
+        return false;
+    if (!QFile::copy(srcPath, tmp))
+        return false;
+    if (QFile::exists(destPath) && !QFile::remove(destPath))
+        return false;
+    return QFile::rename(tmp, destPath);
+}
+
+bool copyBundledDbTo(const QString &destPath)
+{
+    QFile bundled(QStringLiteral(":/data/recipe_catalog.db"));
+    if (!bundled.exists()) {
+        qWarning() << "[RecipeCatalog] recipe_catalog.db embarqué absent";
+        return false;
     }
+    if (!bundled.open(QIODevice::ReadOnly))
+        return false;
+    const QByteArray data = bundled.readAll();
+    bundled.close();
+    if (data.size() < 4096)
+        return false;
 
-    return readBundledJsonBytes();
-}
-
-bool loadBundled()
-{
-    return core::RecipeLibrary::loadFromJson(readBundledJsonBytes());
-}
-
-bool saveCacheAtomically(const QByteArray &json)
-{
-    const QString path = recipeLibraryCachePath();
-    QDir().mkpath(QFileInfo(path).absolutePath());
-    const QString tmp = path + QStringLiteral(".tmp");
+    QDir().mkpath(QFileInfo(destPath).absolutePath());
+    const QString tmp = destPath + QStringLiteral(".tmp");
     QFile out(tmp);
     if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate))
         return false;
-    if (out.write(json) != json.size()) {
+    if (out.write(data) != data.size()) {
         out.remove();
         return false;
     }
     out.close();
-    if (QFile::exists(path) && !QFile::remove(path))
+    if (QFile::exists(destPath) && !QFile::remove(destPath))
         return false;
-    return QFile::rename(tmp, path);
+    return QFile::rename(tmp, destPath);
+}
+
+bool importJsonToDbFile(const QByteArray &json, const QString &destPath)
+{
+    const core::RecipeLibraryParseResult parsed = core::RecipeLibrary::parseJsonData(json);
+    if (!parsed.ok)
+        return false;
+
+    QDir().mkpath(QFileInfo(destPath).absolutePath());
+    const QString tmp = destPath + QStringLiteral(".import.tmp");
+    if (QFile::exists(tmp))
+        QFile::remove(tmp);
+
+    if (!core::RecipeCatalogDb::open(tmp))
+        return false;
+    core::RecipeLibraryParseResult work = parsed;
+    const bool ok = core::RecipeCatalogDb::importFromParsed(std::move(work));
+    core::RecipeCatalogDb::close();
+    if (!ok) {
+        QFile::remove(tmp);
+        return false;
+    }
+    if (QFile::exists(destPath) && !QFile::remove(destPath))
+        return false;
+    return QFile::rename(tmp, destPath);
+}
+
+QString resolveCatalogDbPath()
+{
+    const QString cache = recipeCatalogCachePath();
+    if (isValidCatalogDbFile(cache))
+        return cache;
+
+    // Migration : ancien cache JSON → SQLite une fois.
+    const QString jsonCache = recipeLibraryCachePath();
+    QFile cachedJson(jsonCache);
+    if (cachedJson.exists() && cachedJson.open(QIODevice::ReadOnly)) {
+        const QByteArray json = cachedJson.readAll();
+        cachedJson.close();
+        if (looksLikeRecipeLibraryJson(json) && importJsonToDbFile(json, cache)) {
+            qWarning() << "[RecipeCatalog] migration JSON cache → SQLite";
+            return cache;
+        }
+    }
+
+    if (copyBundledDbTo(cache) && isValidCatalogDbFile(cache))
+        return cache;
+
+    // Secours : JSON embarqué (première install ou DB absente du build).
+    QFile bundledJson(QStringLiteral(":/data/recipe_library.json"));
+    if (bundledJson.open(QIODevice::ReadOnly)) {
+        const QByteArray json = bundledJson.readAll();
+        bundledJson.close();
+        if (looksLikeRecipeLibraryJson(json) && importJsonToDbFile(json, cache))
+            return cache;
+    }
+
+    return {};
+}
+
+bool openResolvedCatalog(const QString &path)
+{
+    if (!isValidCatalogDbFile(path))
+        return false;
+    return core::RecipeLibrary::openCatalogDb(path);
+}
+
+void scheduleRemoteCheck(QObject *context, std::function<void(bool)> onUpdated);
+void startRemoteCheckTimer(QObject *context, std::function<void()> onRemoteUpdated);
+
+void flushPending(bool ok)
+{
+    auto pending = std::move(s_pendingCallbacks);
+    s_pendingCallbacks.clear();
+    for (const auto &cb : pending) {
+        if (cb)
+            cb(ok);
+    }
+}
+
+void markCatalogReady(QObject *context, bool ok, std::function<void(bool)> onInitialLoad,
+                      std::function<void()> onRemoteUpdated)
+{
+    s_catalogLoaded = ok;
+    s_catalogLoadStarted = false;
+
+    if (ok) {
+        qWarning() << "[RecipeCatalog] catalogue prêt :"
+                   << core::RecipeLibrary::count() << "recettes (SQLite)";
+        scheduleRemoteCheck(context, [onRemoteUpdated](bool updated) {
+            if (updated && onRemoteUpdated)
+                onRemoteUpdated();
+        });
+        startRemoteCheckTimer(context, onRemoteUpdated);
+    } else {
+        qWarning() << "[RecipeCatalog] catalogue indisponible";
+    }
+
+    if (onInitialLoad)
+        onInitialLoad(ok);
+    flushPending(ok);
 }
 
 void fetchManifest(std::function<void(RecipesManifest)> onResult)
@@ -118,25 +226,23 @@ void fetchManifest(std::function<void(RecipesManifest)> onResult)
     });
 }
 
-void applyParsedOnMain(QObject *context,
-                       core::RecipeLibraryParseResult parsed,
-                       const QByteArray &cacheJson,
-                       bool writeCache,
-                       std::function<void(bool updated)> onDone)
+void applyJsonUpdateOnMain(QObject *context, const QByteArray &json,
+                           std::function<void(bool updated)> onDone)
 {
-    auto apply = [parsed = std::move(parsed), cacheJson, writeCache, onDone]() mutable {
-        if (!core::RecipeLibrary::installParsed(std::move(parsed))) {
+    auto apply = [context, json, onDone]() {
+        const QString cache = recipeCatalogCachePath();
+        if (!importJsonToDbFile(json, cache)) {
             if (onDone)
                 onDone(false);
             return;
         }
-
-        if (writeCache && !cacheJson.isEmpty() && !saveCacheAtomically(cacheJson)) {
-            qWarning() << "[RecipeLibrary] impossible d'écrire le cache local";
+        if (!core::RecipeLibrary::openCatalogDb(cache)) {
+            if (onDone)
+                onDone(false);
+            return;
         }
-
-        qWarning() << "[RecipeLibrary] catalogue prêt :" << core::RecipeLibrary::count()
-                   << "recettes";
+        qWarning() << "[RecipeCatalog] MAJ serveur appliquée :"
+                   << core::RecipeLibrary::count() << "recettes";
         if (onDone)
             onDone(true);
     };
@@ -145,26 +251,6 @@ void applyParsedOnMain(QObject *context,
         QTimer::singleShot(0, context, std::move(apply));
     else
         apply();
-}
-
-void parseAndApplyAsync(QObject *context,
-                         const QByteArray &json,
-                         bool writeCache,
-                         std::function<void(bool updated)> onDone)
-{
-    ensureParseResultMetaType();
-    auto *watcher = new QFutureWatcher<core::RecipeLibraryParseResult>(context);
-    QObject::connect(watcher, &QFutureWatcher<core::RecipeLibraryParseResult>::finished, context,
-                     [watcher, context, json, writeCache, onDone]() {
-                         core::RecipeLibraryParseResult parsed = watcher->result();
-                         watcher->deleteLater();
-                         applyParsedOnMain(context, std::move(parsed), json, writeCache, onDone);
-                     });
-    watcher->setFuture(QtConcurrent::run([json]() -> core::RecipeLibraryParseResult {
-        if (json.isEmpty())
-            return {};
-        return core::RecipeLibrary::parseJsonData(json);
-    }));
 }
 
 void downloadAndApply(const RecipesManifest &manifest,
@@ -193,12 +279,17 @@ void downloadAndApply(const RecipesManifest &manifest,
         reply->deleteLater();
         const QByteArray body = reply->readAll();
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "[RecipeLibrary] téléchargement échoué :" << reply->errorString();
+            qWarning() << "[RecipeCatalog] téléchargement échoué :" << reply->errorString();
             if (onDone)
                 onDone(false);
             return;
         }
-        parseAndApplyAsync(context, body, true, onDone);
+        if (!looksLikeRecipeLibraryJson(body)) {
+            if (onDone)
+                onDone(false);
+            return;
+        }
+        applyJsonUpdateOnMain(context, body, onDone);
     });
 }
 
@@ -229,7 +320,34 @@ void startRemoteCheckTimer(QObject *context, std::function<void()> onRemoteUpdat
         timer.start();
 }
 
+void doLoadCatalog(QObject *context,
+                   std::function<void(bool ok)> onInitialLoad,
+                   std::function<void()> onRemoteUpdated)
+{
+    ensureParseResultMetaType();
+
+    auto *watcher = new QFutureWatcher<QString>(context);
+    QObject::connect(watcher, &QFutureWatcher<QString>::finished, context,
+                     [watcher, context, onInitialLoad, onRemoteUpdated]() {
+                         const QString path = watcher->result();
+                         watcher->deleteLater();
+                         const bool ok = openResolvedCatalog(path);
+                         markCatalogReady(context, ok, onInitialLoad, onRemoteUpdated);
+                     },
+                     Qt::QueuedConnection);
+
+    watcher->setFuture(QtConcurrent::run([]() -> QString {
+        return resolveCatalogDbPath();
+    }));
+}
+
 } // namespace
+
+QString recipeCatalogCachePath()
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    return dir + QStringLiteral("/recipe_catalog.db");
+}
 
 QString recipeLibraryCachePath()
 {
@@ -257,57 +375,68 @@ bool parseRecipesManifest(const QByteArray &json, RecipesManifest *out)
 
 bool loadRecipeLibraryFromResource()
 {
-    return loadBundled();
+    const QString cache = recipeCatalogCachePath();
+    if (copyBundledDbTo(cache))
+        return core::RecipeLibrary::openCatalogDb(cache);
+
+    QFile bundledJson(QStringLiteral(":/data/recipe_library.json"));
+    if (!bundledJson.open(QIODevice::ReadOnly))
+        return false;
+    return importJsonToDbFile(bundledJson.readAll(), cache)
+           && core::RecipeLibrary::openCatalogDb(cache);
 }
 
-void loadRecipeLibraryAsync(QObject *context,
-                            std::function<void(bool ok)> onInitialLoad,
-                            std::function<void()> onRemoteUpdated)
+bool isRecipeCatalogLoaded()
 {
-    ensureParseResultMetaType();
+    return s_catalogLoaded;
+}
 
-    // Lecture fichier / ressource sur le thread UI (QRC + chemins locaux).
-    QByteArray json = readLibraryJsonBytes();
-    if (!looksLikeRecipeLibraryJson(json)) {
-        qWarning() << "[RecipeLibrary] aucune copie locale valide, attente serveur";
-        json.clear();
-    } else {
-        qWarning() << "[RecipeLibrary] chargement local" << (json.size() / (1024 * 1024))
-                   << "Mo…";
+void loadRecipeCatalogAsync(QObject *context,
+                            std::function<void(bool ok)> onInitialLoad,
+                            std::function<void()> onRemoteUpdated,
+                            int deferredMs)
+{
+    if (s_catalogLoaded) {
+        if (onInitialLoad)
+            onInitialLoad(true);
+        return;
     }
+    if (s_catalogLoadStarted) {
+        if (onInitialLoad)
+            s_pendingCallbacks.push_back(std::move(onInitialLoad));
+        return;
+    }
+    s_catalogLoadStarted = true;
 
-    auto *watcher = new QFutureWatcher<core::RecipeLibraryParseResult>(context);
-    QObject::connect(watcher, &QFutureWatcher<core::RecipeLibraryParseResult>::finished, context,
-                     [watcher, context, onInitialLoad, onRemoteUpdated]() {
-                         core::RecipeLibraryParseResult parsed = watcher->result();
-                         watcher->deleteLater();
-                         const bool ok = core::RecipeLibrary::installParsed(std::move(parsed));
-                         if (onInitialLoad)
-                             onInitialLoad(ok);
+    auto start = [context, onInitialLoad = std::move(onInitialLoad),
+                  onRemoteUpdated = std::move(onRemoteUpdated)]() mutable {
+        doLoadCatalog(context, std::move(onInitialLoad), std::move(onRemoteUpdated));
+    };
 
-                         scheduleRemoteCheck(context, [onRemoteUpdated](bool updated) {
-                             if (updated && onRemoteUpdated)
-                                 onRemoteUpdated();
-                         });
+    if (deferredMs > 0)
+        QTimer::singleShot(deferredMs, context, std::move(start));
+    else
+        start();
+}
 
-                         if (ok) {
-                             qWarning() << "[RecipeLibrary] catalogue prêt :"
-                                        << core::RecipeLibrary::count() << "recettes";
-                             startRemoteCheckTimer(context, onRemoteUpdated);
-                         }
-                     },
-                     Qt::QueuedConnection);
-
-    watcher->setFuture(QtConcurrent::run([json]() -> core::RecipeLibraryParseResult {
-        if (json.isEmpty())
-            return {};
-        return core::RecipeLibrary::parseJsonData(json);
-    }));
+void ensureRecipeCatalogLoaded(QObject *context, std::function<void(bool ok)> onDone)
+{
+    if (s_catalogLoaded) {
+        if (onDone)
+            onDone(true);
+        return;
+    }
+    loadRecipeCatalogAsync(context, std::move(onDone), nullptr, 0);
 }
 
 void refreshRecipeLibraryFromServer(QObject *context,
                                     std::function<void(bool updated)> onDone)
 {
+    if (!s_catalogLoaded) {
+        if (onDone)
+            onDone(false);
+        return;
+    }
     scheduleRemoteCheck(context, onDone);
 }
 

@@ -15,20 +15,30 @@ struct RecipesManifest {
 // Parse recipes-manifest.json hébergé sur colo-apps.
 bool parseRecipesManifest(const QByteArray &json, RecipesManifest *out);
 
-// Chemin du cache local (AppDataLocation/recipe_library.json).
+// Cache local du catalogue SQLite (AppDataLocation/recipe_catalog.db).
+QString recipeCatalogCachePath();
+
+// Ancien cache JSON (migration).
 QString recipeLibraryCachePath();
 
-// Charge le catalogue : cache local si présent, sinon copie embarquée (qrc).
-// Puis vérifie le serveur en arrière-plan ; onRemoteUpdated si une MAJ est appliquée.
-void loadRecipeLibraryAsync(QObject *context,
+// Ouvre le catalogue SQLite : cache local, copie embarquée, ou import JSON de secours.
+// deferredMs > 0 : attend avant de charger (démarrage plus fluide).
+void loadRecipeCatalogAsync(QObject *context,
                             std::function<void(bool ok)> onInitialLoad,
-                            std::function<void()> onRemoteUpdated = nullptr);
+                            std::function<void()> onRemoteUpdated = nullptr,
+                            int deferredMs = 2500);
+
+// Charge immédiatement si pas encore fait (onglet Recettes / Catalogue).
+void ensureRecipeCatalogLoaded(QObject *context,
+                               std::function<void(bool ok)> onDone = nullptr);
+
+bool isRecipeCatalogLoaded();
 
 // Revérifie le serveur (retour 1er plan, timer). onDone(updated).
 void refreshRecipeLibraryFromServer(QObject *context,
                                     std::function<void(bool updated)> onDone = nullptr);
 
-// Tests uniquement.
+// Tests uniquement : ouvre la copie embarquée ou importe le JSON.
 bool loadRecipeLibraryFromResource();
 
 } // namespace app
