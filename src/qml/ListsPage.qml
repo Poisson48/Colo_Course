@@ -8,14 +8,24 @@ Item {
 
     readonly property string pageTitle: "Mes listes"
 
+    property bool recipesNavBusy: false
+
     function openRecipesPage() {
         const stack = root.StackView.view
-        if (!stack)
+        if (!stack || root.recipesNavBusy)
             return
         const cur = stack.currentItem
         if (cur && cur.pageTitle === "Recettes")
             return
-        stack.push(recipesLoadingPage)
+        root.recipesNavBusy = true
+        stack.push(recipesPageComponent, {}, StackView.Immediate)
+    }
+
+    Connections {
+        target: root.StackView.view
+        function onCurrentItemChanged() {
+            root.recipesNavBusy = false
+        }
     }
 
     // Vrai le temps qu'une poignée de déplacement est tenue : fige le défilement des
@@ -444,7 +454,10 @@ Item {
                     }
                 }
 
-                onClicked: AppController.openList(model.listId)
+                onClicked: {
+                    if (!root.recipesNavBusy)
+                        AppController.openList(model.listId)
+                }
             }
         }
     }
@@ -1211,31 +1224,6 @@ Item {
         }
 
         onAccepted: AppController.deleteAisle(aisleDeleteDialog.aisle)
-    }
-
-    Component {
-        id: recipesLoadingPage
-        Item {
-            readonly property string pageTitle: "Recettes"
-
-            Rectangle {
-                anchors.fill: parent
-                color: Theme.background
-            }
-
-            BusyIndicator {
-                anchors.centerIn: parent
-                running: true
-            }
-
-            Component.onCompleted: {
-                Qt.callLater(function () {
-                    const stack = root.StackView.view
-                    if (stack)
-                        stack.replace(recipesPageComponent)
-                })
-            }
-        }
     }
 
     Component {
