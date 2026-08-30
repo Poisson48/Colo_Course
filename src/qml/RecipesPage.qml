@@ -284,26 +284,6 @@ Item {
                 }
             }
         }
-
-        Loader {
-            id: catalogLoader
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            active: tabBar.currentIndex === 1
-
-            onLoaded: {
-                AppController.prepareRecipeLibraryCatalog()
-                if (item && item.rebuildCategoryChips)
-                    item.rebuildCategoryChips()
-            }
-
-            sourceComponent: catalogPanelComponent
-        }
-        }
-    }
-
-    Component {
-        id: catalogPanelComponent
         ColumnLayout {
             id: catalogPanel
             Layout.fillWidth: true
@@ -358,12 +338,11 @@ Item {
                 }
             }
 
-            Component.onCompleted: rebuildCategoryChips()
-
             Connections {
                 target: AppController
                 function onRecipeLibraryCountChanged() {
-                    catalogPanel.rebuildCategoryChips()
+                    if (tabBar.currentIndex === 1)
+                        catalogPanel.rebuildCategoryChips()
                 }
             }
 
@@ -640,13 +619,18 @@ Item {
                 }
             }
         }
+        }
     }
 
     Connections {
         target: tabBar
         function onCurrentIndexChanged() {
-            if (tabBar.currentIndex !== 1)
+            if (tabBar.currentIndex === 1) {
+                AppController.prepareRecipeLibraryCatalog()
+                catalogPanel.rebuildCategoryChips()
+            } else {
                 AppController.releaseRecipeLibraryCatalog()
+            }
         }
     }
 

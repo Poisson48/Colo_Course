@@ -2,8 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.colocourse.app"
     android:installLocation="auto"
-    android:versionCode="1005"
-    android:versionName="0.28.1">
+    android:versionCode="1006"
+    android:versionName="0.28.2">
 
     <!-- Relais Nostr en wss:// : réseau obligatoire. -->
     <uses-permission android:name="android.permission.INTERNET"/>
