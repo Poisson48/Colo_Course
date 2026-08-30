@@ -302,10 +302,6 @@ std::string SyncEngine::buildAndPublish(const std::string& listId,
     emit outboxChanged();
     startOutboxReconcileTimer();
 
-    // Mark as seen so we don't re-process our own event when the relay reflects it.
-    if (!eventId.empty())
-        m_db->markEventSeen(eventId);
-
     // Publish if online.
     if (m_pool->isOnline()) {
         m_pool->publishToAll(ev);
@@ -722,11 +718,11 @@ void SyncEngine::reconcileStuckOutbox()
 
         const std::string eventId = evOpt->id.toStdString();
         // Après 45 s en ligne : l'événement a été republié plusieurs fois ;
-        // s'il est « seen » (marqué à l'envoi ou echo reçu), l'outbox est obsolète.
-        if (m_db->isEventSeen(eventId)) {
+        // s'il est encore en attente d'accusé, le retirer de l'outbox seulement si
+        // un ACK ou un echo l'a confirmé (pendingAcks vide pour cet id).
+        if (m_pendingAcks.find(evOpt->id) == m_pendingAcks.end()) {
             qInfo() << "[SyncEngine] purging stale delivered outbox entry" << evOpt->id.left(12);
             m_db->outboxRemove(row.rowid);
-            m_pendingAcks.erase(evOpt->id);
             changed = true;
             continue;
         }
@@ -746,8 +742,14 @@ void SyncEngine::reconcileStuckOutbox()
 
 void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QString& msg)
 {
-    if (eventId.isEmpty() || !relayAckMeansStored(accepted, msg))
+    if (eventId.isEmpty())
         return;
+
+    if (!relayAckMeansStored(accepted, msg)) {
+        qWarning() << "[SyncEngine] publish rejected by relay" << eventId.left(12) << msg;
+        emit publishRejected(msg);
+        return;
+    }
 
     std::optional<std::string> listId = removeOutboxEntryForEventId(eventId);
     if (!listId) {

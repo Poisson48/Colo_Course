@@ -92,6 +92,22 @@ target_link_libraries(tst_relay PRIVATE
 
 add_test(NAME relay COMMAND tst_relay)
 
+# --- Live relay smoke test (manual / diagnostic, not in CI) ---
+qt_add_executable(tst_relay_live
+    tst_relay_live.cpp
+)
+
+target_include_directories(tst_relay_live PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(tst_relay_live PRIVATE
+    cryptolayer
+    net
+    Qt6::Test
+    Qt6::WebSockets
+)
+
 # --- ItemModel tests (QAbstractListModel + CRDT-aware slots) ---
 qt_add_executable(tst_itemmodel
     tst_itemmodel.cpp

@@ -10,3 +10,5 @@ services:
       - "127.0.0.1:7777:7777"
     volumes:
       - ./data:/app/strfry-db
+      - ./strfry.conf:/app/strfry.conf:ro
+      - ./write-policy.py:/app/write-policy.py:ro

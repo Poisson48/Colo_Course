@@ -447,6 +447,13 @@ bool AppController::init() {
     });
     connect(&m_syncEngine, &SyncEngine::outboxChanged,
             this,          &AppController::onOutboxChanged);
+    connect(&m_syncEngine, &SyncEngine::publishRejected,
+            this, [this](const QString &msg) {
+        const QString detail = msg.trimmed();
+        emit toast(detail.isEmpty()
+                       ? QStringLiteral("Le relais a refusé l'envoi — vérifiez sa configuration")
+                       : QStringLiteral("Relais : %1").arg(detail));
+    });
     // Un blob de photo vient d'arriver : invalider le cache des vignettes.
     connect(&m_syncEngine, &SyncEngine::imageArrived,
             this, [this](const QString&, const QString&) {

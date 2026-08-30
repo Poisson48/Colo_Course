@@ -106,6 +106,9 @@ signals:
     // La file d'attente d'envoi a bougé (ajout, ou accusé de réception d'un relais).
     void outboxChanged();
 
+    // Le relais a refusé un événement (ex. politique d'écriture incorrecte).
+    void publishRejected(const QString& message);
+
     // Forwarded online state (so AppController can bind its property).
     void onlineChanged(bool online);
 
