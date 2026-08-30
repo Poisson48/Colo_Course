@@ -283,30 +283,22 @@ Item {
             }
         }
 
-        Loader {
-            id: catalogLoader
-            anchors.fill: parent
-            active: tabBar.currentIndex === 1
-            sourceComponent: catalogPanelComponent
-
-            onActiveChanged: {
-                if (active)
-                    AppController.prepareRecipeLibraryCatalog()
-                else
-                    AppController.releaseRecipeLibraryCatalog()
-            }
-        }
-        }
-    }
-
-    Component {
-        id: catalogPanelComponent
         ColumnLayout {
             id: catalogPanel
             anchors.fill: parent
+            visible: tabBar.currentIndex === 1
             spacing: Theme.gap
 
             property string catalogCategory: ""
+
+            onVisibleChanged: {
+                if (visible) {
+                    AppController.prepareRecipeLibraryCatalog()
+                    rebuildCategoryChips()
+                } else {
+                    AppController.releaseRecipeLibraryCatalog()
+                }
+            }
 
             function applyCatalogCategory(cat) {
                 catalogCategory = cat
@@ -354,12 +346,11 @@ Item {
                 }
             }
 
-            Component.onCompleted: rebuildCategoryChips()
-
             Connections {
                 target: AppController
                 function onRecipeLibraryCountChanged() {
-                    catalogPanel.rebuildCategoryChips()
+                    if (catalogPanel.visible)
+                        catalogPanel.rebuildCategoryChips()
                 }
             }
 
@@ -635,6 +626,7 @@ Item {
                                                       libCard.category, libCard.baseServings)
                 }
             }
+        }
         }
     }
 
