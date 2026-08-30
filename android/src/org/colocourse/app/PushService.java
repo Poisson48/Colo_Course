@@ -78,7 +78,6 @@ public class PushService extends Service {
                 .setContentTitle(appName)
                 .setContentText("")
                 .setOngoing(true)
-                .setSilent(true)
                 .setShowWhen(false)
                 .setVisibility(Notification.VISIBILITY_SECRET);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
