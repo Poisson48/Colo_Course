@@ -519,7 +519,7 @@ QAbstractListModel *AppController::recipes() const {
     return m_recipesModel;
 }
 
-QAbstractListModel *AppController::recipeLibrary() const {
+RecipeLibraryModel *AppController::recipeLibrary() const {
     return m_recipeLibraryModel;
 }
 
@@ -957,6 +957,10 @@ int AppController::recipeLibraryCategoryCount(const QString &category) const {
     if (category.isEmpty())
         return core::RecipeLibrary::count();
     return static_cast<int>(core::RecipeLibrary::filterIndices(QString(), category).size());
+}
+
+void AppController::setRecipeLibraryCategoryFilter(const QString &category) {
+    m_recipeLibraryModel->setCategoryFilter(category);
 }
 
 QString AppController::recipeInstructions(const QString &listId) {

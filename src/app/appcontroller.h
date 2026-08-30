@@ -105,7 +105,7 @@ class AppController : public QObject {
     // Bibliothèque de recettes (même modèle, filtrée kind=recipe).
     Q_PROPERTY(QAbstractListModel* recipes READ recipes CONSTANT)
     // Catalogue intégré (~1500 recettes embarquées, lecture seule).
-    Q_PROPERTY(QAbstractListModel* recipeLibrary READ recipeLibrary CONSTANT)
+    Q_PROPERTY(app::RecipeLibraryModel* recipeLibrary READ recipeLibrary CONSTANT)
     Q_PROPERTY(int recipeLibraryCount READ recipeLibraryCount CONSTANT)
     // Articles de la liste ouverte. Chargé par openList(), branché au SyncEngine.
     Q_PROPERTY(app::ItemModel* items READ items CONSTANT)
@@ -145,7 +145,7 @@ public:
 
     QAbstractListModel *lists() const;
     QAbstractListModel *recipes() const;
-    QAbstractListModel *recipeLibrary() const;
+    RecipeLibraryModel *recipeLibrary() const;
     int recipeLibraryCount() const;
     ItemModel *items();
     bool online() const;
@@ -182,6 +182,7 @@ public slots:
     // Catégories du catalogue intégré : [{name, count}, …] triées par effectif.
     Q_INVOKABLE QVariantList recipeLibraryCategories() const;
     Q_INVOKABLE int recipeLibraryCategoryCount(const QString &category) const;
+    Q_INVOKABLE void setRecipeLibraryCategoryFilter(const QString &category);
     // Préparation d'une recette personnelle (local, non synchronisé).
     Q_INVOKABLE QString recipeInstructions(const QString &listId);
     Q_INVOKABLE void setRecipeInstructions(const QString &listId, const QString &text);

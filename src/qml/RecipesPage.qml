@@ -249,10 +249,18 @@ Item {
 
         // --- Catalogue intégré ---
         ColumnLayout {
+            id: catalogPanel
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: tabBar.currentIndex === 1
             spacing: Theme.gap
+
+            property string catalogCategory: ""
+
+            function applyCatalogCategory(cat) {
+                catalogCategory = cat
+                AppController.setRecipeLibraryCategoryFilter(cat)
+            }
 
             ColoTextField {
                 id: catalogSearch
@@ -275,14 +283,6 @@ Item {
                     catalogSearchDebounce.restart()
                 }
             }
-
-            property string catalogCategory: ""
-
-            function syncCatalogCategory() {
-                AppController.recipeLibrary.categoryFilter = catalogCategory
-            }
-
-            Component.onCompleted: syncCatalogCategory()
 
             ScrollView {
                 id: categoryScroll
@@ -318,37 +318,37 @@ Item {
                             return chips
                         }
 
-                        delegate: Rectangle {
+                        delegate: Button {
                             required property string name
                             required property string label
 
-                            height: 32
-                            width: chipText.implicitWidth + 20
-                            radius: 16
-                            color: catalogCategory === name
-                                   ? Theme.accent : Theme.surface
-                            border.color: catalogCategory === name
-                                          ? Theme.accent : Theme.outline
-                            border.width: 1
+                            flat: true
+                            implicitHeight: 32
+                            implicitWidth: chipLabel.implicitWidth + 20
+                            padding: 0
 
-                            Label {
-                                id: chipText
-                                anchors.centerIn: parent
-                                text: label
-                                color: catalogCategory === name
+                            background: Rectangle {
+                                radius: 16
+                                color: catalogPanel.catalogCategory === parent.name
+                                       ? Theme.accent : Theme.surface
+                                border.color: catalogPanel.catalogCategory === parent.name
+                                              ? Theme.accent : Theme.outline
+                                border.width: 1
+                            }
+
+                            contentItem: Label {
+                                id: chipLabel
+                                text: parent.label
+                                color: catalogPanel.catalogCategory === parent.name
                                        ? Theme.onAccent : Theme.text
                                 font.pixelSize: 13
-                                font.weight: catalogCategory === name
+                                font.weight: catalogPanel.catalogCategory === parent.name
                                              ? Font.DemiBold : Font.Normal
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
                             }
 
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: {
-                                    catalogCategory = name
-                                    syncCatalogCategory()
-                                }
-                            }
+                            onClicked: catalogPanel.applyCatalogCategory(name)
                         }
                     }
                 }
@@ -371,11 +371,11 @@ Item {
                 Layout.rightMargin: Theme.gap
                 visible: AppController.recipeLibraryCount > 0 && catalogView.count === 0
                 text: {
-                    if (catalogSearch.text.length > 0 && catalogCategory.length > 0)
-                        return "Aucun résultat dans « " + catalogCategory
+                    if (catalogSearch.text.length > 0 && catalogPanel.catalogCategory.length > 0)
+                        return "Aucun résultat dans « " + catalogPanel.catalogCategory
                                + " » pour « " + catalogSearch.text + " »."
-                    if (catalogCategory.length > 0)
-                        return "Aucune recette dans « " + catalogCategory + " »."
+                    if (catalogPanel.catalogCategory.length > 0)
+                        return "Aucune recette dans « " + catalogPanel.catalogCategory + " »."
                     return "Aucun résultat pour « " + catalogSearch.text + " »."
                 }
                 wrapMode: Text.WordWrap
@@ -386,11 +386,11 @@ Item {
             Button {
                 Layout.alignment: Qt.AlignHCenter
                 visible: AppController.recipeLibraryCount > 0 && catalogView.count === 0
-                          && (catalogSearch.text.length > 0 || catalogCategory.length > 0)
+                          && (catalogSearch.text.length > 0 || catalogPanel.catalogCategory.length > 0)
                 flat: true
                 implicitHeight: Theme.touchTarget
                 contentItem: Label {
-                    text: catalogCategory.length > 0 && catalogSearch.text.length === 0
+                    text: catalogPanel.catalogCategory.length > 0 && catalogSearch.text.length === 0
                           ? "Toutes les catégories" : "Effacer les filtres"
                     color: Theme.accent
                     font.pixelSize: 14
@@ -399,8 +399,7 @@ Item {
                 onClicked: {
                     catalogSearch.text = ""
                     AppController.recipeLibrary.filter = ""
-                    catalogCategory = ""
-                    syncCatalogCategory()
+                    catalogPanel.applyCatalogCategory("")
                 }
             }
 
@@ -408,13 +407,13 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.gap
                 Layout.rightMargin: Theme.gap
-                visible: (catalogSearch.text.length > 0 || catalogCategory.length > 0)
+                visible: (catalogSearch.text.length > 0 || catalogPanel.catalogCategory.length > 0)
                           && catalogView.count > 0
                 text: {
                     let s = catalogView.count + " recette"
                             + (catalogView.count > 1 ? "s" : "")
-                    if (catalogCategory.length > 0)
-                        s += " · " + catalogCategory
+                    if (catalogPanel.catalogCategory.length > 0)
+                        s += " · " + catalogPanel.catalogCategory
                     if (catalogSearch.text.length > 0)
                         s += " · « " + catalogSearch.text + " »"
                     return s
