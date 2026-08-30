@@ -73,9 +73,14 @@ public class PushService extends Service {
         Platform.createChannel(this);
         Notification.Builder builder = new Notification.Builder(this, Platform.CHANNEL_VEILLE_ID)
                 .setSmallIcon(smallIcon())
-                .setContentTitle("Colo Course")
-                .setContentText("Synchronisation en arrière-plan")
-                .setOngoing(true);
+                .setContentTitle("")
+                .setContentText("")
+                .setOngoing(true)
+                .setSilent(true)
+                .setShowWhen(false)
+                .setVisibility(Notification.VISIBILITY_SECRET);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
         startForeground(FG_ID, builder.build());
 
         if (worker != null && worker.isAlive()) {
