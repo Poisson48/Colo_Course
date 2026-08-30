@@ -105,15 +105,14 @@ Item {
             }
         }
 
-        StackLayout {
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            currentIndex: tabBar.currentIndex
 
         // --- Mes recettes ---
         ColumnLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+            anchors.fill: parent
+            visible: tabBar.currentIndex === 0
             spacing: 0
 
             ColoTextField {
@@ -284,11 +283,27 @@ Item {
             }
         }
 
-        // --- Catalogue intégré (index modèle activé à la demande) ---
+        Loader {
+            id: catalogLoader
+            anchors.fill: parent
+            active: tabBar.currentIndex === 1
+            sourceComponent: catalogPanelComponent
+
+            onActiveChanged: {
+                if (active)
+                    AppController.prepareRecipeLibraryCatalog()
+                else
+                    AppController.releaseRecipeLibraryCatalog()
+            }
+        }
+        }
+    }
+
+    Component {
+        id: catalogPanelComponent
         ColumnLayout {
             id: catalogPanel
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+            anchors.fill: parent
             spacing: Theme.gap
 
             property string catalogCategory: ""
@@ -494,6 +509,19 @@ Item {
                 font.pixelSize: 12
             }
 
+            Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.gap
+                Layout.rightMargin: Theme.gap
+                visible: AppController.recipeLibrary.truncated && catalogView.count > 0
+                text: "Affichage limité à " + catalogView.count + " recettes sur "
+                      + AppController.recipeLibrary.totalMatches
+                      + ". Affinez la recherche ou choisissez une catégorie."
+                wrapMode: Text.WordWrap
+                color: Theme.textDim
+                font.pixelSize: 13
+            }
+
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: Theme.gap
@@ -508,6 +536,8 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
+                cacheBuffer: 600
+                reuseItems: true
                 model: AppController.recipeLibrary
                 spacing: 8
                 leftMargin: Theme.gap
@@ -605,17 +635,6 @@ Item {
                                                       libCard.category, libCard.baseServings)
                 }
             }
-        }
-        }
-    }
-
-    Connections {
-        target: tabBar
-        function onCurrentIndexChanged() {
-            if (tabBar.currentIndex === 1)
-                AppController.prepareRecipeLibraryCatalog()
-            else
-                AppController.releaseRecipeLibraryCatalog()
         }
     }
 

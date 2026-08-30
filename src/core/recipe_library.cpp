@@ -206,47 +206,60 @@ const LibraryRecipe *RecipeLibrary::recipeById(const QString &id) {
     return &s_recipes[static_cast<size_t>(index)];
 }
 
-std::vector<int> RecipeLibrary::filterIndices(const QString &query, const QString &category) {
+std::vector<int> RecipeLibrary::filterIndices(const QString &query, const QString &category,
+                                              int maxResults, int *totalMatchesOut) {
     QMutexLocker lock(&s_mutex);
     const QString q = normalizeIngredientKey(query);
     const QStringList tokens = q.split(QRegularExpression(QStringLiteral("\\s+")),
                                       Qt::SkipEmptyParts);
 
+    // Parcours léger : pas de tri sur 30k entrées quand on n'affiche qu'un échantillon.
+    if (tokens.isEmpty()) {
+        std::vector<int> out;
+        int total = 0;
+        for (int i = 0; i < static_cast<int>(s_recipes.size()); ++i) {
+            const LibraryRecipe &rec = s_recipes[static_cast<size_t>(i)];
+            if (!category.isEmpty() && rec.category != category)
+                continue;
+            ++total;
+            if (maxResults == 0 || static_cast<int>(out.size()) < maxResults)
+                out.push_back(i);
+        }
+        if (totalMatchesOut)
+            *totalMatchesOut = total;
+        return out;
+    }
+
     struct Scored { int index; int score; };
     std::vector<Scored> scored;
-
     for (int i = 0; i < static_cast<int>(s_recipes.size()); ++i) {
         const LibraryRecipe &rec = s_recipes[static_cast<size_t>(i)];
         if (!category.isEmpty() && rec.category != category)
             continue;
-        if (!tokens.isEmpty()) {
-            bool allMatch = true;
-            int score = 0;
-            const QString titleNorm = normalizeIngredientKey(rec.title);
-            const QString catNorm   = normalizeIngredientKey(rec.category);
-            const QString instrNorm = normalizeIngredientKey(rec.instructions);
-            for (const QString &tok : tokens) {
-                if (!rec.searchBlob.contains(tok)) {
-                    allMatch = false;
-                    break;
-                }
-                if (titleNorm.contains(tok))
-                    score += 20;
-                if (catNorm.contains(tok))
-                    score += 8;
-                for (const auto &ing : rec.ingredients) {
-                    if (normalizeIngredientKey(ing.name).contains(tok))
-                        score += 5;
-                }
-                if (instrNorm.contains(tok))
-                    score += 3;
+        bool allMatch = true;
+        int score = 0;
+        const QString titleNorm = normalizeIngredientKey(rec.title);
+        const QString catNorm   = normalizeIngredientKey(rec.category);
+        const QString instrNorm = normalizeIngredientKey(rec.instructions);
+        for (const QString &tok : tokens) {
+            if (!rec.searchBlob.contains(tok)) {
+                allMatch = false;
+                break;
             }
-            if (!allMatch)
-                continue;
-            scored.push_back({ i, score });
-        } else {
-            scored.push_back({ i, 0 });
+            if (titleNorm.contains(tok))
+                score += 20;
+            if (catNorm.contains(tok))
+                score += 8;
+            for (const auto &ing : rec.ingredients) {
+                if (normalizeIngredientKey(ing.name).contains(tok))
+                    score += 5;
+            }
+            if (instrNorm.contains(tok))
+                score += 3;
         }
+        if (!allMatch)
+            continue;
+        scored.push_back({ i, score });
     }
 
     std::stable_sort(scored.begin(), scored.end(),
@@ -257,8 +270,15 @@ std::vector<int> RecipeLibrary::filterIndices(const QString &query, const QStrin
                      });
 
     std::vector<int> out;
+    out.reserve(scored.empty() ? 0 : scored.size());
     for (const auto &s : scored)
         out.push_back(s.index);
+
+    if (totalMatchesOut)
+        *totalMatchesOut = static_cast<int>(out.size());
+
+    if (maxResults > 0 && static_cast<int>(out.size()) > maxResults)
+        out.resize(static_cast<size_t>(maxResults));
     return out;
 }
 

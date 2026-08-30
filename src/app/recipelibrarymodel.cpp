@@ -51,6 +51,14 @@ void RecipeLibraryModel::deactivateCatalog() {
         emit countChanged();
         setLoading(false);
     }
+    if (m_truncated) {
+        m_truncated = false;
+        emit truncatedChanged();
+    }
+    if (m_totalMatches != 0) {
+        m_totalMatches = 0;
+        emit totalMatchesChanged();
+    }
 }
 
 int RecipeLibraryModel::rowCount(const QModelIndex &parent) const {
@@ -152,25 +160,40 @@ void RecipeLibraryModel::rebuildAsync() {
     const QString category = m_categoryFilter;
 
     if (!m_rebuildWatcher) {
-        m_rebuildWatcher = new QFutureWatcher<std::vector<int>>(this);
-        connect(m_rebuildWatcher, &QFutureWatcher<std::vector<int>>::finished, this,
+        m_rebuildWatcher = new QFutureWatcher<std::pair<std::vector<int>, int>>(this);
+        connect(m_rebuildWatcher,
+                &QFutureWatcher<std::pair<std::vector<int>, int>>::finished, this,
                 [this]() {
                     if (!m_catalogActive) {
                         setLoading(false);
                         return;
                     }
-                    std::vector<int> indices = m_rebuildWatcher->result();
+                    const auto result = m_rebuildWatcher->result();
+                    const std::vector<int> &indices = result.first;
+                    const int total = result.second;
                     beginResetModel();
-                    m_indices = std::move(indices);
+                    m_indices = indices;
                     endResetModel();
                     emit countChanged();
+                    const bool trunc = total > kMaxVisibleRows;
+                    if (m_truncated != trunc) {
+                        m_truncated = trunc;
+                        emit truncatedChanged();
+                    }
+                    if (m_totalMatches != total) {
+                        m_totalMatches = total;
+                        emit totalMatchesChanged();
+                    }
                     m_stale = false;
                     setLoading(false);
                 });
     }
 
     m_rebuildWatcher->setFuture(QtConcurrent::run([filter, category]() {
-        return core::RecipeLibrary::filterIndices(filter, category);
+        int total = 0;
+        std::vector<int> indices = core::RecipeLibrary::filterIndices(
+            filter, category, kMaxVisibleRows, &total);
+        return std::make_pair(std::move(indices), total);
     }));
 }
 

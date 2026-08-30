@@ -3,6 +3,7 @@
 #include <QAbstractListModel>
 #include <QFutureWatcher>
 #include <QString>
+#include <utility>
 #include <vector>
 
 namespace app {
@@ -15,6 +16,8 @@ class RecipeLibraryModel : public QAbstractListModel {
     Q_PROPERTY(QString categoryFilter READ categoryFilter WRITE setCategoryFilter
                NOTIFY categoryFilterChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
+    Q_PROPERTY(bool truncated READ truncated NOTIFY truncatedChanged)
+    Q_PROPERTY(int totalMatches READ totalMatches NOTIFY totalMatchesChanged)
 
 public:
     enum Roles {
@@ -35,6 +38,8 @@ public:
 
     int count() const;
     bool loading() const { return m_loading; }
+    bool truncated() const { return m_truncated; }
+    int totalMatches() const { return m_totalMatches; }
     QString filter() const { return m_filter; }
     void setFilter(const QString &filter);
     QString categoryFilter() const { return m_categoryFilter; }
@@ -53,6 +58,8 @@ signals:
     void filterChanged();
     void categoryFilterChanged();
     void loadingChanged();
+    void truncatedChanged();
+    void totalMatchesChanged();
 
 private:
     void rebuildAsync();
@@ -64,7 +71,10 @@ private:
     bool m_catalogActive = false;
     bool m_stale = false;
     bool m_loading = false;
-    QFutureWatcher<std::vector<int>> *m_rebuildWatcher = nullptr;
+    bool m_truncated = false;
+    int m_totalMatches = 0;
+    static constexpr int kMaxVisibleRows = 250;
+    QFutureWatcher<std::pair<std::vector<int>, int>> *m_rebuildWatcher = nullptr;
 };
 
 } // namespace app
