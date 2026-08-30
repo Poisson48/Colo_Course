@@ -105,11 +105,15 @@ Item {
             }
         }
 
+        StackLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            currentIndex: tabBar.currentIndex
+
         // --- Mes recettes ---
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: tabBar.currentIndex === 0
             spacing: 0
 
             ColoTextField {
@@ -280,28 +284,11 @@ Item {
             }
         }
 
-        // --- Catalogue intégré (chargé à la demande : 30k recettes) ---
-        Loader {
-            id: catalogLoader
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            active: tabBar.currentIndex === 1
-            sourceComponent: catalogPanelComponent
-
-            onActiveChanged: {
-                if (active)
-                    AppController.prepareRecipeLibraryCatalog()
-                else
-                    AppController.releaseRecipeLibraryCatalog()
-            }
-        }
-    }
-
-    Component {
-        id: catalogPanelComponent
+        // --- Catalogue intégré (index modèle activé à la demande) ---
         ColumnLayout {
             id: catalogPanel
-            anchors.fill: parent
+            Layout.fillWidth: true
+            Layout.fillHeight: true
             spacing: Theme.gap
 
             property string catalogCategory: ""
@@ -421,15 +408,31 @@ Item {
                 }
             }
 
-            Label {
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.leftMargin: Theme.gap
-                Layout.rightMargin: Theme.gap
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: Theme.gap * 2
                 visible: AppController.recipeLibraryCount === 0
-                text: "Catalogue indisponible."
-                wrapMode: Text.WordWrap
-                color: Theme.textDim
-                font.pixelSize: 15
+                spacing: Theme.gap
+
+                BusyIndicator {
+                    Layout.alignment: Qt.AlignHCenter
+                    running: AppController.recipeLibraryLoading
+                    visible: AppController.recipeLibraryLoading
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.gap
+                    Layout.rightMargin: Theme.gap
+                    horizontalAlignment: Text.AlignHCenter
+                    text: AppController.recipeLibraryLoading
+                          ? "Chargement du catalogue…"
+                          : "Catalogue indisponible."
+                    wrapMode: Text.WordWrap
+                    color: Theme.textDim
+                    font.pixelSize: 15
+                }
             }
 
             Label {
@@ -496,6 +499,7 @@ Item {
                 Layout.topMargin: Theme.gap
                 visible: AppController.recipeLibrary.loading
                          && AppController.recipeLibraryCount > 0
+                         && catalogView.count === 0
                 running: visible
             }
 
@@ -601,6 +605,17 @@ Item {
                                                       libCard.category, libCard.baseServings)
                 }
             }
+        }
+        }
+    }
+
+    Connections {
+        target: tabBar
+        function onCurrentIndexChanged() {
+            if (tabBar.currentIndex === 1)
+                AppController.prepareRecipeLibraryCatalog()
+            else
+                AppController.releaseRecipeLibraryCatalog()
         }
     }
 

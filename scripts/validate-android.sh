@@ -61,8 +61,19 @@ if [ -z "${COUNT:-}" ] || [ "$COUNT" -lt 1000 ]; then
   exit 1
 fi
 
+# Ouvrir Recettes puis l'onglet Catalogue ; vérifier que l'UI n'est pas vide.
 adb shell input tap 200 175
 sleep 2
+adb shell input tap 300 120
+sleep 3
+adb shell uiautomator dump /sdcard/colo-ui.xml >/dev/null 2>&1 || true
+UI=$(adb shell cat /sdcard/colo-ui.xml 2>/dev/null || true)
+if ! echo "$UI" | grep -qE 'Rechercher titre|Chargement du catalogue|Catalogue indisponible|Toutes \('; then
+  echo "FAIL: panneau Catalogue vide (pas de champ recherche ni message)"
+  echo "$UI" | tr '>' '>\n' | grep -iE 'recette|catalog|recherch' | head -20
+  exit 1
+fi
+
 adb shell input keyevent 4
 sleep 1
 
@@ -71,4 +82,4 @@ if adb logcat -d 2>/dev/null | grep -qE 'Fatal signal|SIGSEGV'; then
   exit 1
 fi
 
-echo "OK Android — catalogue $COUNT recettes (${SECONDS}s)"
+echo "OK Android — catalogue $COUNT recettes, UI visible (${SECONDS}s)"
