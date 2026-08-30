@@ -54,6 +54,14 @@ static bool looksLikeRecipeLibraryJson(const QByteArray &json)
     return json.size() > 4096 && json.contains("\"recipes\"");
 }
 
+QByteArray readBundledJsonBytes()
+{
+    QFile bundled(QStringLiteral(":/data/recipe_library.json"));
+    if (!bundled.open(QIODevice::ReadOnly))
+        return {};
+    return bundled.readAll();
+}
+
 QByteArray readLibraryJsonBytes()
 {
     const QString cache = recipeLibraryCachePath();
@@ -67,18 +75,12 @@ QByteArray readLibraryJsonBytes()
         QFile::remove(cache);
     }
 
-    QFile bundled(QStringLiteral(":/data/recipe_library.json"));
-    if (bundled.open(QIODevice::ReadOnly))
-        return bundled.readAll();
-    return {};
+    return readBundledJsonBytes();
 }
 
 bool loadBundled()
 {
-    QFile f(QStringLiteral(":/data/recipe_library.json"));
-    if (!f.open(QIODevice::ReadOnly))
-        return false;
-    return core::RecipeLibrary::loadFromJson(f.readAll());
+    return core::RecipeLibrary::loadFromJson(readBundledJsonBytes());
 }
 
 bool saveCacheAtomically(const QByteArray &json)
@@ -133,8 +135,8 @@ void applyParsedOnMain(QObject *context,
             qWarning() << "[RecipeLibrary] impossible d'écrire le cache local";
         }
 
-        qInfo() << "[RecipeLibrary] catalogue prêt :" << core::RecipeLibrary::count()
-                << "recettes";
+        qWarning() << "[RecipeLibrary] catalogue prêt :" << core::RecipeLibrary::count()
+                   << "recettes";
         if (onDone)
             onDone(true);
     };
@@ -210,6 +212,23 @@ void scheduleRemoteCheck(QObject *context, std::function<void(bool)> onUpdated)
     });
 }
 
+void startRemoteCheckTimer(QObject *context, std::function<void()> onRemoteUpdated)
+{
+    QTimer &timer = remoteCheckTimer();
+    if (!timer.parent())
+        timer.setParent(context);
+    timer.setInterval(kRemoteCheckIntervalMs);
+    QObject::disconnect(&timer, nullptr, context, nullptr);
+    QObject::connect(&timer, &QTimer::timeout, context, [context, onRemoteUpdated]() {
+        refreshRecipeLibraryFromServer(context, [onRemoteUpdated](bool updated) {
+            if (updated && onRemoteUpdated)
+                onRemoteUpdated();
+        });
+    });
+    if (!timer.isActive())
+        timer.start();
+}
+
 } // namespace
 
 QString recipeLibraryCachePath()
@@ -246,6 +265,17 @@ void loadRecipeLibraryAsync(QObject *context,
                             std::function<void()> onRemoteUpdated)
 {
     ensureParseResultMetaType();
+
+    // Lecture fichier / ressource sur le thread UI (QRC + chemins locaux).
+    QByteArray json = readLibraryJsonBytes();
+    if (!looksLikeRecipeLibraryJson(json)) {
+        qWarning() << "[RecipeLibrary] aucune copie locale valide, attente serveur";
+        json.clear();
+    } else {
+        qWarning() << "[RecipeLibrary] chargement local" << (json.size() / (1024 * 1024))
+                   << "Mo…";
+    }
+
     auto *watcher = new QFutureWatcher<core::RecipeLibraryParseResult>(context);
     QObject::connect(watcher, &QFutureWatcher<core::RecipeLibraryParseResult>::finished, context,
                      [watcher, context, onInitialLoad, onRemoteUpdated]() {
@@ -260,33 +290,18 @@ void loadRecipeLibraryAsync(QObject *context,
                                  onRemoteUpdated();
                          });
 
-                         if (!ok)
-                             return;
+                         if (ok) {
+                             qWarning() << "[RecipeLibrary] catalogue prêt :"
+                                        << core::RecipeLibrary::count() << "recettes";
+                             startRemoteCheckTimer(context, onRemoteUpdated);
+                         }
+                     },
+                     Qt::QueuedConnection);
 
-                         QTimer &timer = remoteCheckTimer();
-                         if (!timer.parent())
-                             timer.setParent(context);
-                         timer.setInterval(kRemoteCheckIntervalMs);
-                         QObject::disconnect(&timer, nullptr, context, nullptr);
-                         QObject::connect(&timer, &QTimer::timeout, context, [context, onRemoteUpdated]() {
-                             refreshRecipeLibraryFromServer(context, [onRemoteUpdated](bool updated) {
-                                 if (updated && onRemoteUpdated)
-                                     onRemoteUpdated();
-                             });
-                         });
-                         if (!timer.isActive())
-                             timer.start();
-                     });
-
-    watcher->setFuture(QtConcurrent::run([]() -> core::RecipeLibraryParseResult {
-        QByteArray json = readLibraryJsonBytes();
-        auto parsed = core::RecipeLibrary::parseJsonData(json);
-        if (parsed.ok)
-            return parsed;
-        QFile bundled(QStringLiteral(":/data/recipe_library.json"));
-        if (bundled.open(QIODevice::ReadOnly))
-            return core::RecipeLibrary::parseJsonData(bundled.readAll());
-        return {};
+    watcher->setFuture(QtConcurrent::run([json]() -> core::RecipeLibraryParseResult {
+        if (json.isEmpty())
+            return {};
+        return core::RecipeLibrary::parseJsonData(json);
     }));
 }
 

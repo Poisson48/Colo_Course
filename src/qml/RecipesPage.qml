@@ -95,7 +95,12 @@ Item {
                 width: implicitWidth + Theme.gap
             }
             TabButton {
-                text: "Catalogue (" + AppController.recipeLibraryCount + ")"
+                text: {
+                    const n = AppController.recipeLibraryCount
+                    if (AppController.recipeLibraryLoading && n === 0)
+                        return "Catalogue (…)"
+                    return "Catalogue (" + n + ")"
+                }
                 width: implicitWidth + Theme.gap
             }
         }

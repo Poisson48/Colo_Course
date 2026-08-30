@@ -360,8 +360,12 @@ bool AppController::init() {
     }
 
     // Catalogue volumineux : cache local + copie embarquée, MAJ depuis colo-apps si plus récent.
+    m_recipeLibraryLoading = true;
+    emit recipeLibraryLoadingChanged();
     loadRecipeLibraryAsync(this,
                            [this](bool ok) {
+                               m_recipeLibraryLoading = false;
+                               emit recipeLibraryLoadingChanged();
                                if (ok) {
                                    m_recipeLibraryModel->reloadFromLibrary();
                                    emit recipeLibraryCountChanged();
@@ -544,6 +548,10 @@ RecipeLibraryModel *AppController::recipeLibrary() const {
 
 int AppController::recipeLibraryCount() const {
     return core::RecipeLibrary::count();
+}
+
+bool AppController::recipeLibraryLoading() const {
+    return m_recipeLibraryLoading;
 }
 
 ItemModel *AppController::items() {
