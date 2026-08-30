@@ -106,7 +106,7 @@ class AppController : public QObject {
     Q_PROPERTY(QAbstractListModel* recipes READ recipes CONSTANT)
     // Catalogue intégré (~1500 recettes embarquées, lecture seule).
     Q_PROPERTY(app::RecipeLibraryModel* recipeLibrary READ recipeLibrary CONSTANT)
-    Q_PROPERTY(int recipeLibraryCount READ recipeLibraryCount CONSTANT)
+    Q_PROPERTY(int recipeLibraryCount READ recipeLibraryCount NOTIFY recipeLibraryCountChanged)
     // Articles de la liste ouverte. Chargé par openList(), branché au SyncEngine.
     Q_PROPERTY(app::ItemModel* items READ items CONSTANT)
     // Compteur d'invalidation des vignettes : incrémenté quand le blob d'une photo
@@ -328,6 +328,7 @@ signals:
     void listRenamed(const QString &listId, const QString &title);
     // Message court à afficher en bas de l'écran (snackbar).
     void toast(const QString &message);
+    void recipeLibraryCountChanged();
     void imageRevisionChanged();
 
 private slots:

@@ -359,13 +359,20 @@ bool AppController::init() {
         return false;
     }
 
-    // Catalogue volumineux (~60 Mo) : ne pas bloquer le premier frame sur Android.
-    loadRecipeLibraryFromResourceAsync(this, [this](bool ok) {
-        if (ok)
-            m_recipeLibraryModel->reloadFromLibrary();
-        else
-            qWarning() << "Bibliothèque de recettes intégrée introuvable ou vide";
-    });
+    // Catalogue volumineux : cache local + copie embarquée, MAJ depuis colo-apps si plus récent.
+    loadRecipeLibraryAsync(this,
+                           [this](bool ok) {
+                               if (ok) {
+                                   m_recipeLibraryModel->reloadFromLibrary();
+                                   emit recipeLibraryCountChanged();
+                               } else {
+                                   qWarning() << "Bibliothèque de recettes indisponible";
+                               }
+                           },
+                           [this]() {
+                               m_recipeLibraryModel->reloadFromLibrary();
+                               emit recipeLibraryCountChanged();
+                           });
 
 
     // Blobs orphelins (photo retirée, liste quittée…) : les purger au démarrage.
@@ -506,6 +513,12 @@ void AppController::onApplicationStateChanged(Qt::ApplicationState state)
         m_pushLifecycleReady = true;
         platformConfigurePush(QString(), {}, QString());
         resumeSync();
+        refreshRecipeLibraryFromServer(this, [this](bool updated) {
+            if (updated) {
+                m_recipeLibraryModel->reloadFromLibrary();
+                emit recipeLibraryCountChanged();
+            }
+        });
     } else if (m_pushLifecycleReady) {
         refreshPushTopics();
     }

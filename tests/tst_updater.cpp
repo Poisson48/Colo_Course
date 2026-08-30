@@ -1,6 +1,7 @@
 // tst_updater.cpp — parseManifest, isNewer, notesFromBody (sans réseau).
 
 #include "app/updater.h"
+#include "app/recipe_library_loader.h"
 
 #include <QString>
 
@@ -48,11 +49,28 @@ static void test_notesFromBody() {
     EXPECT_EQ(Updater::notesFromBody(body), QStringLiteral("Nouveautés"));
 }
 
+static void test_parseRecipesManifest() {
+    const QByteArray json =
+        "{\"version\":2,\"count\":31000,"
+        "\"updatedAt\":\"2026-08-30T12:00:00Z\","
+        "\"url\":\"https://colo-apps.example/releases/recipe_library.json\"}";
+
+    app::RecipesManifest manifest;
+    EXPECT_TRUE(app::parseRecipesManifest(json, &manifest));
+    EXPECT_EQ(manifest.count, 31000);
+    EXPECT_EQ(manifest.version, 2);
+    EXPECT_EQ(manifest.url, QStringLiteral("https://colo-apps.example/releases/recipe_library.json"));
+
+    EXPECT_TRUE(!app::parseRecipesManifest(QByteArray("{}"), &manifest));
+    EXPECT_TRUE(!app::parseRecipesManifest(QByteArray("{\"count\":0}"), &manifest));
+}
+
 int main() {
     std::printf("=== tst_updater ===\n");
     test_parseManifest();
     test_isNewer();
     test_notesFromBody();
+    test_parseRecipesManifest();
     std::printf("\nResults: %d/%d passed, %d failed\n", g_passed, g_total, g_failed);
     return g_failed == 0 ? 0 : 1;
 }

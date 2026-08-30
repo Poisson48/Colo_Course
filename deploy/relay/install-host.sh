@@ -37,7 +37,10 @@ mkdir -p /var/lib/colo-apps/releases
 if [[ -f "$REPO_DIR/deploy/releases/sync-from-github.sh" ]]; then
   install -m 0755 "$REPO_DIR/deploy/releases/sync-from-github.sh" /opt/colo-apps/sync-from-github.sh
   echo "Script releases : /opt/colo-apps/sync-from-github.sh"
-  echo "Cron suggéré : */5 * * * * root COLO_RELEASES_DIR=/var/lib/colo-apps/releases /opt/colo-apps/sync-from-github.sh"
+fi
+if [[ -f "$REPO_DIR/deploy/releases/sync-recipes.sh" ]]; then
+  install -m 0755 "$REPO_DIR/deploy/releases/sync-recipes.sh" /opt/colo-apps/sync-recipes.sh
+  echo "Script recettes : /opt/colo-apps/sync-recipes.sh"
 fi
 
 echo "OK — wss://$DOMAIN"

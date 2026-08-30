@@ -40,3 +40,29 @@ sudo nginx -t && sudo systemctl reload nginx
 ```
 
 Le script supprime les anciens APK/AppImage à chaque mise à jour (un seul jeu d'artefacts).
+
+## Catalogue de recettes
+
+`recipe_library.json` (~60 Mo) est servi au même endroit :
+
+- `https://colo-apps…/releases/recipe_library.json`
+- `https://colo-apps…/releases/recipes-manifest.json`
+
+```bash
+sudo cp deploy/releases/sync-recipes.sh /opt/colo-apps/
+sudo chmod +x /opt/colo-apps/sync-recipes.sh
+
+# Depuis un clone du dépôt sur le serveur :
+sudo COLO_REPO_DIR=/opt/colo-apps/Colo_Course \
+  COLO_RELEASES_DIR=/var/lib/colo-apps/releases \
+  /opt/colo-apps/sync-recipes.sh
+
+# Ou depuis GitHub (sans clone) :
+sudo COLO_RELEASES_DIR=/var/lib/colo-apps/releases /opt/colo-apps/sync-recipes.sh
+
+# Cron (ex. toutes les heures) :
+echo '0 * * * * root COLO_RELEASES_DIR=/var/lib/colo-apps/releases /opt/colo-apps/sync-recipes.sh >>/var/log/colo-apps-recipes.log 2>&1' \
+  | sudo tee /etc/cron.d/colo-apps-recipes
+```
+
+L'app charge d'abord le cache local (`AppDataLocation/recipe_library.json`), sinon la copie embarquée dans l'APK. Si le manifest serveur indique plus de recettes, elle télécharge et met à jour le cache.
