@@ -35,10 +35,10 @@ Item {
 
     readonly property string pageTitle: selectionMode
         ? selectedIds.length + (selectedIds.length > 1 ? " sélectionnés" : " sélectionné")
-        : listTitle
+        : (isRecipe ? "Recette" : listTitle)
 
-    // Recette : titre long affiché sur plusieurs lignes dans la barre (Main.qml).
-    readonly property bool pageTitleWrap: isRecipe && !selectionMode
+    // Titre complet affiché en haut du contenu (pas dans la barre d'outils).
+    readonly property bool pageTitleInContent: isRecipe && !selectionMode && !recipeCookMode
 
     // Sous-titre dans la barre (Main.qml) : reste à acheter, ou ingrédients d'une recette.
     readonly property string pageSubtitle: {
@@ -337,6 +337,52 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+
+        // Recette : titre complet en haut de l'écran (pleine largeur, retour à la ligne).
+        Rectangle {
+            Layout.fillWidth: true
+            visible: root.pageTitleInContent && !root.searchOpen
+            implicitHeight: visible ? recipeTitleCol.implicitHeight + Theme.gap * 2 : 0
+            Layout.preferredHeight: implicitHeight
+            color: Theme.surface
+
+            ColumnLayout {
+                id: recipeTitleCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.gap
+                spacing: 4
+
+                Label {
+                    Layout.fillWidth: true
+                    text: root.listTitle
+                    color: Theme.text
+                    font.pixelSize: 22
+                    font.weight: Font.DemiBold
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 6
+                    lineHeight: 1.25
+                    lineHeightMode: Text.ProportionalHeight
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.pageSubtitle.length > 0
+                    text: root.pageSubtitle
+                    color: Theme.textDim
+                    font.pixelSize: 14
+                    wrapMode: Text.WordWrap
+                }
+            }
+
+            Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: Theme.outline
+            }
+        }
 
         // Mode Courses : où en est le caddie, sans avoir à compter les lignes.
         Rectangle {

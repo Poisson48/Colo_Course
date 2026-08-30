@@ -118,16 +118,14 @@ ApplicationWindow {
                     color: Theme.text
                     font.pixelSize: 20
                     font.weight: Font.DemiBold
-                    wrapMode: stack.currentItem && stack.currentItem.pageTitleWrap
-                              ? Text.WordWrap : Text.NoWrap
-                    elide: stack.currentItem && stack.currentItem.pageTitleWrap
-                           ? Text.ElideNone : Text.ElideRight
-                    maximumLineCount: stack.currentItem && stack.currentItem.pageTitleWrap ? 3 : 1
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
                 }
 
                 Label {
                     Layout.fillWidth: true
                     visible: text.length > 0
+                             && !(stack.currentItem && stack.currentItem.pageTitleInContent)
                     text: stack.currentItem && stack.currentItem.pageSubtitle
                           ? stack.currentItem.pageSubtitle : ""
                     color: Theme.textDim
