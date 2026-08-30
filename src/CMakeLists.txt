@@ -109,6 +109,7 @@ target_link_libraries(applib PUBLIC
     qrcodegen
     qrdecode
     Qt6::Core
+    Qt6::Concurrent
     Qt6::Network      # Updater : API GitHub + téléchargement de l'APK
     Qt6::Quick
     Qt6::Sql

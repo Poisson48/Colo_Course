@@ -12,9 +12,9 @@ else()
 endif()
 
 if(ANDROID)
-    find_package(Qt6 REQUIRED COMPONENTS Core Network Quick QuickControls2 Sql WebSockets)
+    find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Network Quick QuickControls2 Sql WebSockets)
 else()
-    find_package(Qt6 REQUIRED COMPONENTS Core Network Quick QuickControls2 Sql WebSockets Test)
+    find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Network Quick QuickControls2 Sql WebSockets Test)
     find_package(Qt6 OPTIONAL_COMPONENTS Widgets)
 endif()
 

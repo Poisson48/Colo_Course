@@ -359,9 +359,13 @@ bool AppController::init() {
         return false;
     }
 
-    if (!loadRecipeLibraryFromResource())
-        qWarning() << "Bibliothèque de recettes intégrée introuvable ou vide";
-    m_recipeLibraryModel->reloadFromLibrary();
+    // Catalogue volumineux (~60 Mo) : ne pas bloquer le premier frame sur Android.
+    loadRecipeLibraryFromResourceAsync(this, [this](bool ok) {
+        if (ok)
+            m_recipeLibraryModel->reloadFromLibrary();
+        else
+            qWarning() << "Bibliothèque de recettes intégrée introuvable ou vide";
+    });
 
 
     // Blobs orphelins (photo retirée, liste quittée…) : les purger au démarrage.
@@ -450,13 +454,8 @@ bool AppController::init() {
         emit imageRevisionChanged();
     });
 
-    // Des modifications peuvent dormir dans l'outbox (session précédente hors ligne).
-    // Ne pas purger avant d'avoir tenté un flush si le relais est joignable.
+    // Outbox : flush/reconcile après connexion au relais (resumeSync), pas avant.
     m_pendingChanges = m_db.outboxCount();
-    if (m_pendingChanges > 0)
-        m_syncEngine.catchUpOnForeground();
-    else
-        m_syncEngine.reconcileOutbox();
 
     // Toute écriture locale (ajout, cochage, suppression) doit partir au relais.
     // Sans cette connexion, l'app modifie sa base et ne synchronise jamais rien.
@@ -478,6 +477,8 @@ bool AppController::init() {
         m_pushLifecycleReady = true;
         platformConfigurePush(QString(), {}, QString());
         resumeSync();
+    } else if (m_pendingChanges == 0) {
+        m_syncEngine.reconcileOutbox();
     }
 
     return true;
