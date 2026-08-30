@@ -284,32 +284,10 @@ Item {
             }
         }
 
-        Loader {
-            id: catalogLoader
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            active: tabBar.currentIndex === 1
-            asynchronous: false
-            sourceComponent: catalogPanelComponent
-
-            onActiveChanged: {
-                if (active) {
-                    AppController.prepareRecipeLibraryCatalog()
-                    if (item)
-                        item.rebuildCategoryChips()
-                } else {
-                    AppController.releaseRecipeLibraryCatalog()
-                }
-            }
-        }
-        }
-    }
-
-    Component {
-        id: catalogPanelComponent
         ColumnLayout {
             id: catalogPanel
-            anchors.fill: parent
+            Layout.fillWidth: true
+            Layout.fillHeight: true
             spacing: Theme.gap
 
             property string catalogCategory: ""
@@ -640,6 +618,19 @@ Item {
                     onClicked: catalogDetail.openFor(libCard.libraryId, libCard.title,
                                                       libCard.category, libCard.baseServings)
                 }
+            }
+        }
+        }
+    }
+
+    Connections {
+        target: tabBar
+        function onCurrentIndexChanged() {
+            if (tabBar.currentIndex === 1) {
+                AppController.prepareRecipeLibraryCatalog()
+                catalogPanel.rebuildCategoryChips()
+            } else {
+                AppController.releaseRecipeLibraryCatalog()
             }
         }
     }
