@@ -14,6 +14,7 @@ Item {
         z: -1
     }
 
+    Component.onCompleted: AppController.warmupRecipeLibraryCatalog()
     Component.onDestruction: AppController.releaseRecipeLibraryCatalog()
 
     function handleBack() {
@@ -284,6 +285,25 @@ Item {
             }
         }
 
+        Loader {
+            id: catalogLoader
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            active: tabBar.currentIndex === 1
+
+            onLoaded: {
+                AppController.prepareRecipeLibraryCatalog()
+                if (item && item.rebuildCategoryChips)
+                    item.rebuildCategoryChips()
+            }
+
+            sourceComponent: catalogPanelComponent
+        }
+        }
+    }
+
+    Component {
+        id: catalogPanelComponent
         ColumnLayout {
             id: catalogPanel
             Layout.fillWidth: true
@@ -620,18 +640,13 @@ Item {
                 }
             }
         }
-        }
     }
 
     Connections {
         target: tabBar
         function onCurrentIndexChanged() {
-            if (tabBar.currentIndex === 1) {
-                AppController.prepareRecipeLibraryCatalog()
-                catalogPanel.rebuildCategoryChips()
-            } else {
+            if (tabBar.currentIndex !== 1)
                 AppController.releaseRecipeLibraryCatalog()
-            }
         }
     }
 

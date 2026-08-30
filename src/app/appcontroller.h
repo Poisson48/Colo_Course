@@ -188,6 +188,8 @@ public slots:
     // Charge le modèle catalogue (coûteux) seulement quand l'onglet est ouvert.
     Q_INVOKABLE void prepareRecipeLibraryCatalog();
     Q_INVOKABLE void releaseRecipeLibraryCatalog();
+    // Prépare le fichier SQLite en arrière-plan (sans activer le modèle catalogue).
+    Q_INVOKABLE void warmupRecipeLibraryCatalog();
     // Préparation d'une recette personnelle (local, non synchronisé).
     Q_INVOKABLE QString recipeInstructions(const QString &listId);
     Q_INVOKABLE void setRecipeInstructions(const QString &listId, const QString &text);

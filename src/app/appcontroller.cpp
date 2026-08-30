@@ -359,32 +359,7 @@ bool AppController::init() {
         return false;
     }
 
-    // Catalogue SQLite : chargement différé pour ne pas bloquer le démarrage.
-    m_recipeLibraryLoading = false;
-    emit recipeLibraryLoadingChanged();
-    loadRecipeCatalogAsync(this,
-                           [this](bool ok) {
-                               m_recipeLibraryLoading = false;
-                               emit recipeLibraryLoadingChanged();
-                               if (ok) {
-                                   m_recipeLibraryModel->reloadFromLibrary();
-                                   emit recipeLibraryCountChanged();
-                               } else {
-                                   qWarning() << "Bibliothèque de recettes indisponible";
-                                   refreshRecipeLibraryFromServer(this, [this](bool updated) {
-                                       if (updated) {
-                                           m_recipeLibraryModel->reloadFromLibrary();
-                                           emit recipeLibraryCountChanged();
-                                       }
-                                   });
-                               }
-                           },
-                           [this]() {
-                               m_recipeLibraryModel->reloadFromLibrary();
-                               emit recipeLibraryCountChanged();
-                           },
-                           2500);
-
+    // Pas de chargement catalogue au démarrage : warmup à l'ouverture de Recettes.
 
     // Blobs orphelins (photo retirée, liste quittée…) : les purger au démarrage.
     m_db.purgeOrphanImages();
@@ -993,6 +968,15 @@ int AppController::recipeLibraryCategoryCount(const QString &category) const {
 
 void AppController::setRecipeLibraryCategoryFilter(const QString &category) {
     m_recipeLibraryModel->setCategoryFilter(category);
+}
+
+void AppController::warmupRecipeLibraryCatalog() {
+    if (isRecipeCatalogLoaded())
+        return;
+    ensureRecipeCatalogLoaded(this, [this](bool ok) {
+        if (ok)
+            emit recipeLibraryCountChanged();
+    });
 }
 
 void AppController::prepareRecipeLibraryCatalog() {
