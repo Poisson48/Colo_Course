@@ -106,15 +106,14 @@ Item {
             }
         }
 
-        StackLayout {
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            currentIndex: tabBar.currentIndex
 
         // --- Mes recettes ---
         ColumnLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+            anchors.fill: parent
+            visible: tabBar.currentIndex === 0
             spacing: 0
 
             ColoTextField {
@@ -284,11 +283,40 @@ Item {
                 }
             }
         }
-        ColumnLayout {
-            id: catalogPanel
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            spacing: Theme.gap
+
+        Loader {
+            id: catalogLoader
+            anchors.fill: parent
+            active: tabBar.currentIndex === 1
+            sourceComponent: catalogPanelComponent
+
+            onActiveChanged: {
+                if (active)
+                    AppController.prepareRecipeLibraryCatalog()
+                else
+                    AppController.releaseRecipeLibraryCatalog()
+            }
+
+            onLoaded: {
+                if (!item)
+                    return
+                const panel = item.children.length > 0 ? item.children[0] : null
+                if (panel && panel.rebuildCategoryChips)
+                    panel.rebuildCategoryChips()
+            }
+        }
+        }
+    }
+
+    Component {
+        id: catalogPanelComponent
+        Item {
+            anchors.fill: parent
+
+            ColumnLayout {
+                id: catalogPanel
+                anchors.fill: parent
+                spacing: Theme.gap
 
             property string catalogCategory: ""
 
@@ -336,6 +364,11 @@ Item {
                         label: c.name + " (" + c.count + ")"
                     })
                 }
+            }
+
+            Component.onCompleted: {
+                if (tabBar.currentIndex === 1)
+                    rebuildCategoryChips()
             }
 
             Connections {
@@ -619,18 +652,6 @@ Item {
                 }
             }
         }
-        }
-    }
-
-    Connections {
-        target: tabBar
-        function onCurrentIndexChanged() {
-            if (tabBar.currentIndex === 1) {
-                AppController.prepareRecipeLibraryCatalog()
-                catalogPanel.rebuildCategoryChips()
-            } else {
-                AppController.releaseRecipeLibraryCatalog()
-            }
         }
     }
 

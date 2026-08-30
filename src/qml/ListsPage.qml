@@ -19,11 +19,9 @@ Item {
             return
         root.recipesNavBusy = true
         recipesNavReset.restart()
-        Qt.callLater(function() {
-            const pushed = stack.push(recipesPageComponent, {}, StackView.Immediate)
-            if (!pushed)
-                root.recipesNavBusy = false
-        })
+        const pushed = stack.push(recipesPageComponent, {}, StackView.Immediate)
+        if (!pushed)
+            root.recipesNavBusy = false
     }
 
     Timer {
