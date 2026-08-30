@@ -451,8 +451,11 @@ bool AppController::init() {
     });
 
     // Des modifications peuvent dormir dans l'outbox depuis la session précédente
-    // (app fermée hors ligne) : l'état de départ n'est pas forcément « à jour ».
+    // (app fermée hors ligne) : purger celles déjà livrées avant d'afficher le bandeau.
+    m_syncEngine.reconcileOutbox();
     m_pendingChanges = m_db.outboxCount();
+    if (m_pendingChanges > 0)
+        m_syncEngine.catchUpOnForeground();
 
     // Toute écriture locale (ajout, cochage, suppression) doit partir au relais.
     // Sans cette connexion, l'app modifie sa base et ne synchronise jamais rien.

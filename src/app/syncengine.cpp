@@ -54,6 +54,13 @@ SyncEngine::SyncEngine(QObject* parent)
     m_debounceTimer.setSingleShot(true);
     m_debounceTimer.setInterval(kDebounceMs);
     connect(&m_debounceTimer, &QTimer::timeout, this, &SyncEngine::onDebounceTimer);
+
+    m_outboxReconcileTimer.setInterval(15'000);
+    connect(&m_outboxReconcileTimer, &QTimer::timeout, this, [this] {
+        reconcileStuckOutbox();
+        if (m_db && m_db->outboxCount() == 0)
+            m_outboxReconcileTimer.stop();
+    });
 }
 
 SyncEngine::~SyncEngine()
@@ -63,6 +70,7 @@ SyncEngine::~SyncEngine()
         m_pool->disconnect(this);
     }
     m_debounceTimer.stop();
+    m_outboxReconcileTimer.stop();
     m_models.clear();
 }
 
@@ -292,6 +300,7 @@ std::string SyncEngine::buildAndPublish(const std::string& listId,
     const std::string eventJson = doc.toJson(QJsonDocument::Compact).toStdString();
     m_db->outboxPush(listId, eventJson);
     emit outboxChanged();
+    startOutboxReconcileTimer();
 
     // Mark as seen so we don't re-process our own event when the relay reflects it.
     if (!eventId.empty())
@@ -539,7 +548,6 @@ void SyncEngine::onRelayOnline(bool online)
 {
     if (!online) return;
 
-    // Flush outbox for all known lists.
     flushOutbox();
     reconcileStuckOutbox();
 
@@ -549,11 +557,22 @@ void SyncEngine::onRelayOnline(bool online)
 
 void SyncEngine::catchUpOnForeground()
 {
+    reconcileOutbox();
     if (!m_pool || !m_pool->isOnline())
         return;
     flushOutbox();
-    reconcileStuckOutbox();
     subscribeAllLists();
+}
+
+void SyncEngine::reconcileOutbox()
+{
+    reconcileStuckOutbox();
+}
+
+void SyncEngine::startOutboxReconcileTimer()
+{
+    if (!m_outboxReconcileTimer.isActive())
+        m_outboxReconcileTimer.start();
 }
 
 void SyncEngine::subscribeAllLists(int64_t since)
@@ -666,7 +685,7 @@ std::optional<std::string> SyncEngine::removeOutboxEntryForEventId(const QString
 
 void SyncEngine::reconcileStuckOutbox()
 {
-    if (!m_db || !m_pool || !m_pool->isOnline())
+    if (!m_db)
         return;
 
     const int purged = m_db->outboxPurgeOrphaned();
@@ -674,11 +693,9 @@ void SyncEngine::reconcileStuckOutbox()
         emit outboxChanged();
 
     const int64_t now = QDateTime::currentMSecsSinceEpoch();
+    const bool online = m_pool && m_pool->isOnline();
     bool changed = false;
     for (const auto& row : m_db->outboxPeekAllEntries()) {
-        if (now - row.created < kOutboxStaleMs)
-            continue;
-
         const QJsonDocument doc = QJsonDocument::fromJson(
             QByteArray::fromStdString(row.eventJson));
         if (!doc.isObject()) {
@@ -693,15 +710,30 @@ void SyncEngine::reconcileStuckOutbox()
             continue;
         }
 
-        if (m_db->isEventSeen(evOpt->id.toStdString())) {
-            qInfo() << "[SyncEngine] purging stale outbox entry" << evOpt->id.left(12);
+        const std::string eventId = evOpt->id.toStdString();
+        // Déjà publié (marqué seen à l'envoi ou reçu en echo) : l'outbox est obsolète.
+        if (m_db->isEventSeen(eventId)) {
+            qInfo() << "[SyncEngine] purging delivered outbox entry" << evOpt->id.left(12);
+            m_db->outboxRemove(row.rowid);
+            m_pendingAcks.erase(evOpt->id);
+            changed = true;
+            continue;
+        }
+
+        // Sans accusé après un délai : on abandonne l'entrée (flushOutbox republie
+        // tant qu'elle est là ; au-delà de 45 s on évite un bandeau bloqué à vie).
+        if (online && now - row.created >= kOutboxStaleMs) {
+            qInfo() << "[SyncEngine] purging stale unacked outbox entry" << evOpt->id.left(12);
             m_db->outboxRemove(row.rowid);
             m_pendingAcks.erase(evOpt->id);
             changed = true;
         }
     }
-    if (changed)
+    if (changed) {
         emit outboxChanged();
+        if (m_db->outboxCount() == 0)
+            m_outboxReconcileTimer.stop();
+    }
 }
 
 void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QString& msg)

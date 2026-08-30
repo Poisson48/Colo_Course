@@ -86,6 +86,9 @@ public:
     // Flush outbox + resubscribe (si le relais est joignable).
     void catchUpOnForeground();
 
+    // Purge l'outbox des événements déjà livrés (appelé au démarrage).
+    void reconcileOutbox();
+
 signals:
     // N items changed in listId by authorName (from a remote event).
     void remoteChanges(const QString& listId, int count, const QString& authorName);
@@ -140,6 +143,8 @@ private:
     // Purge entrées orphelines / bloquées depuis longtemps (OK/EVENT perdus).
     void reconcileStuckOutbox();
 
+    void startOutboxReconcileTimer();
+
     // Returns the channel tag for a list (derived from its key).
     std::optional<std::string> channelTagForList(const std::string& listId);
 
@@ -170,6 +175,8 @@ private:
 
     // Debounce: per-list timer fired 300 ms after last onLocalChange.
     QTimer m_debounceTimer;
+    // Repasse sur l'outbox tant qu'il reste des entrées (accusés OK perdus, etc.).
+    QTimer m_outboxReconcileTimer;
     QSet<QString> m_pendingLists; // lists awaiting debounce publish
 
     // Per-event outbox tracking: eventId -> listId.
