@@ -5,6 +5,7 @@
 #include <QString>
 #include <QStringList>
 #include <QSet>
+#include <QHash>
 #include <cstdint>
 #include <vector>
 #include <map>
@@ -165,8 +166,19 @@ private:
     // pas l'heure de réception de la notif.
     void showNotification(const QString& title, const QString& body, qint64 whenMs = 0);
 
-    // Réveil ntfy pour les autres appareils (après publish ack).
+    // Réveil ntfy pour les autres appareils (1 min après la dernière modif locale).
+    void schedulePushWake(const std::string &listId);
     void maybeSendPushWake(const std::string &listId);
+
+    struct PendingRemoteNotif {
+        int     count = 0;
+        QString author;
+        QString title;
+        qint64  whenMs = 0;
+    };
+    void scheduleRemoteNotification(const QString &title, int count,
+                                    const QString &author, qint64 whenMs);
+    void flushRemoteNotification(const QString &key);
 
     store::Database* m_db     = nullptr;
     net::RelayPool*  m_pool   = nullptr;
@@ -181,6 +193,11 @@ private:
     // Repasse sur l'outbox tant qu'il reste des entrées (accusés OK perdus, etc.).
     QTimer m_outboxReconcileTimer;
     QSet<QString> m_pendingLists; // lists awaiting debounce publish
+
+    // 1 min après la dernière modif : push wake + notif locale groupée.
+    QHash<QString, QTimer*> m_pushWakeTimers;
+    QHash<QString, QTimer*> m_remoteNotifTimers;
+    QHash<QString, PendingRemoteNotif> m_pendingRemoteNotifs;
 
     // Per-event outbox tracking: eventId -> listId.
     std::map<QString, std::string> m_pendingAcks;

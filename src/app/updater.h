@@ -4,15 +4,16 @@
 #include <QObject>
 #include <QPointer>
 #include <QString>
+#include <QTimer>
 #include <QVariantList>
 
 class QNetworkReply;
 
 namespace app {
 
-// Mise à jour depuis les Releases GitHub : l'app se distribue hors Play Store, donc
-// personne ne la met à jour à notre place. On interroge les releases, on télécharge
-// l'APK, et on laisse Android demander confirmation à l'utilisateur.
+// Mise à jour depuis le serveur colo-apps (/releases/manifest.json) : l'app se
+// distribue hors Play Store. Le serveur synchronise la dernière release GitHub ;
+// les clients ne contactent plus GitHub directement.
 //
 // L'APK publié est signé avec la clé de publication du projet : Android n'accepte de
 // l'installer par-dessus que parce que la signature est identique (cf. release.yml).
@@ -69,6 +70,18 @@ public:
     static bool isNewer(const QString &candidate, const QString &current);
     static QString notesFromBody(const QString &body);
 
+    // Parse manifest.json hébergé sur colo-apps (testable hors réseau).
+    struct ManifestData {
+        QString version;
+        QString notes;
+        QString publishedAt;
+        QString apkUrl;
+        QString appImageUrl;
+        QString releaseUrl;
+        QVariantList changelog;
+    };
+    static bool parseManifest(const QByteArray &json, ManifestData *out);
+
 public slots:
     void check();
     void download();
@@ -85,10 +98,13 @@ signals:
 private:
     void setState(State s);
     void rebuildDerivedNotes();
+    void applyManifestData(const ManifestData &data);
+    void startRecheckTimer();
     static QString formatEntries(const QVariantList &entries);
 
     QNetworkAccessManager   m_net;
     QPointer<QNetworkReply> m_reply;
+    QTimer                 *m_recheckTimer = nullptr;
 
     State   m_state = Idle;
     QString m_latestVersion;

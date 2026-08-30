@@ -24,7 +24,9 @@ namespace app {
 // Constants
 // ---------------------------------------------------------------------------
 
-static constexpr int     kDebounceMs        = 300;
+static constexpr int     kDebounceMs            = 300;
+static constexpr int     kPushWakeDebounceMs    = 60'000;  // 1 min après dernière modif
+static constexpr int     kRemoteNotifDebounceMs = 60'000; // idem pour notifs locales
 static constexpr int64_t kSnapDeltaThresh   = 100;    // deltas before forcing a snap
 static constexpr int64_t kSnapAgeMs         = 7LL * 24 * 3600 * 1000; // 7 days
 // Outbox : au-delà de ce délai sans ACK, l'event a déjà été republié — on purge.
@@ -126,8 +128,8 @@ void SyncEngine::unregisterItemModel(const std::string& listId)
 void SyncEngine::onLocalChange(const std::string& listId)
 {
     m_pendingLists.insert(QString::fromStdString(listId));
-    if (!m_debounceTimer.isActive())
-        m_debounceTimer.start();
+    m_debounceTimer.start();
+    schedulePushWake(listId);
 }
 
 void SyncEngine::onDebounceTimer()
@@ -530,9 +532,7 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
             whenMs = std::max(whenMs, static_cast<qint64>(mit->second.touched));
         }
 
-        const QString body = QString("%1 article(s) modifié(s) par %2")
-                                 .arg(count).arg(authorName);
-        showNotification(listTitle, body, whenMs);
+        scheduleRemoteNotification(listTitle, count, authorName, whenMs);
     }
 }
 
@@ -764,8 +764,6 @@ void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QStri
         else
             ++it;
     }
-    if (listId)
-        maybeSendPushWake(*listId);
 }
 
 // ---------------------------------------------------------------------------
@@ -821,6 +819,61 @@ void SyncEngine::showNotification(const QString& title, const QString& body, qin
     qInfo() << "[Notification]" << title << "—" << body;
 }
 
+void SyncEngine::schedulePushWake(const std::string &listId)
+{
+    const QString key = QString::fromStdString(listId);
+    QTimer *&timer = m_pushWakeTimers[key];
+    if (!timer) {
+        timer = new QTimer(this);
+        timer->setSingleShot(true);
+        timer->setInterval(kPushWakeDebounceMs);
+        connect(timer, &QTimer::timeout, this, [this, listId]() {
+            maybeSendPushWake(listId);
+        });
+    }
+    timer->start();
+}
+
+void SyncEngine::scheduleRemoteNotification(const QString &title, int count,
+                                            const QString &author, qint64 whenMs)
+{
+    if (m_deferBackgroundNotifs && !m_appInForeground)
+        return;
+
+    const QString key = title; // titre de liste (unique par écran)
+    auto &pending = m_pendingRemoteNotifs[key];
+    pending.count += count;
+    pending.author = author;
+    pending.title = title;
+    pending.whenMs = std::max(pending.whenMs, whenMs);
+
+    QTimer *&timer = m_remoteNotifTimers[key];
+    if (!timer) {
+        timer = new QTimer(this);
+        timer->setSingleShot(true);
+        timer->setInterval(kRemoteNotifDebounceMs);
+        connect(timer, &QTimer::timeout, this, [this, key]() {
+            flushRemoteNotification(key);
+        });
+    }
+    timer->start();
+}
+
+void SyncEngine::flushRemoteNotification(const QString &key)
+{
+    const auto it = m_pendingRemoteNotifs.find(key);
+    if (it == m_pendingRemoteNotifs.end())
+        return;
+    const PendingRemoteNotif pending = it.value();
+    m_pendingRemoteNotifs.erase(it);
+    if (pending.count <= 0)
+        return;
+
+    const QString body = QString("%1 article(s) modifié(s) par %2")
+                             .arg(pending.count).arg(pending.author);
+    showNotification(pending.title, body, pending.whenMs);
+}
+
 void SyncEngine::maybeSendPushWake(const std::string &listId)
 {
     if (!m_db)
@@ -840,16 +893,10 @@ void SyncEngine::maybeSendPushWake(const std::string &listId)
     if (!tagOpt)
         return;
 
-    static QHash<QString, qint64> lastPushMs;
-    const QString key = QString::fromStdString(listId);
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    if (lastPushMs.value(key) + 3000 > now)
-        return;
-    lastPushMs[key] = now;
-
     const auto metaOpt = m_db->getList(listId);
+    const QString listKey = QString::fromStdString(listId);
     const QString title =
-        metaOpt ? QString::fromStdString(metaOpt->title) : key;
+        metaOpt ? QString::fromStdString(metaOpt->title) : listKey;
 
     net::sendPushWake(base,
                       net::pushTopicForChannel(QString::fromStdString(*tagOpt)),

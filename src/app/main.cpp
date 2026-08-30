@@ -59,9 +59,15 @@ int main(int argc, char *argv[])
 
     app::Theme theme;
 
-    // Distribution hors Play Store : l'app va chercher elle-même la dernière release.
+    // Distribution hors Play Store : manifest colo-apps, revérifié au retour au 1er plan.
     app::Updater updater;
     updater.check();
+    // Revérifier les mises à jour au retour au premier plan.
+    QObject::connect(&app, &QGuiApplication::applicationStateChanged,
+                     &updater, [&updater](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive)
+            updater.check();
+    });
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("qr"), new app::QrImageProvider());

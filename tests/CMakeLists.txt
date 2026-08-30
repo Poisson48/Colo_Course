@@ -61,6 +61,11 @@ target_link_libraries(tst_recipe_library PRIVATE core)
 
 add_test(NAME recipe_library COMMAND tst_recipe_library)
 
+add_executable(tst_updater tst_updater.cpp)
+target_include_directories(tst_updater PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(tst_updater PRIVATE applib Qt6::Core)
+add_test(NAME updater COMMAND tst_updater)
+
 # --- Payload codec tests (pure C++, no Qt) ---
 add_executable(tst_payload
     tst_payload.cpp

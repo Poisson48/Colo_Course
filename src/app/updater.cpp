@@ -11,6 +11,7 @@
 #include <QNetworkRequest>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QUrl>
 #include <QDebug>
 
@@ -18,8 +19,10 @@ namespace app {
 
 namespace {
 
-constexpr const char* kReleasesApi =
-    "https://api.github.com/repos/Poisson48/Colo_Course/releases?per_page=30";
+constexpr const char* kUpdateManifest =
+    "https://colo-apps.les-crevettes-cevenoles.fr/releases/manifest.json";
+
+constexpr int kRecheckIntervalMs = 15 * 60 * 1000; // 15 min
 
 constexpr const char* kSeenNotesKey = "updater/seenNotesVersion";
 
@@ -38,7 +41,90 @@ QString stripV(QString v)
 
 Updater::Updater(QObject *parent)
     : QObject(parent)
-{}
+{
+    m_recheckTimer = new QTimer(this);
+    m_recheckTimer->setInterval(kRecheckIntervalMs);
+    connect(m_recheckTimer, &QTimer::timeout, this, [this]() {
+        if (m_state == Idle || m_state == Available)
+            check();
+    });
+}
+
+bool Updater::parseManifest(const QByteArray &json, ManifestData *out)
+{
+    if (!out)
+        return false;
+    *out = {};
+
+    const QJsonDocument doc = QJsonDocument::fromJson(json);
+    if (!doc.isObject())
+        return false;
+
+    const QJsonObject root = doc.object();
+    const QString version = stripV(root.value(QStringLiteral("version")).toString());
+    if (version.isEmpty())
+        return false;
+
+    out->version     = version;
+    out->notes       = root.value(QStringLiteral("notes")).toString().trimmed();
+    out->publishedAt = root.value(QStringLiteral("publishedAt")).toString();
+    out->apkUrl      = root.value(QStringLiteral("apkUrl")).toString();
+    out->appImageUrl = root.value(QStringLiteral("appImageUrl")).toString();
+    out->releaseUrl  = root.value(QStringLiteral("releaseUrl")).toString();
+
+    const QJsonArray hist = root.value(QStringLiteral("changelog")).toArray();
+    if (!hist.isEmpty()) {
+        for (const QJsonValue &v : hist) {
+            const QJsonObject obj = v.toObject();
+            const QString ver = stripV(obj.value(QStringLiteral("version")).toString());
+            if (ver.isEmpty())
+                continue;
+            QVariantMap entry;
+            entry.insert(QStringLiteral("version"), ver);
+            entry.insert(QStringLiteral("notes"),
+                         obj.value(QStringLiteral("notes")).toString().trimmed());
+            entry.insert(QStringLiteral("publishedAt"),
+                         obj.value(QStringLiteral("publishedAt")).toString());
+            out->changelog.append(entry);
+        }
+    } else {
+        QVariantMap entry;
+        entry.insert(QStringLiteral("version"), version);
+        entry.insert(QStringLiteral("notes"), out->notes);
+        entry.insert(QStringLiteral("publishedAt"), out->publishedAt);
+        out->changelog.append(entry);
+    }
+
+    return true;
+}
+
+void Updater::applyManifestData(const ManifestData &data)
+{
+    m_changelog.clear();
+    m_apkUrl.clear();
+    m_releaseUrl.clear();
+    m_latestVersion.clear();
+
+    m_changelog = data.changelog;
+    rebuildDerivedNotes();
+
+    const QString current = currentVersion();
+    if (!isNewer(data.version, current)) {
+        setState(Idle);
+        return;
+    }
+
+    m_latestVersion = data.version;
+    m_apkUrl = data.apkUrl;
+    m_releaseUrl = data.releaseUrl.isEmpty() ? data.appImageUrl : data.releaseUrl;
+    setState(Available);
+}
+
+void Updater::startRecheckTimer()
+{
+    if (m_recheckTimer && !m_recheckTimer->isActive())
+        m_recheckTimer->start();
+}
 
 QString Updater::currentVersion() const
 {
@@ -176,9 +262,10 @@ void Updater::check()
 
     setState(Checking);
 
-    QNetworkRequest req{ QUrl(QString::fromLatin1(kReleasesApi)) };
-    req.setRawHeader("Accept", "application/vnd.github+json");
+    QNetworkRequest req{ QUrl(QString::fromLatin1(kUpdateManifest)) };
     req.setRawHeader("User-Agent", "ColoCourse");
+    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute,
+                     QNetworkRequest::AlwaysNetwork);
 
     QNetworkReply *reply = m_net.get(req);
     m_reply = reply;
@@ -187,70 +274,22 @@ void Updater::check()
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[Updater] manifest inaccessible :" << reply->errorString();
             setState(Idle);
+            startRecheckTimer();
             return;
         }
 
-        const QJsonArray arr = QJsonDocument::fromJson(reply->readAll()).array();
-
-        m_changelog.clear();
-        m_apkUrl.clear();
-        m_releaseUrl.clear();
-        m_latestVersion.clear();
-
-        const QString current = currentVersion();
-        QString bestNewer;
-
-        for (const QJsonValue &v : arr) {
-            const QJsonObject obj = v.toObject();
-            if (obj.value(QStringLiteral("draft")).toBool())
-                continue;
-            if (obj.value(QStringLiteral("prerelease")).toBool())
-                continue;
-
-            const QString tag = obj.value(QStringLiteral("tag_name")).toString();
-            const QString ver = stripV(tag);
-            if (ver.isEmpty())
-                continue;
-
-            const QString notes = notesFromBody(
-                obj.value(QStringLiteral("body")).toString());
-            const QString published =
-                obj.value(QStringLiteral("published_at")).toString();
-
-            QVariantMap entry;
-            entry.insert(QStringLiteral("version"), ver);
-            entry.insert(QStringLiteral("notes"), notes);
-            entry.insert(QStringLiteral("publishedAt"), published);
-            m_changelog.append(entry);
-
-            if (isNewer(ver, current)) {
-                if (bestNewer.isEmpty() || isNewer(ver, bestNewer)) {
-                    bestNewer = ver;
-                    m_releaseUrl = obj.value(QStringLiteral("html_url")).toString();
-                    m_apkUrl.clear();
-                    for (const QJsonValue &a : obj.value(QStringLiteral("assets")).toArray()) {
-                        const QJsonObject asset = a.toObject();
-                        const QString name = asset.value(QStringLiteral("name")).toString();
-                        if (name.endsWith(QStringLiteral(".apk"), Qt::CaseInsensitive)) {
-                            m_apkUrl = asset.value(QStringLiteral("browser_download_url"))
-                                           .toString();
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        rebuildDerivedNotes();
-
-        if (bestNewer.isEmpty()) {
+        ManifestData data;
+        if (!parseManifest(reply->readAll(), &data)) {
+            qWarning() << "[Updater] manifest invalide";
             setState(Idle);
+            startRecheckTimer();
             return;
         }
 
-        m_latestVersion = bestNewer;
-        setState(Available);
+        applyManifestData(data);
+        startRecheckTimer();
     });
 }
 
