@@ -49,12 +49,23 @@ void ensureParseResultMetaType()
     Q_UNUSED(once);
 }
 
+static bool looksLikeRecipeLibraryJson(const QByteArray &json)
+{
+    return json.size() > 4096 && json.contains("\"recipes\"");
+}
+
 QByteArray readLibraryJsonBytes()
 {
     const QString cache = recipeLibraryCachePath();
     QFile cached(cache);
-    if (cached.exists() && cached.open(QIODevice::ReadOnly))
-        return cached.readAll();
+    if (cached.exists() && cached.open(QIODevice::ReadOnly)) {
+        const QByteArray data = cached.readAll();
+        cached.close();
+        if (looksLikeRecipeLibraryJson(data))
+            return data;
+        qWarning() << "[RecipeLibrary] cache local invalide, repli sur copie embarquée";
+        QFile::remove(cache);
+    }
 
     QFile bundled(QStringLiteral(":/data/recipe_library.json"));
     if (bundled.open(QIODevice::ReadOnly))
@@ -120,9 +131,6 @@ void applyParsedOnMain(QObject *context,
 
         if (writeCache && !cacheJson.isEmpty() && !saveCacheAtomically(cacheJson)) {
             qWarning() << "[RecipeLibrary] impossible d'écrire le cache local";
-            if (onDone)
-                onDone(false);
-            return;
         }
 
         qInfo() << "[RecipeLibrary] catalogue prêt :" << core::RecipeLibrary::count()
@@ -247,13 +255,13 @@ void loadRecipeLibraryAsync(QObject *context,
                          if (onInitialLoad)
                              onInitialLoad(ok);
 
-                         if (!ok)
-                             return;
-
                          scheduleRemoteCheck(context, [onRemoteUpdated](bool updated) {
                              if (updated && onRemoteUpdated)
                                  onRemoteUpdated();
                          });
+
+                         if (!ok)
+                             return;
 
                          QTimer &timer = remoteCheckTimer();
                          if (!timer.parent())
@@ -271,7 +279,14 @@ void loadRecipeLibraryAsync(QObject *context,
                      });
 
     watcher->setFuture(QtConcurrent::run([]() -> core::RecipeLibraryParseResult {
-        return core::RecipeLibrary::parseJsonData(readLibraryJsonBytes());
+        QByteArray json = readLibraryJsonBytes();
+        auto parsed = core::RecipeLibrary::parseJsonData(json);
+        if (parsed.ok)
+            return parsed;
+        QFile bundled(QStringLiteral(":/data/recipe_library.json"));
+        if (bundled.open(QIODevice::ReadOnly))
+            return core::RecipeLibrary::parseJsonData(bundled.readAll());
+        return {};
     }));
 }
 

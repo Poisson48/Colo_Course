@@ -367,6 +367,12 @@ bool AppController::init() {
                                    emit recipeLibraryCountChanged();
                                } else {
                                    qWarning() << "Bibliothèque de recettes indisponible";
+                                   refreshRecipeLibraryFromServer(this, [this](bool updated) {
+                                       if (updated) {
+                                           m_recipeLibraryModel->reloadFromLibrary();
+                                           emit recipeLibraryCountChanged();
+                                       }
+                                   });
                                }
                            },
                            [this]() {

@@ -193,15 +193,23 @@ static void test_reloadReplacesPreviousLibrary() {
     EXPECT_TRUE(RecipeLibrary::recipeById(QStringLiteral("r1")) == nullptr);
 }
 
+static void test_failedParseKeepsExistingLibrary() {
+    RecipeLibrary::loadFromJson(QByteArray(kValidJson));
+    EXPECT_EQ(RecipeLibrary::count(), 3);
+    EXPECT_TRUE(!RecipeLibrary::loadFromJson(QByteArray("not json")));
+    EXPECT_EQ(RecipeLibrary::count(), 3);
+}
+
 int main() {
     std::printf("=== tst_recipe_library ===\n");
+    test_rejectsMalformedJson();
     test_loadValidJson();
     test_recipeByIdAndAt();
     test_dedupIngredients();
     test_filterIndices();
     test_filterByCategory();
-    test_rejectsMalformedJson();
     test_reloadReplacesPreviousLibrary();
+    test_failedParseKeepsExistingLibrary();
     std::printf("\nResults: %d/%d passed, %d failed\n", g_passed, g_total, g_failed);
     return g_failed == 0 ? 0 : 1;
 }

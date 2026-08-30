@@ -149,13 +149,8 @@ RecipeLibraryParseResult RecipeLibrary::parseJsonData(const QByteArray &json)
 
 bool RecipeLibrary::installParsed(RecipeLibraryParseResult &&parsed)
 {
-    if (!parsed.ok) {
-        QMutexLocker lock(&s_mutex);
-        s_recipes.clear();
-        s_idIndex.clear();
-        s_categoryStats.clear();
+    if (!parsed.ok)
         return false;
-    }
     QMutexLocker lock(&s_mutex);
     s_recipes = std::move(parsed.recipes);
     s_idIndex = std::move(parsed.idIndex);
