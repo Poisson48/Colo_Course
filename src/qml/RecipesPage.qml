@@ -488,7 +488,8 @@ Item {
 
     ColoDialog {
         id: catalogDetail
-        title: "Recette du catalogue"
+        title: recipeTitle.length > 0 ? recipeTitle : "Recette du catalogue"
+        titleMaxLines: 0
         acceptText: "Ajouter à ma bibliothèque"
         showAccept: true
 
@@ -509,16 +510,16 @@ Item {
             open()
         }
 
-        Label {
+        ScrollView {
             Layout.fillWidth: true
-            text: catalogDetail.recipeTitle
-            wrapMode: Text.WordWrap
-            color: Theme.text
-            font.pixelSize: 20
-            font.weight: Font.DemiBold
-            lineHeight: 1.28
-            lineHeightMode: Text.ProportionalHeight
-        }
+            Layout.preferredHeight: Math.min(catalogBody.implicitHeight + 4,
+                                             catalogDetail.contentMaxHeight)
+            clip: true
+
+            ColumnLayout {
+                id: catalogBody
+                width: catalogDetail.availableWidth
+                spacing: 10
 
         Flow {
             Layout.fillWidth: true
@@ -569,50 +570,42 @@ Item {
             font.weight: Font.DemiBold
         }
 
-        ScrollView {
-            id: ingredientsScroll
+        ColumnLayout {
             Layout.fillWidth: true
-            Layout.maximumHeight: Math.min(ingredientsCol.implicitHeight + 8,
-                                            catalogDetail.scrollMaxHeight)
+            spacing: 4
 
-            ColumnLayout {
-                id: ingredientsCol
-                width: ingredientsScroll.availableWidth
-                spacing: 4
+            Repeater {
+                model: AppController.libraryIngredients(catalogDetail.libraryId,
+                                                       catalogDetail.targetServings)
+                delegate: RowLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: 8
 
-                Repeater {
-                    model: AppController.libraryIngredients(catalogDetail.libraryId,
-                                                           catalogDetail.targetServings)
-                    delegate: RowLayout {
-                        required property var modelData
+                    Label {
+                        text: "•"
+                        color: Theme.accent
+                        font.pixelSize: 16
+                        font.weight: Font.DemiBold
+                        Layout.alignment: Qt.AlignTop
+                        Layout.topMargin: 1
+                    }
+
+                    Label {
                         Layout.fillWidth: true
-                        spacing: 8
-
-                        Label {
-                            text: "•"
-                            color: Theme.accent
-                            font.pixelSize: 16
-                            font.weight: Font.DemiBold
-                            Layout.alignment: Qt.AlignTop
-                            Layout.topMargin: 1
+                        text: {
+                            let s = modelData.name
+                            if (modelData.qty && modelData.qty.length > 0)
+                                s = modelData.qty + " " + s
+                            if (modelData.note && modelData.note.length > 0)
+                                s += " (" + modelData.note + ")"
+                            return s
                         }
-
-                        Label {
-                            Layout.fillWidth: true
-                            text: {
-                                let s = modelData.name
-                                if (modelData.qty && modelData.qty.length > 0)
-                                    s = modelData.qty + " " + s
-                                if (modelData.note && modelData.note.length > 0)
-                                    s += " (" + modelData.note + ")"
-                                return s
-                            }
-                            wrapMode: Text.WordWrap
-                            color: Theme.text
-                            font.pixelSize: 15
-                            lineHeight: 1.35
-                            lineHeightMode: Text.ProportionalHeight
-                        }
+                        wrapMode: Text.WordWrap
+                        color: Theme.text
+                        font.pixelSize: 15
+                        lineHeight: 1.35
+                        lineHeightMode: Text.ProportionalHeight
                     }
                 }
             }
@@ -627,22 +620,17 @@ Item {
             font.weight: Font.DemiBold
         }
 
-        ScrollView {
-            id: prepScroll
+        Label {
             Layout.fillWidth: true
-            Layout.maximumHeight: Math.min(prepLabel.implicitHeight + 8,
-                                            catalogDetail.scrollMaxHeight)
             visible: catalogDetail.instructionsText.length > 0
+            text: catalogDetail.instructionsText
+            wrapMode: Text.WordWrap
+            color: Theme.text
+            font.pixelSize: 15
+            lineHeight: 1.45
+            lineHeightMode: Text.ProportionalHeight
+        }
 
-            Label {
-                id: prepLabel
-                width: prepScroll.availableWidth
-                text: catalogDetail.instructionsText
-                wrapMode: Text.WordWrap
-                color: Theme.text
-                font.pixelSize: 15
-                lineHeight: 1.45
-                lineHeightMode: Text.ProportionalHeight
             }
         }
 

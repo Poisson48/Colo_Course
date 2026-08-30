@@ -179,7 +179,7 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: !root.cookMode && root.prepText.length > 0
-                                    ? prepScroll.contentHeight + Theme.pad * 2 : 0
+                                    ? Math.min(prepCol.height, 220) + Theme.pad * 2 : 0
             visible: Layout.preferredHeight > 0
             clip: true
             color: Theme.surface

@@ -128,6 +128,15 @@ static void test_baseIngredientName() {
     EXPECT_EQ(core::baseIngredientName(QString("crème fraîche")), QString("crème fraîche"));
     EXPECT_EQ(core::baseIngredientName(QString("bœuf haché")), QString("bœuf haché"));
     EXPECT_EQ(core::baseIngredientName(QString("huile d'olive")), QString("huile d'olive"));
+    EXPECT_EQ(core::canonicalIngredientName(QString("jaune d'oeuf")), QString("œufs"));
+    EXPECT_EQ(core::canonicalIngredientName(QString("jaunes d'œufs")), QString("œufs"));
+    EXPECT_EQ(core::canonicalIngredientName(QString("bonne pincée de sel")), QString("sel"));
+    EXPECT_EQ(core::canonicalIngredientName(QString("gruyère râpé")), QString("fromage"));
+    EXPECT_EQ(core::canonicalIngredientName(QString("fromage râpé")), QString("fromage"));
+    EXPECT_EQ(core::ingredientMatchKey(QString("gruyère râpé")),
+              core::ingredientMatchKey(QString("fromage râpé")));
+    EXPECT_EQ(core::baseIngredientName(QString("lardons selon préférence")), QString("lardons"));
+    EXPECT_EQ(core::baseIngredientName(QString("pomme de terre roseval.")), QString("pomme de terre roseval"));
 }
 
 static void test_normalizeManualIngredientName() {

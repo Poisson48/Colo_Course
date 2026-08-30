@@ -20,6 +20,55 @@ QString normalizeIngredientKey(const QString &s) {
     return deaccent(s.trimmed().toLower());
 }
 
+static QString stripTrailingDots(QString name) {
+    name = name.trimmed();
+    while (name.endsWith(QLatin1String("...")))
+        name.chop(3);
+    if (name.endsWith(QLatin1Char('.')))
+        name.chop(1);
+    return name.trimmed();
+}
+
+static QString stripPreferenceClauses(QString name) {
+    static const QList<QRegularExpression> kPatterns = {
+        QRegularExpression(QStringLiteral(R"(\s*[\"']\s*selon\s+pr[eé]f[eé]rences?\s*[\"']\s*$)"),
+                           QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression(QStringLiteral(R"((?:\s*[,;]\s*|\s+)selon\s+(?:vos\s+)?pr[eé]f[eé]rences?$)"),
+                           QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression(QStringLiteral(R"((?:\s*[,;]\s*|\s+)au\s+choix$)"),
+                           QRegularExpression::CaseInsensitiveOption),
+    };
+    for (const auto &re : kPatterns)
+        name = name.remove(re);
+    return name.trimmed();
+}
+
+static QString rewriteIngredientPhrase(QString name) {
+    name = stripTrailingDots(stripPreferenceClauses(name.trimmed()));
+    if (name.isEmpty())
+        return name;
+
+    QString norm = deaccent(name);
+
+    static const QRegularExpression kEggYolkRe(
+        QStringLiteral(R"(^jaunes?\s+d.oeufs?$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression kEggWhiteRe(
+        QStringLiteral(R"(^blancs?\s+d.oeufs?$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    if (kEggYolkRe.match(norm).hasMatch() || kEggWhiteRe.match(norm).hasMatch())
+        return QStringLiteral("oeufs");
+
+    static const QRegularExpression kPinchOfRe(
+        QStringLiteral(R"(^(?:(?:bonne|petite|grosse|large)\s+)?pinc(?:ée|ees?)\s+d[e']?\s*(.+)$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    auto m = kPinchOfRe.match(norm);
+    if (m.hasMatch())
+        return m.captured(1).trimmed();
+
+    return name;
+}
+
 static bool isProtectedCompound(const QString &normKey) {
     static const QStringList kProtected = {
         QStringLiteral("creme fraiche"),
@@ -172,7 +221,7 @@ static QString stripOnePrepSuffix(QString name) {
 }
 
 QString baseIngredientName(const QString &s) {
-    const QString trimmed = s.trimmed();
+    const QString trimmed = rewriteIngredientPhrase(s.trimmed());
     if (trimmed.isEmpty())
         return trimmed;
 
@@ -239,6 +288,10 @@ static const QHash<QString, QString> &matchAliases() {
         {QStringLiteral("banane"), QStringLiteral("bananes")},
         {QStringLiteral("bananes"), QStringLiteral("bananes")},
         {QStringLiteral("beurre"), QStringLiteral("beurre")},
+        {QStringLiteral("gruyere"), QStringLiteral("fromage")},
+        {QStringLiteral("gruyère"), QStringLiteral("fromage")},
+        {QStringLiteral("fromage"), QStringLiteral("fromage")},
+        {QStringLiteral("sel"), QStringLiteral("sel")},
     };
     return kAliases;
 }
@@ -260,6 +313,8 @@ static const QHash<QString, QString> &canonicalDisplayNames() {
         {QStringLiteral("yaourts"), QStringLiteral("yaourts")},
         {QStringLiteral("bananes"), QStringLiteral("bananes")},
         {QStringLiteral("beurre"), QStringLiteral("beurre")},
+        {QStringLiteral("fromage"), QStringLiteral("fromage")},
+        {QStringLiteral("sel"), QStringLiteral("sel")},
     };
     return kNames;
 }
@@ -287,9 +342,6 @@ QString canonicalIngredientName(const QString &s) {
         return base;
 
     const QString matchKey = aliasIt.value();
-    if (normKey == matchKey)
-        return base;
-
     const auto &names = canonicalDisplayNames();
     const auto nameIt = names.constFind(matchKey);
     if (nameIt != names.constEnd())

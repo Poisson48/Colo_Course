@@ -96,6 +96,8 @@ _MATCH_ALIASES: dict[str, str] = {
     "yaourt": "yaourts", "yaourts": "yaourts",
     "banane": "bananes", "bananes": "bananes",
     "beurre": "beurre",
+    "gruyere": "fromage", "gruyère": "fromage", "fromage": "fromage",
+    "sel": "sel",
 }
 
 # Clé canonique → nom d'affichage préféré (singulier court → pluriel).
@@ -105,7 +107,7 @@ _CANONICAL_NAMES: dict[str, str] = {
     "courgettes": "courgettes", "poivrons": "poivrons", "champignons": "champignons",
     "citrons": "citrons", "pates": "pâtes", "epinards": "épinards",
     "yaourts": "yaourts", "bananes": "bananes",
-    "beurre": "beurre",
+    "beurre": "beurre", "fromage": "fromage", "sel": "sel",
 }
 
 
@@ -163,6 +165,41 @@ _GRATED_RE = re.compile(r"^(.+?)\s+r[aâ]p[eé](?:e|es|ée|ées)?$", re.I)
 _GRATED_CHEESE_HINTS = ("fromage", "parmesan", "gruyere", "cheddar", "mozzarella", "emmental", "comte")
 
 
+def _strip_trailing_dots(name: str) -> str:
+    name = name.strip()
+    while name.endswith("..."):
+        name = name[:-3]
+    if name.endswith("."):
+        name = name[:-1]
+    return name.strip()
+
+
+def _strip_preference_clauses(name: str) -> str:
+    patterns = [
+        re.compile(r'\s*["\']\s*selon\s+pr[eé]f[eé]rences?\s*["\']\s*$', re.I),
+        re.compile(r'(?:\s*[,;]\s*|\s+)selon\s+(?:vos\s+)?pr[eé]f[eé]rences?$', re.I),
+        re.compile(r'(?:\s*[,;]\s*|\s+)au\s+choix$', re.I),
+    ]
+    for pat in patterns:
+        name = pat.sub("", name)
+    return name.strip()
+
+
+def rewrite_ingredient_phrase(name: str) -> str:
+    name = _strip_trailing_dots(_strip_preference_clauses(name.strip()))
+    if not name:
+        return name
+    norm = deaccent(name)
+    if re.match(r"^jaunes?\s+d.oeufs?$", norm, re.I):
+        return "oeufs"
+    if re.match(r"^blancs?\s+d.oeufs?$", norm, re.I):
+        return "oeufs"
+    m = re.match(r"^(?:(?:bonne|petite|grosse|large)\s+)?pinc(?:ée|ees?)\s+d[e']?\s*(.+)$", norm, re.I)
+    if m:
+        return m.group(1).strip()
+    return name
+
+
 def _is_protected_compound(norm_key: str) -> bool:
     if norm_key in _PROTECTED_COMPOUNDS:
         return True
@@ -199,7 +236,7 @@ def base_ingredient_name(s: str) -> str:
 
 def extract_base_ingredient(s: str) -> tuple[str, list[str]]:
     """Retourne (nom de base, modificateurs de préparation retirés)."""
-    trimmed = s.strip()
+    trimmed = rewrite_ingredient_phrase(s.strip())
     if not trimmed:
         return trimmed, []
 
@@ -236,8 +273,6 @@ def canonical_ingredient_name(s: str) -> str:
     norm_key = app_norm_key(base)
     match_key = _MATCH_ALIASES.get(norm_key)
     if match_key is None:
-        return base
-    if norm_key == match_key:
         return base
     return _CANONICAL_NAMES.get(match_key, base)
 

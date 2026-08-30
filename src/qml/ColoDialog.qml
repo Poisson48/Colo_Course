@@ -16,6 +16,8 @@ Dialog {
     // Masque « Annuler » : pour un dialogue de gestion où « Fermer » suffit, deux
     // boutons qui ferment tous les deux n'apportent rien.
     property bool   showCancel: true
+    // 0 = titre sur autant de lignes que nécessaire (catalogue recette, etc.).
+    property int    titleMaxLines: 3
 
     default property alias body: content.data
 
@@ -26,6 +28,8 @@ Dialog {
     // Hauteur max utile pour les zones scrollables (portrait / paysage).
     readonly property real scrollMaxHeight: Overlay.overlay
         ? Math.max(Overlay.overlay.height * 0.42, 140) : 280
+    readonly property real contentMaxHeight: Overlay.overlay
+        ? Math.max(Overlay.overlay.height * 0.52, 200) : 320
     contentWidth: availableWidth
 
     modal: true
@@ -51,8 +55,8 @@ Dialog {
         font.pixelSize: 19
         font.weight: Font.DemiBold
         wrapMode: Text.WordWrap
-        maximumLineCount: 3
-        elide: Text.ElideRight
+        maximumLineCount: dlg.titleMaxLines > 0 ? dlg.titleMaxLines : 48
+        elide: dlg.titleMaxLines > 0 ? Text.ElideRight : Text.ElideNone
         padding: 20
         bottomPadding: 4
     }
