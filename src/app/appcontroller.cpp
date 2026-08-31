@@ -364,6 +364,7 @@ void AppController::shutdown()
 
     qDebug() << "[shutdown] AppController::shutdown";
     platformConfigurePush(QString(), {}, QString());
+    shutdownRecipeCatalogLoader(this);
     releaseRecipeLibraryCatalog();
     m_syncEngine.shutdown();
     m_relayPool.shutdown();

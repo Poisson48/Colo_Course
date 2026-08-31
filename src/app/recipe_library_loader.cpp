@@ -17,6 +17,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QStandardPaths>
+#include <QFutureWatcher>
 #include <QTimer>
 #include <QDebug>
 #include <QtConcurrent>
@@ -435,8 +436,7 @@ void scheduleRemoteCheck(QObject *context, std::function<void(bool)> onUpdated)
 void startRemoteCheckTimer(QObject *context, std::function<void()> onRemoteUpdated)
 {
     QTimer &timer = remoteCheckTimer();
-    if (!timer.parent())
-        timer.setParent(context);
+    // Ne jamais setParent(context) : timer statique, deleteChildren() ferait invalid free.
     timer.setInterval(kRemoteCheckIntervalMs);
     QObject::disconnect(&timer, nullptr, context, nullptr);
     QObject::connect(&timer, &QTimer::timeout, context, [context, onRemoteUpdated]() {
@@ -460,7 +460,8 @@ void doLoadCatalog(QObject *context,
     QObject::connect(watcher, &QFutureWatcher<QString>::finished, context,
                      [watcher, context, onInitialLoad, onRemoteUpdated]() {
                          const QString path = watcher->result();
-                         watcher->deleteLater();
+                         watcher->disconnect();
+                         delete watcher;
                          QString err;
                          const bool ok = !path.isEmpty() && openResolvedCatalog(path, &err);
                          if (!ok && err.isEmpty())
@@ -608,6 +609,23 @@ void refreshRecipeLibraryFromServer(QObject *context,
 void setRecipeCatalogStateListener(std::function<void()> onChanged)
 {
     s_stateListener = std::move(onChanged);
+}
+
+void shutdownRecipeCatalogLoader(QObject *context)
+{
+    remoteCheckTimer().stop();
+    if (context) {
+        QObject::disconnect(&remoteCheckTimer(), nullptr, context, nullptr);
+        const auto watchers =
+            context->findChildren<QFutureWatcherBase *>();
+        for (QFutureWatcherBase *w : watchers) {
+            w->cancel();
+            w->waitForFinished();
+            delete w;
+        }
+    }
+    s_stateListener = nullptr;
+    s_pendingCallbacks.clear();
 }
 
 } // namespace app

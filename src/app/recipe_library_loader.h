@@ -63,6 +63,9 @@ void refreshRecipeLibraryFromServer(QObject *context,
 // Notifie l'UI (AppController) quand l'état change.
 void setRecipeCatalogStateListener(std::function<void()> onChanged);
 
+// Arrêt propre : timer statique, tâches async et callbacks (avant ~AppController).
+void shutdownRecipeCatalogLoader(QObject *context);
+
 // Tests uniquement : ouvre la copie embarquée.
 bool loadRecipeLibraryFromResource();
 

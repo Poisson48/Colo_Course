@@ -41,7 +41,8 @@ void RecipeLibraryModel::deactivateCatalog() {
     if (m_rebuildWatcher) {
         m_rebuildWatcher->cancel();
         m_rebuildWatcher->waitForFinished();
-        m_rebuildWatcher->deleteLater();
+        m_rebuildWatcher->disconnect();
+        delete m_rebuildWatcher;
         m_rebuildWatcher = nullptr;
     }
     if (!m_indices.empty() || m_loading) {
