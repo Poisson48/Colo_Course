@@ -1450,181 +1450,231 @@ Item {
                 AppController.toast("Caméra indisponible sur cet appareil")
         }
 
-        ColoTextField {
-            id: editName
+        ScrollView {
+            id: editScroll
             Layout.fillWidth: true
-            hint: "Article"
-            onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
-        }
+            Layout.maximumHeight: editDialog.contentMaxHeight
+            clip: true
 
-        ColoTextField {
-            id: editQty
-            Layout.fillWidth: true
-            hint: "Quantité (2, 500 g, 1 pack…)"
-            onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
-        }
+            ColumnLayout {
+                width: editScroll.availableWidth
+                spacing: Theme.gap
 
-        ColoTextField {
-            id: editNote
-            Layout.fillWidth: true
-            hint: "Description"
-            onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
-        }
+                ColoTextField {
+                    id: editName
+                    Layout.fillWidth: true
+                    hint: "Article"
+                    onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
+                }
 
-        AisleBox {
-            id: editAisle
-            Layout.fillWidth: true
-        }
+                ColoTextField {
+                    id: editQty
+                    Layout.fillWidth: true
+                    hint: "Quantité (2, 500 g, 1 pack…)"
+                    onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
+                }
 
-        // Photos : vignettes + ajout / retrait, sans page détail séparée.
-        Flow {
-            Layout.fillWidth: true
-            Layout.topMargin: 4
-            spacing: 8
-            visible: editDialog.photoShas.length > 0
+                ColoTextField {
+                    id: editNote
+                    Layout.fillWidth: true
+                    hint: "Description"
+                    onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
+                }
 
-            Repeater {
-                model: editDialog.photoShas
-                delegate: Item {
-                    width: 72
-                    height: 72
-                    required property string modelData
+                AisleBox {
+                    id: editAisle
+                    Layout.fillWidth: true
+                }
 
-                    Image {
-                        id: thumb
-                        anchors.fill: parent
-                        source: "image://itemimg/" + modelData
-                                + "?r=" + AppController.imageRevision
-                        sourceSize.width: 144
-                        sourceSize.height: 144
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
+                // Photos : vignettes + ajout / retrait, sans page détail séparée.
+                Flow {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    spacing: 8
+                    visible: editDialog.photoShas.length > 0
+
+                    Repeater {
+                        model: editDialog.photoShas
+                        delegate: Item {
+                            width: 72
+                            height: 72
+                            required property string modelData
+
+                            Image {
+                                id: thumb
+                                anchors.fill: parent
+                                source: "image://itemimg/" + modelData
+                                        + "?r=" + AppController.imageRevision
+                                sourceSize.width: 144
+                                sourceSize.height: 144
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                            }
+
+                            Rectangle {
+                                anchors.fill: parent
+                                visible: thumb.status !== Image.Ready
+                                color: Theme.surfaceHigh
+                                radius: 8
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: photoViewer.openFor(modelData)
+                            }
+
+                            ToolButton {
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                width: 28
+                                height: 28
+                                contentItem: Icon {
+                                    name: "close"
+                                    color: Theme.text
+                                    size: 14
+                                }
+                                background: Rectangle {
+                                    radius: 14
+                                    color: Qt.rgba(0, 0, 0, 0.45)
+                                }
+                                onClicked: {
+                                    AppController.removeItemImage(editDialog.itemId, modelData)
+                                    editDialog.image = AppController.items.itemImage(editDialog.itemId)
+                                }
+                            }
+                        }
                     }
+                }
 
-                    Rectangle {
-                        anchors.fill: parent
-                        visible: thumb.status !== Image.Ready
-                        color: Theme.surfaceHigh
-                        radius: 8
-                    }
+                // Toujours proposer une photo de plus : caméra ou galerie.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
 
-                    MouseArea {
-                        anchors.fill: parent
-                        onClicked: photoViewer.openFor(modelData)
-                    }
-
-                    ToolButton {
-                        anchors.top: parent.top
-                        anchors.right: parent.right
-                        width: 28
-                        height: 28
-                        contentItem: Icon {
-                            name: "close"
-                            color: Theme.text
-                            size: 14
+                    Button {
+                        Layout.fillWidth: true
+                        flat: true
+                        implicitHeight: Theme.touchTarget
+                        contentItem: Label {
+                            text: "Prendre une photo"
+                            color: Theme.accent
+                            font.pixelSize: 14
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
                         background: Rectangle {
-                            radius: 14
-                            color: Qt.rgba(0, 0, 0, 0.45)
+                            radius: 10
+                            color: parent.pressed ? Theme.surfaceHigh : "transparent"
+                            border.color: Theme.outline
+                            border.width: 1
                         }
-                        onClicked: {
-                            AppController.removeItemImage(editDialog.itemId, modelData)
-                            editDialog.image = AppController.items.itemImage(editDialog.itemId)
+                        onClicked: editDialog.capturePhoto()
+                    }
+
+                    Button {
+                        Layout.fillWidth: true
+                        flat: true
+                        implicitHeight: Theme.touchTarget
+                        contentItem: Label {
+                            text: "Choisir dans la galerie"
+                            color: Theme.accent
+                            font.pixelSize: 14
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
+                        background: Rectangle {
+                            radius: 10
+                            color: parent.pressed ? Theme.surfaceHigh : "transparent"
+                            border.color: Theme.outline
+                            border.width: 1
+                        }
+                        onClicked: editDialog.pickPhoto()
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 4
+                    wrapMode: Text.WordWrap
+                    color: Theme.textDim
+                    font.pixelSize: 12
+                    text: {
+                        const lines = []
+                        const added = root.formatStamp(editDialog.createdMs)
+                        if (added.length > 0) {
+                            lines.push(editDialog.author.length > 0
+                                       ? "Ajouté par " + editDialog.author + " " + added
+                                       : "Ajouté " + added)
+                        }
+                        if (editDialog.doneAtMs > 0)
+                            lines.push("Coché " + root.formatStamp(editDialog.doneAtMs))
+                        return lines.join("\n")
                     }
                 }
             }
         }
 
-        // Toujours proposer une photo de plus : caméra ou galerie.
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
+        footer: ColumnLayout {
+            width: editDialog.availableWidth
+            spacing: 0
 
             Button {
                 Layout.fillWidth: true
+                Layout.leftMargin: 12
+                Layout.rightMargin: 12
                 flat: true
                 implicitHeight: Theme.touchTarget
                 contentItem: Label {
-                    text: "Prendre une photo"
-                    color: Theme.accent
+                    text: "Supprimer l'article"
+                    color: Theme.danger
                     font.pixelSize: 14
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
-                background: Rectangle {
-                    radius: 10
-                    color: parent.pressed ? Theme.surfaceHigh : "transparent"
-                    border.color: Theme.outline
-                    border.width: 1
+                onClicked: {
+                    const id = editDialog.itemId
+                    const nm = editName.text.trim()
+                    editDialog.close()
+                    deleteDialog.openFor([id], nm)
                 }
-                onClicked: editDialog.capturePhoto()
             }
 
-            Button {
+            RowLayout {
                 Layout.fillWidth: true
-                flat: true
-                implicitHeight: Theme.touchTarget
-                contentItem: Label {
-                    text: "Choisir dans la galerie"
-                    color: Theme.accent
-                    font.pixelSize: 14
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                background: Rectangle {
-                    radius: 10
-                    color: parent.pressed ? Theme.surfaceHigh : "transparent"
-                    border.color: Theme.outline
-                    border.width: 1
-                }
-                onClicked: editDialog.pickPhoto()
-            }
-        }
+                spacing: 4
 
-        Label {
-            Layout.fillWidth: true
-            Layout.topMargin: 4
-            wrapMode: Text.WordWrap
-            color: Theme.textDim
-            font.pixelSize: 12
-            text: {
-                const lines = []
-                const added = root.formatStamp(editDialog.createdMs)
-                if (added.length > 0) {
-                    lines.push(editDialog.author.length > 0
-                               ? "Ajouté par " + editDialog.author + " " + added
-                               : "Ajouté " + added)
-                }
-                if (editDialog.doneAtMs > 0)
-                    lines.push("Coché " + root.formatStamp(editDialog.doneAtMs))
-                return lines.join("\n")
-            }
-        }
+                Item { Layout.fillWidth: true }
 
-        Button {
-            Layout.fillWidth: true
-            Layout.topMargin: 4
-            flat: true
-            implicitHeight: Theme.touchTarget
-            contentItem: Label {
-                text: "Supprimer l'article"
-                color: Theme.danger
-                font.pixelSize: 14
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
-            }
-            background: Rectangle {
-                radius: 10
-                color: parent.pressed ? Theme.surfaceHigh : "transparent"
-                border.color: Theme.outline
-                border.width: 1
-            }
-            onClicked: {
-                const id = editDialog.itemId
-                const nm = editName.text.trim()
-                editDialog.close()
-                deleteDialog.openFor([id], nm)
+                Button {
+                    flat: true
+                    implicitHeight: Theme.touchTarget
+                    contentItem: Label {
+                        text: "Annuler"
+                        color: Theme.textDim
+                        font.pixelSize: 15
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: editDialog.reject()
+                }
+
+                Button {
+                    flat: true
+                    enabled: editDialog.acceptEnabled
+                    implicitHeight: Theme.touchTarget
+                    Layout.rightMargin: 12
+                    Layout.bottomMargin: 8
+                    contentItem: Label {
+                        text: editDialog.acceptText
+                        color: editDialog.acceptEnabled ? Theme.accent : Theme.textDim
+                        opacity: editDialog.acceptEnabled ? 1.0 : 0.5
+                        font.pixelSize: 15
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: editDialog.accept()
+                }
             }
         }
 
