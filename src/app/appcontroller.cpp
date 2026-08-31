@@ -349,7 +349,25 @@ AppController::AppController(QObject *parent)
     });
 }
 
-AppController::~AppController() = default;
+AppController::~AppController()
+{
+    qDebug() << "[shutdown] ~AppController entry";
+    shutdown();
+    qDebug() << "[shutdown] ~AppController exit";
+}
+
+void AppController::shutdown()
+{
+    if (m_shutdownDone)
+        return;
+    m_shutdownDone = true;
+
+    qDebug() << "[shutdown] AppController::shutdown";
+    platformConfigurePush(QString(), {}, QString());
+    releaseRecipeLibraryCatalog();
+    m_syncEngine.shutdown();
+    m_relayPool.shutdown();
+}
 
 QString AppController::databasePath() {
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -499,6 +517,9 @@ void AppController::resumeSync() {
 
 void AppController::onApplicationStateChanged(Qt::ApplicationState state)
 {
+    if (m_shutdownDone)
+        return;
+
     const bool active = (state == Qt::ApplicationActive);
     m_syncEngine.setAppInForeground(active);
     m_syncEngine.setDeferBackgroundNotificationsToPush(pushEnabled());

@@ -30,13 +30,16 @@ class RelayClient : public QObject
 
 public:
     explicit RelayClient(const QUrl& url, QObject* parent = nullptr);
-    ~RelayClient() override = default;
+    ~RelayClient() override;
 
     // Connect to the relay. Starts the reconnect loop.
     void connectToRelay();
 
     // Disconnect and stop the reconnect loop.
     void disconnectFromRelay();
+
+    // Arrêt définitif : coupe signaux + socket avant destruction.
+    void shutdown();
 
     // Publish a NostrEvent to this relay.
     void publish(const NostrEvent& ev);
@@ -49,6 +52,7 @@ public:
     void closeSubscription();
 
     bool isConnected() const;
+    bool isShuttingDown() const { return m_shuttingDown; }
     QUrl url() const { return m_url; }
 
 signals:
@@ -85,6 +89,7 @@ private:
 
     int     m_backoffMs    = 1000;   // current reconnect delay
     bool    m_intentionalDisconnect = false;
+    bool    m_shuttingDown = false;
 
     std::vector<ActiveSub> m_subscriptions;
 

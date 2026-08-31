@@ -67,12 +67,31 @@ SyncEngine::SyncEngine(QObject* parent)
 
 SyncEngine::~SyncEngine()
 {
-    // Disconnect from pool explicitly to prevent callbacks on half-destroyed state.
-    if (m_pool) {
-        m_pool->disconnect(this);
-    }
+    shutdown();
+}
+
+void SyncEngine::shutdown()
+{
+    if (m_shuttingDown)
+        return;
+    m_shuttingDown = true;
+
     m_debounceTimer.stop();
     m_outboxReconcileTimer.stop();
+
+    for (auto *timer : m_pushWakeTimers) {
+        if (timer)
+            timer->stop();
+    }
+    for (auto *timer : m_remoteNotifTimers) {
+        if (timer)
+            timer->stop();
+    }
+
+    if (m_pool) {
+        m_pool->disconnect(this);
+        m_pool = nullptr;
+    }
     m_models.clear();
 }
 
@@ -134,6 +153,8 @@ void SyncEngine::onLocalChange(const std::string& listId)
 
 void SyncEngine::onDebounceTimer()
 {
+    if (m_shuttingDown)
+        return;
     const QSet<QString> lists = m_pendingLists;
     m_pendingLists.clear();
 
@@ -319,7 +340,8 @@ std::string SyncEngine::buildAndPublish(const std::string& listId,
 
 void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
 {
-    if (!m_db) return;
+    if (m_shuttingDown || !m_db)
+        return;
 
     const std::string eventId = ev.id.toStdString();
 
@@ -542,7 +564,8 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
 
 void SyncEngine::onRelayOnline(bool online)
 {
-    if (!online) return;
+    if (m_shuttingDown || !online)
+        return;
 
     flushOutbox();
     reconcileStuckOutbox();
@@ -742,7 +765,7 @@ void SyncEngine::reconcileStuckOutbox()
 
 void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QString& msg)
 {
-    if (eventId.isEmpty())
+    if (m_shuttingDown || eventId.isEmpty())
         return;
 
     if (!relayAckMeansStored(accepted, msg)) {

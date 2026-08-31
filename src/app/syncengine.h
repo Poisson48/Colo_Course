@@ -90,6 +90,9 @@ public:
     // Purge l'outbox des événements déjà livrés (appelé au démarrage).
     void reconcileOutbox();
 
+    // Arrêt ordonné : coupe les timers et se déconnecte du pool.
+    void shutdown();
+
 signals:
     // N items changed in listId by authorName (from a remote event).
     void remoteChanges(const QString& listId, int count, const QString& authorName);
@@ -209,6 +212,7 @@ private:
 
     bool m_deferBackgroundNotifs = false;
     bool m_appInForeground         = true;
+    bool m_shuttingDown            = false;
 };
 
 } // namespace app

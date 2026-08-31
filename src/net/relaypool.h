@@ -28,7 +28,7 @@ class RelayPool : public QObject
 
 public:
     explicit RelayPool(QObject* parent = nullptr);
-    ~RelayPool() override = default;
+    ~RelayPool() override;
 
     // Replace the relay list and reconnect everything.
     void setRelays(const QList<QUrl>& urls);
@@ -41,6 +41,9 @@ public:
 
     // Disconnect all relays.
     void disconnectAll();
+
+    // Arrêt ordonné avant destruction (coupe signaux, vide le pool).
+    void shutdown();
 
     // Publish to every connected relay.
     void publishToAll(const NostrEvent& ev);
@@ -74,6 +77,7 @@ private:
     QHash<QString, int64_t> m_subscriptions;
 
     bool m_online = false;
+    bool m_shuttingDown = false;
 };
 
 } // namespace net

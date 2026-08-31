@@ -48,6 +48,9 @@ int main(int argc, char *argv[])
     QObject::connect(&app, &QGuiApplication::applicationStateChanged,
                      &controller, &app::AppController::onApplicationStateChanged);
 
+    QObject::connect(&app, &QCoreApplication::aboutToQuit,
+                     &controller, &app::AppController::shutdown);
+
     // Types du scanner, dans le même module QML que les écrans (URI ColoCourse).
     // Sans Qt Multimedia, ScanPage.qml n'est pas embarquée : son Loader échoue
     // proprement et l'appairage se fait par lien.

@@ -323,6 +323,9 @@ public slots:
     // Reconnexion + rattrapage (retour au premier plan ou après coupure réseau).
     void resumeSync();
 
+    // Arrêt ordonné avant destruction (réseau, sync, veille push).
+    void shutdown();
+
     // Veille push ntfy : active seulement quand l'app n'est pas au premier plan.
     void onApplicationStateChanged(Qt::ApplicationState state);
 
@@ -378,6 +381,7 @@ private:
     QString          m_displayName;
     bool             m_hasDisplayName = false;
     bool             m_pushLifecycleReady = false;
+    bool             m_shutdownDone = false;
     std::string      m_openListId;   // liste actuellement chargée dans m_itemModel
     QString          m_pendingPrepListId; // recette neuve → proposer la préparation
     int              m_imageRevision = 0;

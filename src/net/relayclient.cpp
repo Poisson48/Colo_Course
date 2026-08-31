@@ -22,8 +22,34 @@ RelayClient::RelayClient(const QUrl& url, QObject* parent)
             this, &RelayClient::onReconnectTimer);
 }
 
+RelayClient::~RelayClient()
+{
+    qDebug() << "[shutdown] ~RelayClient" << m_url.toString();
+    shutdown();
+    qDebug() << "[shutdown] ~RelayClient exit" << m_url.toString();
+}
+
+void RelayClient::shutdown()
+{
+    if (m_shuttingDown)
+        return;
+    m_shuttingDown = true;
+    m_intentionalDisconnect = true;
+
+    m_reconnectTimer.stop();
+    m_socket.disconnect(this);
+    disconnect();
+
+    if (m_socket.state() != QAbstractSocket::UnconnectedState)
+        m_socket.abort();
+
+    m_subscriptions.clear();
+}
+
 void RelayClient::connectToRelay()
 {
+    if (m_shuttingDown)
+        return;
     m_intentionalDisconnect = false;
     m_socket.open(m_url);
 }
@@ -32,16 +58,22 @@ void RelayClient::disconnectFromRelay()
 {
     m_intentionalDisconnect = true;
     m_reconnectTimer.stop();
-    m_socket.close();
+    if (m_socket.state() != QAbstractSocket::UnconnectedState)
+        m_socket.close();
 }
 
 void RelayClient::publish(const NostrEvent& ev)
 {
+    if (m_shuttingDown)
+        return;
     sendJson(makeEventMsg(ev));
 }
 
 void RelayClient::subscribe(const QString& channelTag, int64_t since)
 {
+    if (m_shuttingDown)
+        return;
+
     for (auto& sub : m_subscriptions) {
         if (sub.channelTag == channelTag) {
             if (sub.since == since)
@@ -68,6 +100,9 @@ void RelayClient::subscribe(const QString& channelTag, int64_t since)
 
 void RelayClient::closeSubscription()
 {
+    if (m_shuttingDown)
+        return;
+
     if (m_socket.state() == QAbstractSocket::ConnectedState) {
         for (const auto& sub : m_subscriptions) {
             if (!sub.subId.isEmpty())
@@ -79,6 +114,8 @@ void RelayClient::closeSubscription()
 
 bool RelayClient::isConnected() const
 {
+    if (m_shuttingDown)
+        return false;
     return m_socket.state() == QAbstractSocket::ConnectedState;
 }
 
@@ -86,6 +123,9 @@ bool RelayClient::isConnected() const
 
 void RelayClient::onConnected()
 {
+    if (m_shuttingDown)
+        return;
+
     qDebug() << "[RelayClient]" << m_url.toString() << "connected";
     resetBackoff();
     emit connected();
@@ -94,6 +134,9 @@ void RelayClient::onConnected()
 
 void RelayClient::onDisconnected()
 {
+    if (m_shuttingDown)
+        return;
+
     qDebug() << "[RelayClient]" << m_url.toString() << "disconnected";
     emit disconnected();
 
@@ -103,6 +146,9 @@ void RelayClient::onDisconnected()
 
 void RelayClient::onTextMessageReceived(const QString& msg)
 {
+    if (m_shuttingDown)
+        return;
+
     const RelayMsg parsed = parseRelayMsg(msg);
 
     switch (parsed.type) {
@@ -127,6 +173,9 @@ void RelayClient::onTextMessageReceived(const QString& msg)
 
 void RelayClient::onReconnectTimer()
 {
+    if (m_shuttingDown)
+        return;
+
     qDebug() << "[RelayClient] Reconnecting to" << m_url.toString()
              << "backoff=" << m_backoffMs << "ms";
     m_socket.open(m_url);
@@ -148,6 +197,8 @@ void RelayClient::sendReq(const ActiveSub& sub)
 
 void RelayClient::sendJson(const QJsonArray& msg)
 {
+    if (m_shuttingDown)
+        return;
     if (m_socket.state() != QAbstractSocket::ConnectedState) {
         qWarning() << "[RelayClient] send called while not connected";
         return;
@@ -158,6 +209,8 @@ void RelayClient::sendJson(const QJsonArray& msg)
 
 void RelayClient::scheduleReconnect()
 {
+    if (m_shuttingDown)
+        return;
     // Backoff: 1 s → 2 s → 4 s … capped at 60 s.
     m_reconnectTimer.start(m_backoffMs);
     m_backoffMs = std::min(m_backoffMs * 2, kMaxBackoffMs);
@@ -170,6 +223,9 @@ void RelayClient::resetBackoff()
 
 void RelayClient::resubscribe()
 {
+    if (m_shuttingDown)
+        return;
+
     for (auto& sub : m_subscriptions) {
         if (!sub.subId.isEmpty())
             sendJson(makeCloseMsg(sub.subId));

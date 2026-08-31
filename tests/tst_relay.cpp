@@ -553,6 +553,24 @@ private slots:
 
         client.disconnectFromRelay();
     }
+
+    // ── Shutdown : destruction connectée ne doit pas crasher ────────────────
+
+    void test_shutdownWhileConnected() {
+        FakeRelay relay;
+        QVERIFY(relay.listen(0));
+
+        {
+            net::RelayPool pool;
+            pool.setRelays({relay.url()});
+            QSignalSpy connSpy(&pool, &net::RelayPool::onlineChanged);
+            pool.connectAll();
+            QVERIFY(connSpy.wait(2000));
+            QVERIFY(pool.isOnline());
+            pool.shutdown();
+            QVERIFY(!pool.isOnline());
+        }
+    }
 };
 
 QTEST_MAIN(TstRelay)
