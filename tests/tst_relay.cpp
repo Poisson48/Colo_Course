@@ -571,6 +571,27 @@ private slots:
             QVERIFY(!pool.isOnline());
         }
     }
+
+    // Simule AppController : pool + sync comme membres avec parent AppController-like.
+    void test_nestedShutdownNoDoubleFree() {
+        FakeRelay relay;
+        QVERIFY(relay.listen(0));
+
+        struct Owner : QObject {
+            net::RelayPool pool;
+            explicit Owner(QObject* parent = nullptr) : QObject(parent), pool() {}
+            ~Owner() override { pool.shutdown(); }
+        };
+
+        {
+            Owner owner;
+            owner.pool.setRelays({relay.url()});
+            QSignalSpy connSpy(&owner.pool, &net::RelayPool::onlineChanged);
+            owner.pool.connectAll();
+            QVERIFY(connSpy.wait(2000));
+            QVERIFY(owner.pool.isOnline());
+        }
+    }
 };
 
 QTEST_MAIN(TstRelay)

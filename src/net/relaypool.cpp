@@ -32,7 +32,8 @@ void RelayPool::setRelays(const QList<QUrl>& urls)
     m_clients.clear();
 
     for (const QUrl& url : urls) {
-        auto client = std::make_unique<RelayClient>(url, this);
+        // Pas de parent QObject : propriété exclusive via unique_ptr.
+        auto client = std::make_unique<RelayClient>(url);
 
         connect(client.get(), &RelayClient::connected,
                 this, &RelayPool::onClientConnected);

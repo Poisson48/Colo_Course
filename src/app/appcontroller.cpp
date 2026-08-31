@@ -339,8 +339,8 @@ AppController::AppController(QObject *parent)
     , m_listsModel(new ListsModel(this))
     , m_recipesModel(new ListsModel(this))
     , m_recipeLibraryModel(new RecipeLibraryModel(this))
-    , m_relayPool(this)
-    , m_syncEngine(this)
+    , m_relayPool()
+    , m_syncEngine()
 {
     m_recipesModel->setKindFilter(QStringLiteral("recipe"));
     setRecipeCatalogStateListener([this]() {
