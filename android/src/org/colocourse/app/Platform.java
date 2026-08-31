@@ -28,7 +28,8 @@ import java.io.OutputStream;
 public class Platform {
 
     public static final String CHANNEL_ID = "colocourse.sync";
-    public static final String CHANNEL_VEILLE_ID = "colocourse.veille.v2";
+    // v3 : IMPORTANCE_LOW requis pour startForeground (Android 14+ interdit MIN).
+    public static final String CHANNEL_VEILLE_ID = "colocourse.veille.v3";
     private static final int    NOTIFICATION_ID = 4545;
     private static final int    PERMISSION_REQUEST = 4545;
 
@@ -48,9 +49,9 @@ public class Platform {
 
         if (nm.getNotificationChannel(CHANNEL_VEILLE_ID) == null) {
             NotificationChannel veille = new NotificationChannel(
-                    CHANNEL_VEILLE_ID, "Colo Course",
-                    NotificationManager.IMPORTANCE_MIN);
-            veille.setDescription("");
+                    CHANNEL_VEILLE_ID, "Veille listes",
+                    NotificationManager.IMPORTANCE_LOW);
+            veille.setDescription("Alertes discrètes quand l'app est en arrière-plan");
             veille.setShowBadge(false);
             veille.enableLights(false);
             veille.enableVibration(false);

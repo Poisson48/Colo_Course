@@ -9,6 +9,7 @@
 #include <QString>
 #include <QStringList>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace net {
@@ -82,9 +83,10 @@ private:
     void scheduleReconnect();
     void resetBackoff();
     void resubscribe();
+    bool hasLiveSocket() const;
 
     QUrl        m_url;
-    QWebSocket  m_socket;
+    std::unique_ptr<QWebSocket> m_socket;
     QTimer      m_reconnectTimer;
 
     int     m_backoffMs    = 1000;   // current reconnect delay

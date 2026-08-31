@@ -1,6 +1,7 @@
 package org.colocourse.app;
 
 import android.app.Notification;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
@@ -73,16 +74,33 @@ public class PushService extends Service {
         Platform.createChannel(this);
         final CharSequence label = getApplicationInfo().loadLabel(getPackageManager());
         final String appName = label != null ? label.toString() : "Colo Course";
+
         Notification.Builder builder = new Notification.Builder(this, Platform.CHANNEL_VEILLE_ID)
                 .setSmallIcon(smallIcon())
                 .setContentTitle(appName)
-                .setContentText("")
+                .setContentText("Alertes listes partagées")
                 .setOngoing(true)
                 .setShowWhen(false)
-                .setVisibility(Notification.VISIBILITY_SECRET);
+                .setCategory(Notification.CATEGORY_SERVICE);
+
+        Intent open = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (open != null) {
+            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            builder.setContentIntent(PendingIntent.getActivity(
+                    this, 0, open,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
             builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
-        startForeground(FG_ID, builder.build());
+
+        try {
+            startForeground(FG_ID, builder.build());
+        } catch (RuntimeException e) {
+            // Android 14+ : notification invalide (canal MIN, texte vide…) → ne pas crasher.
+            stopSelf();
+            return START_NOT_STICKY;
+        }
 
         if (worker != null && worker.isAlive()) {
             running = true;
