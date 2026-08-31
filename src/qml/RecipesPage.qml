@@ -408,9 +408,6 @@ Item {
                 interactive: categoryChipModel.count > 0
                 model: categoryChipModel
 
-                ScrollBar.vertical.policy: ScrollBar.AlwaysOff
-                ScrollBar.horizontal.policy: ScrollBar.AsNeeded
-
                 // Ne pas faire défiler le catalogue quand on glisse verticalement sur les chips.
                 WheelHandler {
                     onWheel: (event) => {
