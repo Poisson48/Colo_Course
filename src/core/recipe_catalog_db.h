@@ -30,6 +30,7 @@ public:
 
 private:
     static bool ensureSchema();
+    static bool ensureFtsPopulatedUnlocked();
     static bool rebuildFtsIndex();
     static bool rebuildFtsIndexUnlocked();
     static const LibraryRecipe *fetchCached(const QString &id);

@@ -131,6 +131,11 @@ bool RecipeCatalogDb::open(const QString &path)
         close();
         return false;
     }
+    if (!ensureFtsPopulatedUnlocked()) {
+        qWarning() << "[RecipeCatalogDb] FTS populate failed";
+        close();
+        return false;
+    }
     bumpCacheGeneration();
     return true;
 }
@@ -192,6 +197,28 @@ bool RecipeCatalogDb::ensureSchema()
     for (const QString &sql : ddl) {
         if (!execSql(q, sql))
             return false;
+    }
+    return true;
+}
+
+bool RecipeCatalogDb::ensureFtsPopulatedUnlocked()
+{
+    if (!s_db.isOpen() || !ftsTableExists(s_db))
+        return true;
+
+    QSqlQuery q(s_db);
+    if (!q.exec(QStringLiteral(
+            "SELECT (SELECT COUNT(*) FROM recipes), (SELECT COUNT(*) FROM recipes_fts)"))
+        || !q.next()) {
+        return rebuildFtsIndexUnlocked();
+    }
+
+    const int recipes = q.value(0).toInt();
+    const int fts     = q.value(1).toInt();
+    if (recipes > 0 && fts < recipes) {
+        qWarning() << "[RecipeCatalogDb] index FTS incomplet" << fts << "/" << recipes
+                   << "— reconstruction";
+        return rebuildFtsIndexUnlocked();
     }
     return true;
 }
@@ -412,9 +439,29 @@ std::vector<int> RecipeCatalogDb::filterIndices(const QString &query, const QStr
     }
 
     if (!sqlQ.exec()) {
-        if (totalMatchesOut)
-            *totalMatchesOut = 0;
-        return out;
+        if (useFts) {
+            qWarning() << "[RecipeCatalogDb] FTS MATCH échoué, repli LIKE :"
+                       << sqlQ.lastError().text();
+            sql = QStringLiteral(
+                "SELECT sort_key, id, title, category, instructions, search_blob FROM recipes "
+                "WHERE 1=1");
+            if (!category.isEmpty())
+                sql += QStringLiteral(" AND category = ?");
+            for (int i = 0; i < tokens.size(); ++i)
+                sql += QStringLiteral(" AND search_blob LIKE ?");
+            sqlQ = QSqlQuery(s_db);
+            sqlQ.prepare(sql);
+            bindTokensAndCategory(sqlQ, tokens, category);
+            if (!sqlQ.exec()) {
+                if (totalMatchesOut)
+                    *totalMatchesOut = 0;
+                return out;
+            }
+        } else {
+            if (totalMatchesOut)
+                *totalMatchesOut = 0;
+            return out;
+        }
     }
 
     struct Scored { int index; int score; };

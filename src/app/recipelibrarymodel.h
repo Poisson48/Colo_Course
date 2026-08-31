@@ -72,6 +72,7 @@ private:
     bool m_stale = false;
     bool m_loading = false;
     bool m_truncated = false;
+    bool m_rebuildPending = false;
     int m_totalMatches = 0;
     static constexpr int kMaxVisibleRows = 250;
     QFutureWatcher<std::pair<std::vector<int>, int>> *m_rebuildWatcher = nullptr;

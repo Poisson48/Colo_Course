@@ -152,8 +152,11 @@ void RecipeLibraryModel::rebuildAsync() {
     if (!m_catalogActive)
         return;
 
-    if (m_rebuildWatcher && m_rebuildWatcher->isRunning())
+    if (m_rebuildWatcher && m_rebuildWatcher->isRunning()) {
+        m_rebuildPending = true;
         return;
+    }
+    m_rebuildPending = false;
 
     setLoading(true);
     const QString filter = m_filter;
@@ -186,6 +189,8 @@ void RecipeLibraryModel::rebuildAsync() {
                     }
                     m_stale = false;
                     setLoading(false);
+                    if (m_rebuildPending)
+                        rebuildAsync();
                 });
     }
 

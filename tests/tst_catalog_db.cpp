@@ -5,6 +5,8 @@
 
 #include <QDir>
 #include <QFile>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QString>
 
@@ -109,9 +111,37 @@ static void test_corruptFile() {
     EXPECT_TRUE(!RecipeCatalogDb::validateFile(path, &err));
 }
 
+static void test_emptyFtsRebuiltOnOpen() {
+    QTemporaryDir tmp;
+    EXPECT_TRUE(tmp.isValid());
+    const QString dbPath = tmp.path() + QStringLiteral("/empty_fts.db");
+
+    EXPECT_TRUE(RecipeCatalogDb::open(dbPath));
+    EXPECT_TRUE(RecipeCatalogDb::importFromJson(QByteArray(kFixtureJson)));
+    RecipeCatalogDb::close();
+
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"),
+                                                      QStringLiteral("empty_fts_test"));
+        db.setDatabaseName(dbPath);
+        EXPECT_TRUE(db.open());
+        QSqlQuery q(db);
+        EXPECT_TRUE(q.exec(QStringLiteral("DELETE FROM recipes_fts")));
+        db.close();
+        QSqlDatabase::removeDatabase(QStringLiteral("empty_fts_test"));
+    }
+
+    EXPECT_TRUE(RecipeCatalogDb::open(dbPath));
+    int total = 0;
+    auto hits = RecipeCatalogDb::filterIndices(QStringLiteral("omelette"), QString(), 0, &total);
+    EXPECT_EQ(static_cast<int>(hits.size()), 1);
+    RecipeCatalogDb::close();
+}
+
 int main() {
     std::printf("=== tst_catalog_db ===\n");
     test_importAndFilter();
+    test_emptyFtsRebuiltOnOpen();
     test_validateFile();
     test_corruptFile();
     std::printf("\nResults: %d/%d passed, %d failed\n", g_passed, g_total, g_failed);
