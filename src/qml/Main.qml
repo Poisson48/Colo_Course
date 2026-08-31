@@ -51,13 +51,7 @@ ApplicationWindow {
         if (page && typeof page.handleBack === "function" && page.handleBack())
             return true
         if (stack.depth > 1) {
-            // Recette ouverte : retour direct à Mes listes (pas un dépilement intermédiaire).
-            if (page && page.isRecipe) {
-                while (stack.depth > 1)
-                    stack.pop(StackView.Immediate)
-            } else {
-                stack.pop()
-            }
+            stack.pop()
             return true
         }
         return false

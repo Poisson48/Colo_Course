@@ -676,6 +676,69 @@ private slots:
         delete page;
     }
 
+    // Recette ouverte depuis Recettes : retour → Mes recettes, puis Mes listes.
+    void test_recipeBackToRecipesPage() {
+        QTemporaryDir dir;
+        store::Database &db = m_ctrl.db();
+        QVERIFY(db.open(dir.filePath("back.db")));
+        qobject_cast<app::ListsModel *>(m_ctrl.lists())->reload(db, "dev-A");
+        m_ctrl.setDisplayName(QStringLiteral("Testeur"));
+
+        core::ListMeta rec;
+        rec.listId = "rec-1";
+        rec.key = std::vector<uint8_t>(32, 5);
+        rec.title = "Ma tarte";
+        rec.titleVer = {1, "dev-A"};
+        rec.lamport = 1;
+        rec.created = 100;
+        rec.kind = "recipe";
+        QVERIFY(db.createList(rec));
+
+        QObject *window = load(QStringLiteral("Main.qml"));
+        QVERIFY(window);
+
+        QObject *stack = nullptr;
+        for (QObject *o : window->findChildren<QObject *>()) {
+            if (QString::fromLatin1(o->metaObject()->className())
+                    .contains(QStringLiteral("StackView"))) {
+                stack = o;
+                break;
+            }
+        }
+        QVERIFY2(stack, "StackView introuvable");
+        QCOMPARE(stack->property("depth").toInt(), 1);
+
+        QObject *listsPage = stack->property("currentItem").value<QObject *>();
+        QVERIFY(listsPage);
+        QMetaObject::invokeMethod(listsPage, "openRecipesPage");
+        QTest::qWait(50);
+        QCOMPARE(stack->property("depth").toInt(), 2);
+        QCOMPARE(stack->property("currentItem").value<QObject *>()->property("pageTitle").toString(),
+                 QStringLiteral("Recettes"));
+
+        QMetaObject::invokeMethod(&m_ctrl, "listOpened",
+                                  Q_ARG(QString, QStringLiteral("rec-1")),
+                                  Q_ARG(QString, QStringLiteral("Ma tarte")));
+        QTest::qWait(50);
+        QCOMPARE(stack->property("depth").toInt(), 3);
+        QVERIFY(stack->property("currentItem").value<QObject *>()->property("isRecipe").toBool());
+
+        QVariant handled;
+        QMetaObject::invokeMethod(window, "handleSystemBack", Q_RETURN_ARG(QVariant, handled));
+        QCOMPARE(handled.toBool(), true);
+        QCOMPARE(stack->property("depth").toInt(), 2);
+        QCOMPARE(stack->property("currentItem").value<QObject *>()->property("pageTitle").toString(),
+                 QStringLiteral("Recettes"));
+
+        QMetaObject::invokeMethod(window, "handleSystemBack", Q_RETURN_ARG(QVariant, handled));
+        QCOMPARE(handled.toBool(), true);
+        QCOMPARE(stack->property("depth").toInt(), 1);
+        QCOMPARE(stack->property("currentItem").value<QObject *>()->property("pageTitle").toString(),
+                 QStringLiteral("Mes listes"));
+
+        delete window;
+    }
+
     // Réordonnancement des listes par les flèches ↑/↓ : elles appellent moveList sur
     // des index adjacents. On vérifie ici cette mécanique (un tap = un cran), de façon
     // déterministe, au niveau du modèle exposé à l'UI.
