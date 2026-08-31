@@ -51,15 +51,28 @@ static void test_notesFromBody() {
 
 static void test_parseRecipesManifest() {
     const QByteArray json =
-        "{\"version\":2,\"count\":31000,"
+        "{\"version\":2,\"count\":31000,\"schemaVersion\":2,"
+        "\"format\":\"sqlite\","
+        "\"byteSize\":77000000,"
+        "\"sha256\":\"abc123\","
         "\"updatedAt\":\"2026-08-30T12:00:00Z\","
-        "\"url\":\"https://colo-apps.example/releases/recipe_library.json\"}";
+        "\"url\":\"https://colo-apps.example/releases/recipe_catalog.db\"}";
 
     app::RecipesManifest manifest;
     EXPECT_TRUE(app::parseRecipesManifest(json, &manifest));
     EXPECT_EQ(manifest.count, 31000);
     EXPECT_EQ(manifest.version, 2);
-    EXPECT_EQ(manifest.url, QStringLiteral("https://colo-apps.example/releases/recipe_library.json"));
+    EXPECT_EQ(manifest.schemaVersion, 2);
+    EXPECT_EQ(manifest.format, QStringLiteral("sqlite"));
+    EXPECT_EQ(manifest.sha256, QStringLiteral("abc123"));
+    EXPECT_EQ(manifest.url, QStringLiteral("https://colo-apps.example/releases/recipe_catalog.db"));
+
+    const QByteArray legacy =
+        "{\"version\":1,\"count\":30000,"
+        "\"updatedAt\":\"2026-08-01T12:00:00Z\","
+        "\"url\":\"https://colo-apps.example/releases/recipe_library.json\"}";
+    EXPECT_TRUE(app::parseRecipesManifest(legacy, &manifest));
+    EXPECT_EQ(manifest.format, QString());
 
     EXPECT_TRUE(!app::parseRecipesManifest(QByteArray("{}"), &manifest));
     EXPECT_TRUE(!app::parseRecipesManifest(QByteArray("{\"count\":0}"), &manifest));

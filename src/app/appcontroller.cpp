@@ -343,6 +343,10 @@ AppController::AppController(QObject *parent)
     , m_syncEngine(this)
 {
     m_recipesModel->setKindFilter(QStringLiteral("recipe"));
+    setRecipeCatalogStateListener([this]() {
+        emit recipeCatalogStateChanged();
+        emit recipeCatalogErrorChanged();
+    });
 }
 
 AppController::~AppController() = default;
@@ -360,6 +364,10 @@ bool AppController::init() {
     }
 
     // Pas de chargement catalogue au démarrage : warmup à l'ouverture de Recettes.
+    loadRecipeCatalogAsync(this, [this](bool ok) {
+        if (ok)
+            emit recipeLibraryCountChanged();
+    }, nullptr, 2500);
 
     // Blobs orphelins (photo retirée, liste quittée…) : les purger au démarrage.
     m_db.purgeOrphanImages();
@@ -528,6 +536,14 @@ int AppController::recipeLibraryCount() const {
 
 bool AppController::recipeLibraryLoading() const {
     return m_recipeLibraryLoading;
+}
+
+QString AppController::recipeCatalogState() const {
+    return recipeCatalogStateString(app::recipeCatalogState());
+}
+
+QString AppController::recipeCatalogError() const {
+    return app::recipeCatalogError();
 }
 
 ItemModel *AppController::items() {
@@ -976,6 +992,23 @@ void AppController::warmupRecipeLibraryCatalog() {
     ensureRecipeCatalogLoaded(this, [this](bool ok) {
         if (ok)
             emit recipeLibraryCountChanged();
+    });
+}
+
+void AppController::retryRecipeCatalog() {
+    m_recipeLibraryLoading = true;
+    emit recipeLibraryLoadingChanged();
+    app::retryRecipeCatalog(this, [this](bool ok) {
+        m_recipeLibraryLoading = false;
+        emit recipeLibraryLoadingChanged();
+        if (ok) {
+            m_recipeLibraryModel->reloadFromLibrary();
+            emit recipeLibraryCountChanged();
+        }
+        m_recipeLibraryModel->activateCatalog();
+    }, [this]() {
+        m_recipeLibraryModel->reloadFromLibrary();
+        emit recipeLibraryCountChanged();
     });
 }
 

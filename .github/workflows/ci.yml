@@ -33,6 +33,11 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+      - name: Validate PC smoke
+        run: |
+          sudo apt-get install -y xvfb
+          scripts/validate-pc.sh
+
   # APK arm64 signé, récupérable dans les artefacts du run.
   android:
     uses: ./.github/workflows/android.yml

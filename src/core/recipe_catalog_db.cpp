@@ -2,6 +2,7 @@
 
 #include "ingredient_norm.h"
 
+#include <QFileInfo>
 #include <QHash>
 #include <QMutex>
 #include <QMutexLocker>
@@ -47,6 +48,26 @@ bool bindTokensAndCategory(QSqlQuery &q, const QStringList &tokens, const QStrin
     if (!category.isEmpty())
         q.bindValue(idx, category);
     return true;
+}
+
+bool ftsTableExists(QSqlDatabase &db)
+{
+    QSqlQuery q(db);
+    return q.exec(QStringLiteral(
+               "SELECT 1 FROM sqlite_master WHERE type='table' AND name='recipes_fts'"))
+           && q.next();
+}
+
+QString ftsMatchExpression(const QStringList &tokens)
+{
+    QStringList parts;
+    parts.reserve(tokens.size());
+    for (const QString &tok : tokens) {
+        QString escaped = tok;
+        escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+        parts.push_back(QStringLiteral("\"") + escaped + QStringLiteral("\"*"));
+    }
+    return parts.join(QStringLiteral(" AND "));
 }
 
 LibraryRecipe rowToRecipe(const QSqlRecord &rec, const std::vector<LibraryIngredient> &ings)
@@ -164,12 +185,33 @@ bool RecipeCatalogDb::ensureSchema()
             ")"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS idx_recipes_category ON recipes(category)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS idx_recipes_id ON recipes(id)"),
+        QStringLiteral(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS recipes_fts USING fts5("
+            "sort_key UNINDEXED, search_blob)"),
     };
     for (const QString &sql : ddl) {
         if (!execSql(q, sql))
             return false;
     }
     return true;
+}
+
+bool RecipeCatalogDb::rebuildFtsIndexUnlocked()
+{
+    if (!s_db.isOpen() || !ftsTableExists(s_db))
+        return true;
+    QSqlQuery q(s_db);
+    if (!execSql(q, QStringLiteral("DELETE FROM recipes_fts")))
+        return false;
+    return execSql(q, QStringLiteral(
+        "INSERT INTO recipes_fts(sort_key, search_blob) "
+        "SELECT sort_key, search_blob FROM recipes"));
+}
+
+bool RecipeCatalogDb::rebuildFtsIndex()
+{
+    QMutexLocker lock(&s_mutex);
+    return rebuildFtsIndexUnlocked();
 }
 
 bool RecipeCatalogDb::importFromParsed(RecipeLibraryParseResult &&parsed)
@@ -247,6 +289,19 @@ bool RecipeCatalogDb::importFromParsed(RecipeLibraryParseResult &&parsed)
         s_db.rollback();
         return false;
     }
+
+    QSqlQuery metaVer(s_db);
+    metaVer.prepare(QStringLiteral(
+        "INSERT OR REPLACE INTO catalog_meta (key, value) VALUES (?, ?)"));
+    metaVer.bindValue(0, QStringLiteral("schema_version"));
+    metaVer.bindValue(1, QStringLiteral("2"));
+    metaVer.exec();
+
+    if (!rebuildFtsIndexUnlocked()) {
+        qWarning() << "[RecipeCatalogDb] FTS rebuild failed";
+        return false;
+    }
+
     bumpCacheGeneration();
     return sortKey > 0;
 }
@@ -327,16 +382,34 @@ std::vector<int> RecipeCatalogDb::filterIndices(const QString &query, const QStr
     const QStringList tokens = qNorm.split(QRegularExpression(QStringLiteral("\\s+")),
                                            Qt::SkipEmptyParts);
 
-    QString sql = QStringLiteral(
-        "SELECT sort_key, id, title, category, instructions, search_blob FROM recipes WHERE 1=1");
-    if (!category.isEmpty())
-        sql += QStringLiteral(" AND category = ?");
-    for (int i = 0; i < tokens.size(); ++i)
-        sql += QStringLiteral(" AND search_blob LIKE ?");
+    const bool useFts = !tokens.isEmpty() && ftsTableExists(s_db);
+    QString sql;
+    if (useFts) {
+        sql = QStringLiteral(
+            "SELECT r.sort_key, r.id, r.title, r.category, r.instructions, r.search_blob "
+            "FROM recipes_fts f "
+            "JOIN recipes r ON r.sort_key = f.sort_key "
+            "WHERE f.search_blob MATCH ?");
+        if (!category.isEmpty())
+            sql += QStringLiteral(" AND r.category = ?");
+    } else {
+        sql = QStringLiteral(
+            "SELECT sort_key, id, title, category, instructions, search_blob FROM recipes WHERE 1=1");
+        if (!category.isEmpty())
+            sql += QStringLiteral(" AND category = ?");
+        for (int i = 0; i < tokens.size(); ++i)
+            sql += QStringLiteral(" AND search_blob LIKE ?");
+    }
 
     QSqlQuery sqlQ(s_db);
     sqlQ.prepare(sql);
-    bindTokensAndCategory(sqlQ, tokens, category);
+    if (useFts) {
+        sqlQ.addBindValue(ftsMatchExpression(tokens));
+        if (!category.isEmpty())
+            sqlQ.addBindValue(category);
+    } else {
+        bindTokensAndCategory(sqlQ, tokens, category);
+    }
 
     if (!sqlQ.exec()) {
         if (totalMatchesOut)
@@ -432,6 +505,50 @@ std::vector<RecipeLibrary::CategoryStat> RecipeCatalogDb::categoryStats()
         out.push_back(std::move(stat));
     }
     return out;
+}
+
+bool RecipeCatalogDb::validateFile(const QString &path, QString *errorOut)
+{
+    const QFileInfo info(path);
+    if (!info.exists() || info.size() < 4096) {
+        if (errorOut)
+            *errorOut = QStringLiteral("fichier catalogue absent ou trop petit");
+        return false;
+    }
+
+    const QString connName = QStringLiteral("recipe_catalog_validate_")
+                             + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connName);
+        db.setDatabaseName(path);
+        if (!db.open()) {
+            if (errorOut)
+                *errorOut = db.lastError().text();
+            QSqlDatabase::removeDatabase(connName);
+            return false;
+        }
+
+        QSqlQuery q(db);
+        if (!q.exec(QStringLiteral("SELECT COUNT(*) FROM recipes")) || !q.next()) {
+            if (errorOut)
+                *errorOut = QStringLiteral("table recipes illisible");
+            db.close();
+            QSqlDatabase::removeDatabase(connName);
+            return false;
+        }
+
+        const int count = q.value(0).toInt();
+        db.close();
+        QSqlDatabase::removeDatabase(connName);
+
+        if (count < 100) {
+            if (errorOut)
+                *errorOut = QStringLiteral("catalogue trop petit (") + QString::number(count)
+                            + QStringLiteral(" recettes)");
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace core

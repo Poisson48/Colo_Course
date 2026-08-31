@@ -61,6 +61,15 @@ target_link_libraries(tst_recipe_library PRIVATE core)
 
 add_test(NAME recipe_library COMMAND tst_recipe_library)
 
+add_executable(tst_catalog_db
+    tst_catalog_db.cpp
+)
+target_include_directories(tst_catalog_db PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(tst_catalog_db PRIVATE core Qt6::Core Qt6::Sql)
+add_test(NAME catalog_db COMMAND tst_catalog_db)
+
 add_executable(tst_updater tst_updater.cpp)
 target_include_directories(tst_updater PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(tst_updater PRIVATE applib Qt6::Core)
@@ -158,6 +167,10 @@ target_link_libraries(tst_qml PRIVATE
 
 add_test(NAME qml COMMAND tst_qml)
 set_tests_properties(qml PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+if(TARGET recipe_catalog_db)
+    add_dependencies(tst_qml recipe_catalog_db)
+endif()
 
 # --- Crypto tests (XChaCha20-Poly1305, BIP340 Schnorr, NIP-01) ---
 qt_add_executable(tst_crypto

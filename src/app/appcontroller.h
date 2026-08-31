@@ -108,6 +108,8 @@ class AppController : public QObject {
     Q_PROPERTY(app::RecipeLibraryModel* recipeLibrary READ recipeLibrary CONSTANT)
     Q_PROPERTY(int recipeLibraryCount READ recipeLibraryCount NOTIFY recipeLibraryCountChanged)
     Q_PROPERTY(bool recipeLibraryLoading READ recipeLibraryLoading NOTIFY recipeLibraryLoadingChanged)
+    Q_PROPERTY(QString recipeCatalogState READ recipeCatalogState NOTIFY recipeCatalogStateChanged)
+    Q_PROPERTY(QString recipeCatalogError READ recipeCatalogError NOTIFY recipeCatalogErrorChanged)
     // Articles de la liste ouverte. Chargé par openList(), branché au SyncEngine.
     Q_PROPERTY(app::ItemModel* items READ items CONSTANT)
     // Compteur d'invalidation des vignettes : incrémenté quand le blob d'une photo
@@ -149,6 +151,8 @@ public:
     RecipeLibraryModel *recipeLibrary() const;
     int recipeLibraryCount() const;
     bool recipeLibraryLoading() const;
+    QString recipeCatalogState() const;
+    QString recipeCatalogError() const;
     ItemModel *items();
     bool online() const;
     int  pendingChanges() const;
@@ -190,6 +194,7 @@ public slots:
     Q_INVOKABLE void releaseRecipeLibraryCatalog();
     // Prépare le fichier SQLite en arrière-plan (sans activer le modèle catalogue).
     Q_INVOKABLE void warmupRecipeLibraryCatalog();
+    Q_INVOKABLE void retryRecipeCatalog();
     // Préparation d'une recette personnelle (local, non synchronisé).
     Q_INVOKABLE QString recipeInstructions(const QString &listId);
     Q_INVOKABLE void setRecipeInstructions(const QString &listId, const QString &text);
@@ -337,6 +342,8 @@ signals:
     void toast(const QString &message);
     void recipeLibraryCountChanged();
     void recipeLibraryLoadingChanged();
+    void recipeCatalogStateChanged();
+    void recipeCatalogErrorChanged();
     void imageRevisionChanged();
 
 private slots:

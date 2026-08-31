@@ -25,8 +25,13 @@ public:
 
     static std::vector<RecipeLibrary::CategoryStat> categoryStats();
 
+    // Vérifie qu'un fichier .db est un catalogue utilisable (sans ouvrir la connexion globale).
+    static bool validateFile(const QString &path, QString *errorOut = nullptr);
+
 private:
     static bool ensureSchema();
+    static bool rebuildFtsIndex();
+    static bool rebuildFtsIndexUnlocked();
     static const LibraryRecipe *fetchCached(const QString &id);
 };
 

@@ -133,6 +133,9 @@ def write_db(recipes: list[dict], out_path: Path) -> None:
               FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
             );
             CREATE INDEX idx_recipes_category ON recipes(category);
+            CREATE VIRTUAL TABLE recipes_fts USING fts5(
+              sort_key UNINDEXED, search_blob
+            );
             """
         )
         for sort_key, rec in enumerate(recipes):
@@ -160,6 +163,14 @@ def write_db(recipes: list[dict], out_path: Path) -> None:
         conn.execute(
             "INSERT INTO catalog_meta (key, value) VALUES (?, ?)",
             ("recipe_count", str(len(recipes))),
+        )
+        conn.execute(
+            "INSERT INTO catalog_meta (key, value) VALUES (?, ?)",
+            ("schema_version", "2"),
+        )
+        conn.execute(
+            "INSERT INTO recipes_fts(sort_key, search_blob) "
+            "SELECT sort_key, search_blob FROM recipes"
         )
         conn.commit()
     finally:

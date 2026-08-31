@@ -68,7 +68,7 @@ adb shell input tap 300 120
 sleep 3
 adb shell uiautomator dump /sdcard/colo-ui.xml >/dev/null 2>&1 || true
 UI=$(adb shell cat /sdcard/colo-ui.xml 2>/dev/null || true)
-if ! echo "$UI" | grep -qE 'Rechercher titre|Chargement du catalogue|Catalogue indisponible|Toutes \('; then
+if ! echo "$UI" | grep -qE 'catalogSearch|Rechercher titre|Chargement du catalogue|Catalogue indisponible|Toutes \('; then
   echo "FAIL: panneau Catalogue vide (pas de champ recherche ni message)"
   echo "$UI" | tr '>' '>\n' | grep -iE 'recette|catalog|recherch' | head -20
   exit 1

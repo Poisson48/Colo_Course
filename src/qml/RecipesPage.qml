@@ -3,6 +3,11 @@ import QtQuick.Controls
 import QtQuick.Controls.Material
 import QtQuick.Layouts
 
+// Recettes — règles Android catalogue :
+// - Ne jamais mettre le panneau Catalogue dans un StackLayout (bloque le thread UI).
+// - Utiliser Loader + Item racine avec anchors.fill: parent (pas Layout.* sur la racine chargée).
+// - objectName "catalogSearch" requis pour validate-android.sh (uiautomator).
+
 Item {
     id: root
 
@@ -110,201 +115,209 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
-        // --- Mes recettes ---
-        ColumnLayout {
-            anchors.fill: parent
-            visible: tabBar.currentIndex === 0
-            spacing: 0
-
-            ColoTextField {
-                id: myRecipesSearch
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.gap
-                Layout.rightMargin: Theme.gap
-                Layout.topMargin: Theme.gap
-                hint: "Rechercher une recette, un ingrédient…"
-            }
-
-            Timer {
-                id: myRecipesSearchDebounce
-                interval: 150
-                onTriggered: AppController.recipes.filter = myRecipesSearch.text
-            }
-
-            Connections {
-                target: myRecipesSearch
-                function onTextChanged() {
-                    myRecipesSearchDebounce.restart()
-                }
-            }
-
-            Label {
-                Layout.fillWidth: true
-                Layout.margins: Theme.gap
-                visible: recipesView.count === 0 && myRecipesSearch.text.length === 0
-                text: "Aucune recette. Créez-en une, parcourez le catalogue, ou rejoignez-en une via un lien partagé."
-                wrapMode: Text.WordWrap
-                color: Theme.textDim
-                font.pixelSize: 15
-            }
-
-            Label {
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.gap
-                Layout.rightMargin: Theme.gap
-                visible: recipesView.count === 0 && myRecipesSearch.text.length > 0
-                text: "Aucun résultat pour « " + myRecipesSearch.text + " »."
-                wrapMode: Text.WordWrap
-                color: Theme.textDim
-                font.pixelSize: 15
-            }
-
-            Button {
-                Layout.alignment: Qt.AlignHCenter
-                visible: recipesView.count === 0 && myRecipesSearch.text.length > 0
-                flat: true
-                implicitHeight: Theme.touchTarget
-                contentItem: Label {
-                    text: "Effacer la recherche"
-                    color: Theme.accent
-                    font.pixelSize: 14
-                    font.weight: Font.DemiBold
-                }
-                onClicked: {
-                    myRecipesSearch.text = ""
-                    AppController.recipes.filter = ""
-                }
-            }
-
-            Label {
-                Layout.fillWidth: true
-                Layout.leftMargin: Theme.gap
-                Layout.rightMargin: Theme.gap
-                Layout.bottomMargin: 4
-                visible: myRecipesSearch.text.length > 0 && recipesView.count > 0
-                text: recipesView.count + (recipesView.count > 1 ? " recettes" : " recette")
-                color: Theme.textDim
-                font.pixelSize: 12
-            }
-
-            ListView {
-                id: recipesView
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                clip: true
-                model: AppController.recipes
-                topMargin: Theme.gap
-                bottomMargin: Theme.gap
-                spacing: 8
-                leftMargin: Theme.gap
-                rightMargin: Theme.gap
-
-                delegate: ItemDelegate {
-                    id: card
-                    required property string listId
-                    required property string name
-                    required property int total
-                    required property string members
-                    required property int memberCount
-
-                    width: recipesView.width - recipesView.leftMargin - recipesView.rightMargin
-                    height: Math.max(76, card.implicitHeight)
-
-                    background: Rectangle {
-                        radius: 12
-                        color: card.pressed ? Theme.surfaceHigh : Theme.surface
-                        border.color: Theme.outline
-                        border.width: 1
-                    }
-
-                    contentItem: RowLayout {
-                        anchors.fill: parent
-                        anchors.margins: 14
-                        spacing: 10
-
-                        Rectangle {
-                            Layout.preferredWidth: 36
-                            Layout.preferredHeight: 36
-                            Layout.alignment: Qt.AlignVCenter
-                            radius: 18
-                            color: Theme.accent
-
-                            Label {
-                                anchors.centerIn: parent
-                                text: card.name.length > 0 ? card.name.charAt(0).toUpperCase() : "R"
-                                color: Theme.onAccent
-                                font.pixelSize: 15
-                                font.weight: Font.DemiBold
-                            }
-                        }
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 2
-
-                            Label {
-                                Layout.fillWidth: true
-                                text: myRecipesSearch.text.length > 0
-                                      ? root.highlightPlain(card.name, myRecipesSearch.text)
-                                      : card.name
-                                textFormat: myRecipesSearch.text.length > 0
-                                            ? Text.StyledText : Text.PlainText
-                                color: Theme.text
-                                font.pixelSize: 17
-                                font.weight: Font.DemiBold
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                                lineHeight: 1.25
-                                lineHeightMode: Text.ProportionalHeight
-                            }
-
-                            Label {
-                                Layout.fillWidth: true
-                                text: {
-                                    const parts = []
-                                    parts.push(card.total + (card.total > 1
-                                                ? " ingrédients" : " ingrédient"))
-                                    if (card.memberCount > 0)
-                                        parts.push("partagée avec " + card.members)
-                                    return parts.join(" · ")
-                                }
-                                color: Theme.textDim
-                                font.pixelSize: 14
-                                wrapMode: Text.WordWrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                            }
-                        }
-                    }
-
-                    onClicked: AppController.openList(card.listId)
-                    onPressAndHold: recipeMenu.openFor(card.listId, card.name)
-                }
-            }
-        }
-
         Loader {
-            id: catalogLoader
+            id: panelLoader
+            objectName: "panelLoader"
             anchors.fill: parent
-            active: tabBar.currentIndex === 1
-            sourceComponent: catalogPanelComponent
+            asynchronous: false
+            sourceComponent: tabBar.currentIndex === 0
+                             ? myRecipesPanelComponent
+                             : catalogPanelComponent
 
-            onActiveChanged: {
-                if (active)
+            onSourceComponentChanged: {
+                if (tabBar.currentIndex === 1)
                     AppController.prepareRecipeLibraryCatalog()
                 else
                     AppController.releaseRecipeLibraryCatalog()
             }
 
             onLoaded: {
-                if (!item)
+                if (tabBar.currentIndex !== 1 || !item)
                     return
                 const panel = item.children.length > 0 ? item.children[0] : null
                 if (panel && panel.rebuildCategoryChips)
                     panel.rebuildCategoryChips()
             }
         }
+        }
+    }
+
+    Component {
+        id: myRecipesPanelComponent
+        Item {
+            anchors.fill: parent
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 0
+
+                ColoTextField {
+                    id: myRecipesSearch
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.gap
+                    Layout.rightMargin: Theme.gap
+                    Layout.topMargin: Theme.gap
+                    hint: "Rechercher une recette, un ingrédient…"
+                }
+
+                Timer {
+                    id: myRecipesSearchDebounce
+                    interval: 150
+                    onTriggered: AppController.recipes.filter = myRecipesSearch.text
+                }
+
+                Connections {
+                    target: myRecipesSearch
+                    function onTextChanged() {
+                        myRecipesSearchDebounce.restart()
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    Layout.margins: Theme.gap
+                    visible: recipesView.count === 0 && myRecipesSearch.text.length === 0
+                    text: "Aucune recette. Créez-en une, parcourez le catalogue, ou rejoignez-en une via un lien partagé."
+                    wrapMode: Text.WordWrap
+                    color: Theme.textDim
+                    font.pixelSize: 15
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.gap
+                    Layout.rightMargin: Theme.gap
+                    visible: recipesView.count === 0 && myRecipesSearch.text.length > 0
+                    text: "Aucun résultat pour « " + myRecipesSearch.text + " »."
+                    wrapMode: Text.WordWrap
+                    color: Theme.textDim
+                    font.pixelSize: 15
+                }
+
+                Button {
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: recipesView.count === 0 && myRecipesSearch.text.length > 0
+                    flat: true
+                    implicitHeight: Theme.touchTarget
+                    contentItem: Label {
+                        text: "Effacer la recherche"
+                        color: Theme.accent
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                    }
+                    onClicked: {
+                        myRecipesSearch.text = ""
+                        AppController.recipes.filter = ""
+                    }
+                }
+
+                Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.gap
+                    Layout.rightMargin: Theme.gap
+                    Layout.bottomMargin: 4
+                    visible: myRecipesSearch.text.length > 0 && recipesView.count > 0
+                    text: recipesView.count + (recipesView.count > 1 ? " recettes" : " recette")
+                    color: Theme.textDim
+                    font.pixelSize: 12
+                }
+
+                ListView {
+                    id: recipesView
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    model: AppController.recipes
+                    topMargin: Theme.gap
+                    bottomMargin: Theme.gap
+                    spacing: 8
+                    leftMargin: Theme.gap
+                    rightMargin: Theme.gap
+
+                    delegate: ItemDelegate {
+                        id: card
+                        required property string listId
+                        required property string name
+                        required property int total
+                        required property string members
+                        required property int memberCount
+
+                        width: recipesView.width - recipesView.leftMargin - recipesView.rightMargin
+                        height: Math.max(76, card.implicitHeight)
+
+                        background: Rectangle {
+                            radius: 12
+                            color: card.pressed ? Theme.surfaceHigh : Theme.surface
+                            border.color: Theme.outline
+                            border.width: 1
+                        }
+
+                        contentItem: RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 14
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.preferredWidth: 36
+                                Layout.preferredHeight: 36
+                                Layout.alignment: Qt.AlignVCenter
+                                radius: 18
+                                color: Theme.accent
+
+                                Label {
+                                    anchors.centerIn: parent
+                                    text: card.name.length > 0 ? card.name.charAt(0).toUpperCase() : "R"
+                                    color: Theme.onAccent
+                                    font.pixelSize: 15
+                                    font.weight: Font.DemiBold
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: myRecipesSearch.text.length > 0
+                                          ? root.highlightPlain(card.name, myRecipesSearch.text)
+                                          : card.name
+                                    textFormat: myRecipesSearch.text.length > 0
+                                                ? Text.StyledText : Text.PlainText
+                                    color: Theme.text
+                                    font.pixelSize: 17
+                                    font.weight: Font.DemiBold
+                                    wrapMode: Text.WordWrap
+                                    maximumLineCount: 2
+                                    elide: Text.ElideRight
+                                    lineHeight: 1.25
+                                    lineHeightMode: Text.ProportionalHeight
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: {
+                                        const parts = []
+                                        parts.push(card.total + (card.total > 1
+                                                    ? " ingrédients" : " ingrédient"))
+                                        if (card.memberCount > 0)
+                                            parts.push("partagée avec " + card.members)
+                                        return parts.join(" · ")
+                                    }
+                                    color: Theme.textDim
+                                    font.pixelSize: 14
+                                    wrapMode: Text.WordWrap
+                                    maximumLineCount: 2
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        onClicked: AppController.openList(card.listId)
+                        onPressAndHold: recipeMenu.openFor(card.listId, card.name)
+                    }
+                }
+            }
         }
     }
 
@@ -327,6 +340,7 @@ Item {
 
             ColoTextField {
                 id: catalogSearch
+                objectName: "catalogSearch"
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.gap
                 Layout.rightMargin: Theme.gap
@@ -449,7 +463,9 @@ Item {
                 BusyIndicator {
                     Layout.alignment: Qt.AlignHCenter
                     running: AppController.recipeLibraryLoading
-                    visible: AppController.recipeLibraryLoading
+                              || AppController.recipeCatalogState === "resolving"
+                              || AppController.recipeCatalogState === "updating"
+                    visible: running
                 }
 
                 Label {
@@ -457,12 +473,35 @@ Item {
                     Layout.leftMargin: Theme.gap
                     Layout.rightMargin: Theme.gap
                     horizontalAlignment: Text.AlignHCenter
-                    text: AppController.recipeLibraryLoading
-                          ? "Chargement du catalogue…"
-                          : "Catalogue indisponible."
+                    text: {
+                        if (AppController.recipeCatalogState === "error")
+                            return AppController.recipeCatalogError.length > 0
+                                   ? AppController.recipeCatalogError
+                                   : "Catalogue indisponible."
+                        if (AppController.recipeLibraryLoading
+                            || AppController.recipeCatalogState === "resolving")
+                            return "Chargement du catalogue…"
+                        if (AppController.recipeCatalogState === "updating")
+                            return "Mise à jour du catalogue…"
+                        return "Catalogue indisponible."
+                    }
                     wrapMode: Text.WordWrap
                     color: Theme.textDim
                     font.pixelSize: 15
+                }
+
+                Button {
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: AppController.recipeCatalogState === "error"
+                    flat: true
+                    implicitHeight: Theme.touchTarget
+                    contentItem: Label {
+                        text: "Réessayer"
+                        color: Theme.accent
+                        font.pixelSize: 14
+                        font.weight: Font.DemiBold
+                    }
+                    onClicked: AppController.retryRecipeCatalog()
                 }
             }
 

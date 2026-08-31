@@ -13,8 +13,11 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QTemporaryDir>
+#include <QCoreApplication>
+#include <QQuickItemGrabResult>
 #include <QDateTime>
 #include <QFile>
+#include <QFileInfo>
 
 #include "app/appcontroller.h"
 #include "app/itemmodel.h"
@@ -23,6 +26,7 @@
 #include "app/qrimageprovider.h"
 #include "app/theme.h"
 #include "app/updater.h"
+#include "app/recipe_library_loader.h"
 #include "core/recipe_library.h"
 
 // Les avertissements QML (binding cassé, appel sur undefined) ne remontent pas dans
@@ -72,6 +76,12 @@ private:
             return nullptr;
         }
         return comp.createWithInitialProperties(props);
+    }
+
+    static QString catalogDbPath() {
+        QString path = QStringLiteral(COLO_QML_DIR);
+        path.replace(QStringLiteral("/src/qml"), QStringLiteral("/data/recipe_catalog.db"));
+        return path;
     }
 
 private slots:
@@ -911,6 +921,133 @@ private slots:
         QVERIFY(!newId.isEmpty());
         QVERIFY(m_ctrl.takePendingPrepPrompt(newId));
         QVERIFY(!m_ctrl.takePendingPrepPrompt(newId));
+    }
+
+    // Validation visuelle du catalogue : captures + textes visibles (COLO_SHOT_DIR requis).
+    void test_recipesCatalogScreenshots() {
+        const QString outDir = qEnvironmentVariable("COLO_SHOT_DIR");
+        if (outDir.isEmpty())
+            QSKIP("COLO_SHOT_DIR non défini");
+
+        QDir().mkpath(outDir);
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        store::Database &db = m_ctrl.db();
+        QVERIFY(db.open(dir.filePath("catalog_shots.db")));
+        m_ctrl.setDisplayName(QStringLiteral("Testeur"));
+        qobject_cast<app::ListsModel *>(m_ctrl.lists())->reload(db, "dev-A");
+
+        QVERIFY2(app::loadRecipeLibraryFromResource()
+                     || core::RecipeLibrary::openCatalogDb(catalogDbPath()),
+                 "recipe_catalog.db requis (build colocourse ou data/recipe_catalog.db)");
+        const int total = core::RecipeLibrary::count();
+        QVERIFY2(total >= 1000, qPrintable(QStringLiteral("catalogue trop petit: ") + QString::number(total)));
+
+        g_warnings.clear();
+        qInstallMessageHandler(warningCollector);
+
+        QObject *pageObj = load(QStringLiteral("RecipesPage.qml"));
+        qInstallMessageHandler(nullptr);
+        g_warnings.removeIf([](const QString &w) {
+            return w.contains(QStringLiteral("[RecipeCatalog]"))
+                   || w.contains(QStringLiteral("open popup"));
+        });
+        QVERIFY(pageObj != nullptr);
+        QVERIFY2(g_warnings.isEmpty(), qPrintable(g_warnings.join(QStringLiteral("\n"))));
+
+        QQuickWindow win;
+        win.resize(400, 780);
+        win.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&win));
+        auto *page = qobject_cast<QQuickItem *>(pageObj);
+        QVERIFY(page);
+        page->setParentItem(win.contentItem());
+        page->setWidth(400);
+        page->setHeight(780);
+
+        QTest::qWait(300);
+        win.grabWindow().save(outDir + QStringLiteral("/recipes-tab0.png"));
+
+        QObject *tabBar = nullptr;
+        for (QObject *o : pageObj->findChildren<QObject *>()) {
+            if (QString::fromLatin1(o->metaObject()->className()).contains(QStringLiteral("TabBar"))) {
+                tabBar = o;
+                break;
+            }
+        }
+        QVERIFY2(tabBar != nullptr, "TabBar introuvable");
+
+        tabBar->setProperty("currentIndex", 1);
+        m_ctrl.prepareRecipeLibraryCatalog();
+
+        QObject *panelLoader = pageObj->findChild<QObject *>(QStringLiteral("panelLoader"));
+        QVERIFY2(panelLoader != nullptr, "panelLoader introuvable");
+        for (int i = 0; i < 100; ++i) {
+            QTest::qWait(50);
+            QCoreApplication::processEvents();
+            if (panelLoader->property("item").isValid())
+                break;
+        }
+        QVERIFY2(panelLoader->property("item").isValid(), "panelLoader.item absent");
+
+        for (int i = 0; i < 80; ++i) {
+            QTest::qWait(100);
+            if (m_ctrl.recipeLibraryCount() >= 1000
+                && m_ctrl.recipeCatalogState() == QStringLiteral("ready"))
+                break;
+        }
+
+        QVERIFY2(m_ctrl.recipeLibraryCount() >= 1000,
+                 qPrintable(QStringLiteral("count=") + QString::number(m_ctrl.recipeLibraryCount())));
+        QTest::qWait(500);
+
+        const QString shotCatalog = outDir + QStringLiteral("/recipes-catalog.png");
+        auto *loadedPanel = qobject_cast<QQuickItem *>(panelLoader->property("item").value<QObject *>());
+        QVERIFY2(loadedPanel != nullptr, "catalogLoader.item n'est pas un QQuickItem");
+        QVERIFY2(loadedPanel->width() > 0 && loadedPanel->height() > 0,
+                 qPrintable(QStringLiteral("catalog panel taille ")
+                            + QString::number(loadedPanel->width()) + "x"
+                            + QString::number(loadedPanel->height())));
+
+        QSharedPointer<QQuickItemGrabResult> grab = loadedPanel->grabToImage();
+        for (int i = 0; i < 50 && grab->image().isNull(); ++i) {
+            QTest::qWait(20);
+            QCoreApplication::processEvents();
+        }
+        QVERIFY2(grab->image().save(shotCatalog), "grabToImage catalogue échoué");
+        win.grabWindow().save(outDir + QStringLiteral("/recipes-catalog-window.png"));
+        QVERIFY(QFile::exists(shotCatalog));
+        QVERIFY2(QFileInfo(shotCatalog).size() > 4000,
+                 qPrintable(QStringLiteral("capture trop petite: ")
+                            + QString::number(QFileInfo(shotCatalog).size())));
+
+        QStringList texts = visibleTexts(loadedPanel);
+        if (!texts.join(QLatin1Char('\n')).contains(QStringLiteral("Rechercher titre"))) {
+            texts = visibleTexts(page);
+        }
+        QVERIFY2(texts.join(QLatin1Char('\n')).contains(QStringLiteral("Rechercher titre")),
+                 qPrintable(QStringLiteral("champ recherche absent:\n")
+                            + texts.join(QStringLiteral("\n"))));
+        QVERIFY2(texts.join(QLatin1Char('\n')).contains(QStringLiteral("Toutes"))
+                     || texts.join(QLatin1Char('\n')).contains(QStringLiteral("omelette")),
+                 qPrintable(QStringLiteral("catalogue vide:\n") + texts.join(QStringLiteral("\n"))));
+
+        QObject *search = pageObj->findChild<QObject *>(QStringLiteral("catalogSearch"));
+        QVERIFY2(search != nullptr, "catalogSearch introuvable");
+        search->setProperty("text", QStringLiteral("omelette"));
+        QTest::qWait(250);
+
+        const QString shotSearch = outDir + QStringLiteral("/recipes-catalog-omelette.png");
+        win.grabWindow().save(shotSearch);
+        QVERIFY(QFile::exists(shotSearch));
+
+        texts = visibleTexts(page);
+        const QString joined = texts.join(QLatin1Char('\n')).toLower();
+        QVERIFY2(joined.contains(QStringLiteral("omelette")) || joined.contains(QStringLiteral("recette")),
+                 qPrintable(QStringLiteral("recherche sans résultat visible:\n") + texts.join(QStringLiteral("\n"))));
+
+        delete pageObj;
     }
 };
 
