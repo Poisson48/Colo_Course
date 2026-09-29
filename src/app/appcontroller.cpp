@@ -368,6 +368,7 @@ void AppController::shutdown()
     releaseRecipeLibraryCatalog();
     m_syncEngine.shutdown();
     m_relayPool.shutdown();
+    m_webrtcTransport.shutdown();
 }
 
 QString AppController::databasePath() {
@@ -453,8 +454,33 @@ bool AppController::init() {
     }
     m_relayPool.setRelays(relayUrls);
 
+    // --- Setup WebRTC transport ---
+    auto signalingSetting = m_db.getSetting("signalingUrl");
+    const QString sigUrl = signalingSetting && !signalingSetting->empty()
+        ? QString::fromStdString(*signalingSetting)
+        : QStringLiteral("wss://colo-apps.les-crevettes-cevenoles.fr/signal");
+    m_webrtcTransport.setSignalingUrl(QUrl(sigUrl));
+    m_webrtcTransport.setDeviceId(m_deviceId);
+
+    auto iceSetting = m_db.getSetting("iceServers");
+    if (iceSetting && !iceSetting->empty()) {
+        m_webrtcTransport.setIceServers(
+            QString::fromStdString(*iceSetting).split(QLatin1Char(','), Qt::SkipEmptyParts));
+    } else {
+        m_webrtcTransport.setIceServers(defaultIceServers().split(QLatin1Char('\n'), Qt::SkipEmptyParts));
+    }
+
+    // Load sync mode from settings (default = 0 = Nostr).
+    auto syncModeSetting = m_db.getSetting("syncMode");
+    m_syncMode = syncModeSetting ? std::stoi(*syncModeSetting) : 0;
+
+    // Select active transport.
+    net::SyncTransport* activeTransport =
+        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
+                          : static_cast<net::SyncTransport*>(&m_relayPool);
+
     // --- Wire SyncEngine ---
-    m_syncEngine.init(&m_db, &m_relayPool, m_deviceId, m_displayName);
+    m_syncEngine.init(&m_db, activeTransport, m_deviceId, m_displayName);
     connect(&m_syncEngine, &SyncEngine::onlineChanged,
             this,          &AppController::onSyncOnlineChanged);
     connect(&m_syncEngine, &SyncEngine::remoteChanges,
@@ -493,9 +519,12 @@ bool AppController::init() {
             this,         &AppController::favoritesChanged);
 
     // --- Connect and subscribe ---
-    m_relayPool.connectAll();
+    net::SyncTransport* transport =
+        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
+                          : static_cast<net::SyncTransport*>(&m_relayPool);
+    transport->connectAll();
     m_syncEngine.subscribeAllLists();
-    m_online = m_relayPool.isOnline();
+    m_online = transport->isOnline();
 
     const bool active = QGuiApplication::applicationState() == Qt::ApplicationActive;
     m_syncEngine.setAppInForeground(active);
@@ -512,7 +541,10 @@ bool AppController::init() {
 }
 
 void AppController::resumeSync() {
-    m_relayPool.connectAll();
+    net::SyncTransport* transport =
+        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
+                          : static_cast<net::SyncTransport*>(&m_relayPool);
+    transport->connectAll();
     m_syncEngine.catchUpOnForeground();
 }
 
@@ -793,6 +825,98 @@ void AppController::refreshPushTopics()
             QString::fromStdString(net::deriveChannelTag(meta.key))));
     }
     platformConfigurePush(pushBaseUrl(), topics, m_deviceId);
+}
+
+// ---------------------------------------------------------------------------
+// Sync mode (Nostr ↔ WebRTC)
+// ---------------------------------------------------------------------------
+
+QString AppController::signalingUrl() const
+{
+    const auto v = m_db.getSetting("signalingUrl");
+    if (v && !v->empty())
+        return QString::fromStdString(*v);
+    return defaultSignalingUrl();
+}
+
+QString AppController::defaultSignalingUrl() const
+{
+    return QStringLiteral("wss://colo-apps.les-crevettes-cevenoles.fr/signal");
+}
+
+QString AppController::iceServers() const
+{
+    const auto v = m_db.getSetting("iceServers");
+    if (v && !v->empty())
+        return QString::fromStdString(*v).replace(QLatin1Char(','), QLatin1Char('\n'));
+    return defaultIceServers();
+}
+
+QString AppController::defaultIceServers() const
+{
+    return QStringLiteral("stun:colo-apps.les-crevettes-cevenoles.fr:3478\n"
+                          "turn:colo-apps.les-crevettes-cevenoles.fr:3478");
+}
+
+void AppController::setSyncMode(int mode)
+{
+    if (mode != 0 && mode != 1) return;
+    if (mode == m_syncMode) return;
+
+    // Shut down current transport.
+    if (m_syncMode == 0)
+        m_relayPool.disconnectAll();
+    else
+        m_webrtcTransport.disconnectAll();
+
+    m_syncMode = mode;
+    m_db.setSetting("syncMode", std::to_string(mode));
+
+    // Select new transport and rewire SyncEngine.
+    net::SyncTransport* transport =
+        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
+                          : static_cast<net::SyncTransport*>(&m_relayPool);
+    m_syncEngine.init(&m_db, transport, m_deviceId, m_displayName);
+
+    // Connect and subscribe.
+    transport->connectAll();
+    m_syncEngine.subscribeAllLists();
+
+    const bool online = transport->isOnline();
+    if (online != m_online) {
+        m_online = online;
+        emit onlineChanged();
+    }
+
+    emit syncModeChanged();
+    emit toast(mode == 1 ? QStringLiteral("Mode P2P activé")
+                         : QStringLiteral("Mode relais Nostr activé"));
+}
+
+void AppController::setSignalingUrl(const QString &url)
+{
+    if (!m_db.isOpen())
+        return;
+    const QUrl u(url.trimmed());
+    if (!u.isValid() || u.scheme().isEmpty()) {
+        emit toast(QStringLiteral("URL de signalisation invalide"));
+        return;
+    }
+    m_db.setSetting("signalingUrl", url.trimmed().toStdString());
+    m_webrtcTransport.setSignalingUrl(u);
+    emit syncModeChanged();
+}
+
+void AppController::setIceServers(const QString &text)
+{
+    if (!m_db.isOpen())
+        return;
+    // Store as comma-separated.
+    const QString stored = text.trimmed().replace(QLatin1Char('\n'), QLatin1Char(','));
+    m_db.setSetting("iceServers", stored.toStdString());
+    m_webrtcTransport.setIceServers(
+        stored.split(QLatin1Char(','), Qt::SkipEmptyParts));
+    emit syncModeChanged();
 }
 
 void AppController::createList(const QString &title) {
@@ -1843,25 +1967,40 @@ void AppController::setKeepScreenOn(bool on) {
 // ---------------------------------------------------------------------------
 
 namespace {
-// Réduit une image en JPEG ≤ ~30 Ko. Le blob subit deux couches de base64 (payload
-// puis contenu chiffré de l'événement), soit ×1,8 : au-delà, les relais publics
-// (limite courante ~64 Ko par événement) refuseraient la photo.
-QByteArray compressItemImage(const QString &path) {
-    QImage img(path);
-    if (img.isNull()) return {};
-    constexpr int kMaxBytes = 30000;
+// Budget JPEG avant enveloppe Nostr. Mesure réelle (XChaCha + 2× base64 + EVENT) :
+//   20 Ko → ~40 Ko d'événement, 30 Ko → ~54 Ko, 37 Ko → ~66 Ko.
+// Les relais à 64 Ko (défaut strfry) refusent au-delà ; colo-apps est à 256 Ko.
+// On vise 20 Ko pour rester sous 64 Ko avec une marge confortable.
+constexpr int kMaxImageBytes = 20000;
+
+// Réduit une image en JPEG ≤ kMaxImageBytes. Lecture via QFile (file:// et
+// content:// Android), pas QImage(path) qui ignore souvent les URI SAF.
+QByteArray compressItemImage(const QUrl &fileUrl) {
+    const QString target = fileUrl.isLocalFile() ? fileUrl.toLocalFile()
+                                                 : fileUrl.toString();
+    QFile f(target);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    const QByteArray raw = f.readAll();
+    f.close();
+    QImage img = QImage::fromData(raw);
+    if (img.isNull())
+        return {};
 
     int side = 1024;
     for (;;) {
         const QImage scaled = (img.width() > side || img.height() > side)
             ? img.scaled(side, side, Qt::KeepAspectRatio, Qt::SmoothTransformation)
             : img;
-        for (const int quality : { 80, 70, 60, 50, 40 }) {
+        for (const int quality : { 80, 70, 60, 50, 40, 30 }) {
             QByteArray out;
             QBuffer buf(&out);
-            buf.open(QIODevice::WriteOnly);
-            scaled.save(&buf, "JPEG", quality);
-            if (out.size() > 0 && out.size() <= kMaxBytes)
+            if (!buf.open(QIODevice::WriteOnly))
+                continue;
+            if (!scaled.save(&buf, "JPEG", quality))
+                continue;
+            buf.close();
+            if (out.size() > 0 && out.size() <= kMaxImageBytes)
                 return out;
         }
         if (side <= 320)
@@ -1881,9 +2020,8 @@ QString AppController::tempPhotoPath() const {
 bool AppController::setItemImage(const QString &itemId, const QUrl &fileUrl) {
     if (m_openListId.empty()) return false;
 
-    const QString path = fileUrl.isLocalFile() ? fileUrl.toLocalFile() : fileUrl.toString();
-    const QByteArray jpeg = compressItemImage(path);
-    if (jpeg.isEmpty()) {
+    const QByteArray jpeg = compressItemImage(fileUrl);
+    if (jpeg.isEmpty() || jpeg.size() > kMaxImageBytes) {
         emit toast(QStringLiteral("Impossible de lire cette image"));
         return false;
     }

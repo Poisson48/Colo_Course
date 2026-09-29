@@ -12,7 +12,7 @@
 #include <optional>
 
 #include "../core/types.h"
-#include "../net/relaypool.h"
+#include "../net/synctransport.h"
 #include "../net/nostr.h"
 #include "../store/database.h"
 
@@ -49,10 +49,10 @@ public:
     explicit SyncEngine(QObject* parent = nullptr);
     ~SyncEngine() override;
 
-    // Initialize with DB, RelayPool, device identity.
-    // Does NOT take ownership of db or pool (caller owns).
+    // Initialize with DB, transport, device identity.
+    // Does NOT take ownership of db or transport (caller owns).
     void init(store::Database* db,
-              net::RelayPool*  pool,
+              net::SyncTransport* transport,
               const QString&   deviceId,
               const QString&   displayName);
 
@@ -183,10 +183,10 @@ private:
                                     const QString &author, qint64 whenMs);
     void flushRemoteNotification(const QString &key);
 
-    store::Database* m_db     = nullptr;
-    net::RelayPool*  m_pool   = nullptr;
-    QString          m_deviceId;
-    QString          m_displayName;
+    store::Database*    m_db          = nullptr;
+    net::SyncTransport* m_transport   = nullptr;
+    QString             m_deviceId;
+    QString             m_displayName;
 
     // Registered item models (non-owning).
     std::map<std::string, ItemModel*> m_models;

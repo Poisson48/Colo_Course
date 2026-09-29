@@ -88,34 +88,34 @@ void SyncEngine::shutdown()
             timer->stop();
     }
 
-    if (m_pool) {
-        m_pool->disconnect(this);
-        m_pool = nullptr;
+    if (m_transport) {
+        m_transport->disconnect(this);
+        m_transport = nullptr;
     }
     m_models.clear();
 }
 
 void SyncEngine::init(store::Database* db,
-                      net::RelayPool*  pool,
+                      net::SyncTransport* transport,
                       const QString&   deviceId,
                       const QString&   displayName)
 {
     m_db          = db;
-    m_pool        = pool;
+    m_transport   = transport;
     m_deviceId    = deviceId;
     m_displayName = displayName;
 
-    // Wire relay signals.
-    connect(m_pool, &net::RelayPool::eventReceived,
-            this,   &SyncEngine::onRelayEvent);
-    connect(m_pool, &net::RelayPool::onlineChanged,
-            this,   &SyncEngine::onRelayOnline);
-    connect(m_pool, &net::RelayPool::publishAck,
-            this,   &SyncEngine::onPublishAck);
+    // Wire transport signals.
+    connect(m_transport, &net::SyncTransport::eventReceived,
+            this,        &SyncEngine::onRelayEvent);
+    connect(m_transport, &net::SyncTransport::onlineChanged,
+            this,        &SyncEngine::onRelayOnline);
+    connect(m_transport, &net::SyncTransport::publishAck,
+            this,        &SyncEngine::onPublishAck);
 
     // Forward online state.
-    connect(m_pool, &net::RelayPool::onlineChanged,
-            this,   &SyncEngine::onlineChanged);
+    connect(m_transport, &net::SyncTransport::onlineChanged,
+            this,        &SyncEngine::onlineChanged);
 
 #if QT_FEATURE_systemtrayicon == 1 && defined(QT_WIDGETS_LIB)
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
@@ -282,7 +282,7 @@ void SyncEngine::publishImage(const std::string& listId, const std::string& sha)
 std::string SyncEngine::buildAndPublish(const std::string& listId,
                                         const std::string& payloadJson)
 {
-    if (!m_db || !m_pool) return {};
+    if (!m_db || !m_transport) return {};
 
     auto metaOpt = m_db->getList(listId);
     if (!metaOpt) return {};
@@ -326,8 +326,8 @@ std::string SyncEngine::buildAndPublish(const std::string& listId,
     startOutboxReconcileTimer();
 
     // Publish if online.
-    if (m_pool->isOnline()) {
-        m_pool->publishToAll(ev);
+    if (m_transport->isOnline()) {
+        m_transport->publishToAll(ev);
         trackPendingAck(ev.id, listId);
     }
 
@@ -576,7 +576,7 @@ void SyncEngine::onRelayOnline(bool online)
 
 void SyncEngine::catchUpOnForeground()
 {
-    if (!m_pool || !m_pool->isOnline())
+    if (!m_transport || !m_transport->isOnline())
         return;
 
     // Republier d'abord : reconcile ne doit pas retirer l'outbox avant un envoi.
@@ -598,7 +598,7 @@ void SyncEngine::startOutboxReconcileTimer()
 
 void SyncEngine::subscribeAllLists(int64_t since)
 {
-    if (!m_db || !m_pool) return;
+    if (!m_db || !m_transport) return;
 
     const auto lists = m_db->getLists();
     for (const auto& meta : lists) {
@@ -609,14 +609,14 @@ void SyncEngine::subscribeAllLists(int64_t since)
         const int64_t sub_since = (since > 0) ? since
             : std::max(int64_t(0), meta.lastSync / 1000 - 3600);
 
-        m_pool->subscribeAll(channelTagQ, sub_since);
+        m_transport->subscribeAll(channelTagQ, sub_since);
         m_subscribedChannels.insert(channelTagQ);
     }
 }
 
 void SyncEngine::onListJoined(const std::string& listId)
 {
-    if (!m_db || !m_pool) return;
+    if (!m_db || !m_transport) return;
 
     auto metaOpt = m_db->getList(listId);
     if (!metaOpt) return;
@@ -626,7 +626,7 @@ void SyncEngine::onListJoined(const std::string& listId)
 
     // Subscribe without since, limit 500 to catch up full history (SPEC §3.4).
     // since=0 means from the beginning.
-    m_pool->subscribeAll(channelTagQ, 0);
+    m_transport->subscribeAll(channelTagQ, 0);
     m_subscribedChannels.insert(channelTagQ);
 }
 
@@ -645,7 +645,7 @@ void SyncEngine::flushOutbox()
 
 void SyncEngine::flushOutboxForList(const std::string& listId)
 {
-    if (!m_db || !m_pool || !m_pool->isOnline()) return;
+    if (!m_db || !m_transport || !m_transport->isOnline()) return;
 
     // Publish without removing: entries leave the outbox only on ack
     // (onPublishAck), so a drop mid-flush cannot lose events. Re-publishing
@@ -664,7 +664,7 @@ void SyncEngine::flushOutboxForList(const std::string& listId)
             emit outboxChanged();
             continue;
         }
-        m_pool->publishToAll(*evOpt);
+        m_transport->publishToAll(*evOpt);
         trackPendingAck(evOpt->id, listId);
     }
 }
@@ -714,7 +714,7 @@ void SyncEngine::reconcileStuckOutbox()
         emit outboxChanged();
 
     const int64_t now = QDateTime::currentMSecsSinceEpoch();
-    const bool online = m_pool && m_pool->isOnline();
+    const bool online = m_transport && m_transport->isOnline();
     bool changed = false;
     for (const auto& row : m_db->outboxPeekAllEntries()) {
         // Laisser le temps à flushOutbox de republier (reconnexion, démarrage).

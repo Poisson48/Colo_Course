@@ -11,12 +11,13 @@ add_library(qrcodegen STATIC
 )
 target_include_directories(qrcodegen PUBLIC ${CMAKE_SOURCE_DIR}/third_party/qrcodegen)
 
-# --- net static library (QWebSocket, Nostr NIP-01) ---
+# --- net static library (QWebSocket, Nostr NIP-01, WebRTC P2P) ---
 add_library(net STATIC
     net/nostr.cpp
     net/relayclient.cpp
     net/relaypool.cpp
     net/pushclient.cpp
+    net/webrtctransport.cpp
 )
 
 target_include_directories(net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -25,6 +26,7 @@ target_link_libraries(net PUBLIC
     Qt6::Core
     Qt6::Network
     Qt6::WebSockets
+    datachannel-static
 )
 
 # --- core static library (pure C++/STL, no Qt) ---

@@ -153,7 +153,7 @@ Item {
         }
         MenuSeparator {}
         MenuItem {
-            text: "Relais de synchronisation"
+            text: "Synchronisation"
             onTriggered: relaysDialog.open()
         }
         MenuItem {
@@ -1033,7 +1033,7 @@ Item {
 
     ColoDialog {
         id: relaysDialog
-        title: "Relais de synchronisation"
+        title: "Synchronisation"
         acceptText: "Enregistrer"
 
         Label {
@@ -1041,6 +1041,31 @@ Item {
             wrapMode: Text.WordWrap
             color: Theme.textDim
             font.pixelSize: 13
+            text: "Mode de synchronisation entre appareils."
+        }
+
+        Switch {
+            id: webrtcSwitch
+            text: "P2P direct (WebRTC)"
+            checked: AppController.syncMode === 1
+        }
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 12
+            visible: webrtcSwitch.checked
+            text: "Les données circulent directement entre vos appareils, sans serveur relais. "
+                  + "Un serveur de signalisation aide à établir la connexion."
+        }
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            visible: !webrtcSwitch.checked
             text: "Adresses WebSocket des relais Nostr (wss://…). "
                   + "Une URL par ligne. Plusieurs relais possibles."
         }
@@ -1051,6 +1076,7 @@ Item {
                                             Math.min(relaysField.implicitHeight + 16,
                                                      relaysDialog.scrollMaxHeight))
             clip: true
+            visible: !webrtcSwitch.checked
 
             TextArea {
                 id: relaysField
@@ -1073,6 +1099,7 @@ Item {
             Layout.fillWidth: true
             flat: true
             implicitHeight: 40
+            visible: !webrtcSwitch.checked
             contentItem: Label {
                 text: "Rétablir par défaut"
                 color: Theme.accent
@@ -1081,8 +1108,64 @@ Item {
             onClicked: relaysField.text = AppController.defaultRelayUrls()
         }
 
+        // --- WebRTC P2P settings (visible when P2P mode is on) ---
+
         Label {
             Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            visible: webrtcSwitch.checked
+            text: "Serveur de signalisation (WebSocket)"
+        }
+
+        ColoTextField {
+            id: signalingUrlField
+            Layout.fillWidth: true
+            visible: webrtcSwitch.checked
+            placeholderText: AppController.defaultSignalingUrl()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            visible: webrtcSwitch.checked
+            text: "Serveurs ICE (STUN/TURN), un par ligne"
+        }
+
+        ScrollView {
+            Layout.fillWidth: true
+            Layout.preferredHeight: webrtcSwitch.checked
+                                    ? Math.max(80, Math.min(iceField.implicitHeight + 16,
+                                                            relaysDialog.scrollMaxHeight))
+                                    : 0
+            clip: true
+            visible: webrtcSwitch.checked
+
+            TextArea {
+                id: iceField
+                width: parent.width
+                wrapMode: TextArea.Wrap
+                color: Theme.text
+                font.pixelSize: 14
+                font.family: "monospace"
+                selectByMouse: true
+                placeholderText: AppController.defaultIceServers()
+                background: Rectangle {
+                    radius: 12
+                    color: Theme.surfaceHigh
+                    border.color: Theme.outline
+                }
+            }
+        }
+
+        // --- Push notifications ---
+
+        Label {
+            Layout.fillWidth: true
+            Layout.topMargin: 8
             wrapMode: Text.WordWrap
             color: Theme.textDim
             font.pixelSize: 13
@@ -1102,12 +1185,25 @@ Item {
         }
 
         onOpened: {
+            webrtcSwitch.checked = AppController.syncMode === 1
             relaysField.text = AppController.relayUrls
+            signalingUrlField.text = AppController.signalingUrl
+            iceField.text = AppController.iceServers
             pushEnabledSwitch.checked = AppController.pushEnabled
             pushUrlField.text = AppController.pushBaseUrl
         }
         onAccepted: {
-            AppController.setRelayUrls(relaysField.text)
+            // Apply sync mode change.
+            AppController.setSyncMode(webrtcSwitch.checked ? 1 : 0)
+            // Apply relay URLs (only used in Nostr mode).
+            if (!webrtcSwitch.checked)
+                AppController.setRelayUrls(relaysField.text)
+            // Apply WebRTC settings.
+            if (webrtcSwitch.checked) {
+                AppController.setSignalingUrl(signalingUrlField.text)
+                AppController.setIceServers(iceField.text)
+            }
+            // Apply push settings.
             AppController.setPushSettings(pushEnabledSwitch.checked, pushUrlField.text)
         }
     }

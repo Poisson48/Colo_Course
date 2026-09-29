@@ -46,6 +46,19 @@ FetchContent_Declare(zxing
 )
 FetchContent_MakeAvailable(zxing)
 
+# libdatachannel : WebRTC data channels pour la synchronisation P2P.
+# Statique, sans les examples/tests/ni la dépendance OpenSSL optionnelle.
+include(FetchContent)
+set(NO_MEDIA   ON  CACHE BOOL "" FORCE)
+set(NO_WEBSOCKET ON  CACHE BOOL "" FORCE)
+set(NO_EXAMPLES ON  CACHE BOOL "" FORCE)
+set(NO_TESTS   ON  CACHE BOOL "" FORCE)
+FetchContent_Declare(libdatachannel
+    GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
+    GIT_TAG        v0.22.5
+)
+FetchContent_MakeAvailable(libdatachannel)
+
 add_subdirectory(src)
 
 # Tests run on the host only.

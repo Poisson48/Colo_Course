@@ -12,6 +12,7 @@
 #include "../core/types.h"
 #include "../core/pairing.h"
 #include "../net/relaypool.h"
+#include "../net/webrtctransport.h"
 #include "itemmodel.h"
 #include "recipelibrarymodel.h"
 #include "syncengine.h"
@@ -138,6 +139,12 @@ class AppController : public QObject {
     Q_PROPERTY(QString relayUrls READ relayUrls NOTIFY relayUrlsChanged)
     Q_PROPERTY(bool pushEnabled READ pushEnabled NOTIFY pushSettingsChanged)
     Q_PROPERTY(QString pushBaseUrl READ pushBaseUrl NOTIFY pushSettingsChanged)
+    // Mode de synchronisation : 0 = relais Nostr, 1 = WebRTC P2P.
+    Q_PROPERTY(int syncMode READ syncMode NOTIFY syncModeChanged)
+    // URL du serveur de signalisation WebRTC (pour le mode P2P).
+    Q_PROPERTY(QString signalingUrl READ signalingUrl NOTIFY syncModeChanged)
+    // Serveurs ICE (STUN/TURN) pour la traversée NAT.
+    Q_PROPERTY(QString iceServers READ iceServers NOTIFY syncModeChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -168,6 +175,9 @@ public:
     QString relayUrls();
     bool    pushEnabled();
     QString pushBaseUrl();
+    int     syncMode() const { return m_syncMode; }
+    QString signalingUrl() const;
+    QString iceServers() const;
 
     store::Database &db() { return m_db; }
 
@@ -225,9 +235,9 @@ public slots:
     void openList(const QString &listId);
 
     // --- Photos d'un article (plusieurs) ---
-    // Ajoute une image : lecture, réduction (JPEG ≤ ~30 Ko pour passer les relais),
-    // stockage local, ajout à la liste du champ CRDT et publication du blob. false
-    // si le fichier est illisible.
+    // Ajoute une image : lecture, réduction (JPEG ≤ ~20 Ko pour passer les relais
+    // à limite 64 Ko ; colo-apps accepte jusqu'à 256 Ko), stockage local, ajout au
+    // champ CRDT et publication du blob. false si le fichier est illisible.
     bool setItemImage(const QString &itemId, const QUrl &fileUrl);
     // Retire UNE photo de l'article (les autres restent).
     void removeItemImage(const QString &itemId, const QString &sha);
@@ -307,6 +317,15 @@ public slots:
     Q_INVOKABLE QString defaultPushBaseUrl() const;
     void refreshPushTopics();
 
+    // Mode de synchronisation : 0 = relais Nostr, 1 = WebRTC P2P.
+    Q_INVOKABLE void setSyncMode(int mode);
+    // URL du serveur de signalisation WebRTC.
+    Q_INVOKABLE void setSignalingUrl(const QString &url);
+    Q_INVOKABLE QString defaultSignalingUrl() const;
+    // Serveurs ICE (STUN/TURN), un par ligne.
+    Q_INVOKABLE void setIceServers(const QString &text);
+    Q_INVOKABLE QString defaultIceServers() const;
+
     // Presse-papiers, et partage natif (feuille de partage Android ; ailleurs :
     // copie dans le presse-papiers). Retourne false si le partage a échoué.
     void copyToClipboard(const QString &text);
@@ -337,6 +356,7 @@ signals:
     void displayNameChanged();
     void relayUrlsChanged();
     void pushSettingsChanged();
+    void syncModeChanged();
     // Emitted when QML should push the item page.
     void listOpened(const QString &listId, const QString &title);
     // Titre changé (ici ou par un autre appareil) : l'en-tête de la liste ouverte suit.
@@ -374,6 +394,7 @@ private:
     bool             m_recipeLibraryLoading = false;
     ItemModel        m_itemModel;
     net::RelayPool   m_relayPool;
+    net::WebRTCTransport m_webrtcTransport;
     SyncEngine       m_syncEngine;
     bool             m_online = false;
     int              m_pendingChanges = 0;
@@ -385,6 +406,7 @@ private:
     std::string      m_openListId;   // liste actuellement chargée dans m_itemModel
     QString          m_pendingPrepListId; // recette neuve → proposer la préparation
     int              m_imageRevision = 0;
+    int              m_syncMode = 0; // 0 = Nostr, 1 = WebRTC P2P
 };
 
 } // namespace app
