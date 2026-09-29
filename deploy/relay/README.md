@@ -7,6 +7,7 @@
 | **Backend** | Strfry Docker → `127.0.0.1:7777` |
 | **TLS nginx** | SNI `:443` → `127.0.0.1:11443` |
 | **Certificat** | Let's Encrypt DNS-01 |
+| **STUN/TURN** | `stun:colo-apps.les-crevettes-cevenoles.fr:3479` / `turns:…:5350` (voir `deploy/coturn/`) |
 
 ## Relais Docker
 
@@ -24,8 +25,11 @@ une whitelist ne peut pas fonctionner.
 
 `write-policy.py` accepte uniquement le kind 4545.
 
+`maxEventSize` est à **256 Ko** (photos d'articles chiffrées). Le défaut strfry
+(64 Ko) rejetait les événements image ~66 Ko.
+
 Symptôme si mal configuré : modifications locales OK, jamais reçues ailleurs,
-message relais `blocked: pubkey … not in whitelist`.
+message relais `blocked: pubkey … not in whitelist` ou `event too large`.
 
 ## Checklist mise en ligne
 

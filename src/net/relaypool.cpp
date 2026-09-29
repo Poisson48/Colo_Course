@@ -5,7 +5,7 @@
 namespace net {
 
 RelayPool::RelayPool(QObject* parent)
-    : QObject(parent)
+    : SyncTransport(parent)
 {}
 
 RelayPool::~RelayPool()
@@ -168,7 +168,7 @@ void RelayPool::updateOnlineState()
 
     if (anyConnected != m_online) {
         m_online = anyConnected;
-        emit onlineChanged(m_online);
+        emit onlineChanged();
     }
 }
 

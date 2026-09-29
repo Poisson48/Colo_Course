@@ -1201,7 +1201,7 @@ bool Database::purgeSeenBefore(int64_t cutoffMs)
 
 // --- Settings ---
 
-std::optional<std::string> Database::getSetting(const std::string& key)
+std::optional<std::string> Database::getSetting(const std::string& key) const
 {
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("SELECT value FROM settings WHERE key = ?"));

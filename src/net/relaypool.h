@@ -49,6 +49,10 @@ signals:
     // RelayPool-specific signal (not in SyncTransport).
     void eose();
 
+    // Redeclare onlineChanged without the bool parameter for Q_PROPERTY NOTIFY.
+    // The base class SyncTransport::onlineChanged(bool) is emitted by updateOnlineState().
+    void onlineChanged();
+
 private slots:
     void onClientConnected();
     void onClientDisconnected();

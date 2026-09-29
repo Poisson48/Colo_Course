@@ -163,7 +163,7 @@ public:
     bool purgeSeenBefore(int64_t cutoffMs);
 
     // --- Settings (key/value) ---
-    std::optional<std::string> getSetting(const std::string& key);
+    std::optional<std::string> getSetting(const std::string& key) const;
     bool setSetting(const std::string& key, const std::string& value);
 
     // --- Lamport clock ---

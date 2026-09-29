@@ -17,6 +17,7 @@ add_library(net STATIC
     net/relayclient.cpp
     net/relaypool.cpp
     net/pushclient.cpp
+    net/synctransport.cpp
     net/webrtctransport.cpp
 )
 

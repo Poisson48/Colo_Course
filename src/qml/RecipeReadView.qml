@@ -12,6 +12,7 @@ Item {
     property string filterText: ""
 
     signal ingredientClicked(var item)
+    signal ingredientDeleteRequested(string itemId, string name)
     signal editPrepRequested()
 
     property int contentTab: 0
@@ -231,12 +232,19 @@ Item {
                         }
                     }
 
-                    delegate: ItemDelegate {
+                    delegate: SwipeDelegate {
                         id: ingRow
                         required property string itemId
                         required property string name
                         required property string qty
+                        required property string baseQty
                         required property string note
+                        required property string aisle
+                        required property string image
+                        required property var created
+                        required property var doneAt
+                        required property string byName
+                        required property bool done
 
                         width: recipeScroll.width - 2 * Theme.gap
                         x: Theme.gap
@@ -301,8 +309,38 @@ Item {
                             itemId: ingRow.itemId,
                             name: ingRow.name,
                             qty: ingRow.qty,
-                            note: ingRow.note
+                            baseQty: ingRow.baseQty,
+                            note: ingRow.note,
+                            aisle: ingRow.aisle,
+                            image: ingRow.image,
+                            created: ingRow.created,
+                            doneAt: ingRow.doneAt,
+                            byName: ingRow.byName,
+                            done: ingRow.done
                         })
+
+                        // Glisser vers la gauche : suppression, comme sur une liste.
+                        swipe.right: Rectangle {
+                            width: parent.width
+                            height: parent.height
+                            radius: 10
+                            color: Theme.danger
+
+                            Label {
+                                anchors.right: parent.right
+                                anchors.rightMargin: 20
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Supprimer"
+                                color: "white"
+                                font.pixelSize: 15
+                                font.weight: Font.DemiBold
+                            }
+
+                            SwipeDelegate.onClicked: {
+                                ingRow.swipe.close()
+                                root.ingredientDeleteRequested(ingRow.itemId, ingRow.name)
+                            }
+                        }
                     }
                 }
 

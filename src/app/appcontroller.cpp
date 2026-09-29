@@ -854,8 +854,9 @@ QString AppController::iceServers() const
 
 QString AppController::defaultIceServers() const
 {
-    return QStringLiteral("stun:colo-apps.les-crevettes-cevenoles.fr:3478\n"
-                          "turn:colo-apps.les-crevettes-cevenoles.fr:3478");
+    return QStringLiteral("stun:stun.l.google.com:19302\n"
+                          "stun:colo-apps.les-crevettes-cevenoles.fr:3479\n"
+                          "turn:colo-apps.les-crevettes-cevenoles.fr:3479");
 }
 
 void AppController::setSyncMode(int mode)

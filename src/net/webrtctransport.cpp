@@ -15,9 +15,9 @@ namespace net {
 // Helpers
 // ---------------------------------------------------------------------------
 
-static QString peerKey(const QString& deviceId, const QString& channelTag)
+static std::string peerKey(const QString& deviceId, const QString& channelTag)
 {
-    return deviceId + QStringLiteral(":") + channelTag;
+    return (deviceId + QStringLiteral(":") + channelTag).toStdString();
 }
 
 // ---------------------------------------------------------------------------
@@ -31,9 +31,10 @@ WebRTCTransport::WebRTCTransport(QObject* parent)
     m_reconnectTimer.setSingleShot(true);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &WebRTCTransport::connectSignaling);
 
-    // Default ICE servers (colo crevettes).
+    // Default ICE servers (Google public STUN + colo crevettes).
     m_iceUrls = {
-        QStringLiteral("stun:stun.l.google.com:19302"),  // fallback
+        QStringLiteral("stun:stun.l.google.com:19302"),
+        QStringLiteral("stun:colo-apps.les-crevettes-cevenoles.fr:3479"),
     };
 }
 
@@ -75,7 +76,8 @@ void WebRTCTransport::disconnectAll()
 {
     disconnectSignaling();
     // Close all peer connections gracefully.
-    for (auto& [key, peer] : m_peers) {
+    for (auto it = m_peers.begin(); it != m_peers.end(); ++it) {
+        auto& peer = it->second;
         if (peer->dc) peer->dc->close();
         if (peer->pc) peer->pc->close();
     }
@@ -111,7 +113,7 @@ void WebRTCTransport::publishToAll(const NostrEvent& ev)
     QJsonObject eventJson;
     eventJson[QStringLiteral("type")] = QStringLiteral("event");
     eventJson[QStringLiteral("id")] = ev.id;
-    eventJson[QStringLiteral("created_at")] = ev.created_at;
+    eventJson[QStringLiteral("created_at")] = static_cast<qint64>(ev.created_at);
     eventJson[QStringLiteral("kind")] = ev.kind;
     eventJson[QStringLiteral("tags")] = ev.tags;
     eventJson[QStringLiteral("content")] = ev.content;
@@ -121,7 +123,8 @@ void WebRTCTransport::publishToAll(const NostrEvent& ev)
     const QByteArray data = doc.toJson(QJsonDocument::Compact);
 
     int sentCount = 0;
-    for (auto& [key, peer] : m_peers) {
+    for (auto it = m_peers.begin(); it != m_peers.end(); ++it) {
+        auto& peer = it->second;
         if (peer->channelTag != channelTag) continue;
         if (!peer->dcOpen || !peer->dc) continue;
         try {
@@ -183,8 +186,6 @@ void WebRTCTransport::connectSignaling()
             this, &WebRTCTransport::onSignalingConnected);
     connect(&m_signaling, &QWebSocket::disconnected,
             this, &WebRTCTransport::onSignalingDisconnected);
-    connect(&m_signaling, &QWebSocket::errorOccurred,
-            this, &WebRTCTransport::onSignalingError);
     connect(&m_signaling, &QWebSocket::textMessageReceived,
             this, &WebRTCTransport::onSignalingMessage);
 
@@ -281,7 +282,7 @@ void WebRTCTransport::handlePeerJoined(const QJsonObject& msg)
     // Create SDP offer. The onLocalDescription callback (set up in ensurePeer)
     // will send it to the signaling server automatically.
     try {
-        peer->pc->createOffer();
+        peer->pc->setLocalDescription(rtc::Description::Type::Offer);
     } catch (const std::exception& e) {
         qWarning() << "[WebRTC] createOffer failed:" << e.what();
     }
@@ -312,7 +313,7 @@ void WebRTCTransport::handleAnswer(const QJsonObject& msg)
     const QString sdp = msg[QStringLiteral("sdp")].toString();
     if (fromPeer.isEmpty() || sdp.isEmpty()) return;
 
-    const QString key = peerKey(fromPeer, channelTag);
+    const std::string key = peerKey(fromPeer, channelTag);
     auto it = m_peers.find(key);
     if (it == m_peers.end()) return;
 
@@ -332,7 +333,7 @@ void WebRTCTransport::handleCandidate(const QJsonObject& msg)
     const QString sdpMid = msg[QStringLiteral("sdpMid")].toString();
     if (fromPeer.isEmpty() || candidate.isEmpty()) return;
 
-    const QString key = peerKey(fromPeer, channelTag);
+    const std::string key = peerKey(fromPeer, channelTag);
     auto it = m_peers.find(key);
     if (it == m_peers.end()) return;
 
@@ -372,7 +373,7 @@ WebRTCTransport::ensurePeer(const QString& peerDeviceId,
                             const QString& channelTag,
                             bool polite)
 {
-    const QString key = peerKey(peerDeviceId, channelTag);
+    const std::string key = peerKey(peerDeviceId, channelTag);
     auto it = m_peers.find(key);
     if (it != m_peers.end())
         return it->second.get();
@@ -393,7 +394,7 @@ WebRTCTransport::ensurePeer(const QString& peerDeviceId,
     auto* transport = this;
     const QString pId = peerDeviceId;
     const QString cTag = channelTag;
-    const QString pKey = key;
+    const std::string pKey = key;
 
     // ICE candidate generated → send to signaling server.
     peer->pc->onLocalCandidate([transport, pId, cTag](rtc::Candidate candidate) {
@@ -429,7 +430,7 @@ WebRTCTransport::ensurePeer(const QString& peerDeviceId,
     // Peer connection state changed.
     peer->pc->onStateChange([transport, pKey](rtc::PeerConnection::State state) {
         QMetaObject::invokeMethod(transport, [transport, pKey, state]() {
-            qDebug() << "[WebRTC] peer" << pKey << "state:" << static_cast<int>(state);
+            qDebug() << "[WebRTC] peer" << QString::fromStdString(pKey) << "state:" << static_cast<int>(state);
             if (state == rtc::PeerConnection::State::Disconnected ||
                 state == rtc::PeerConnection::State::Failed ||
                 state == rtc::PeerConnection::State::Closed) {
@@ -468,7 +469,7 @@ WebRTCTransport::ensurePeer(const QString& peerDeviceId,
 
 void WebRTCTransport::removePeer(const QString& peerDeviceId, const QString& channelTag)
 {
-    const QString key = peerKey(peerDeviceId, channelTag);
+    const std::string key = peerKey(peerDeviceId, channelTag);
     auto it = m_peers.find(key);
     if (it == m_peers.end()) return;
 
@@ -492,7 +493,8 @@ void WebRTCTransport::sendToPeer(PeerConnection& peer, const QJsonObject& msg)
 
 void WebRTCTransport::broadcastToChannel(const QString& channelTag, const QJsonObject& msg)
 {
-    for (auto& [key, peer] : m_peers) {
+    for (auto it = m_peers.begin(); it != m_peers.end(); ++it) {
+        auto& peer = it->second;
         if (peer->channelTag != channelTag) continue;
         sendToPeer(*peer, msg);
     }
@@ -506,7 +508,7 @@ void WebRTCTransport::broadcastToChannel(const QString& channelTag, const QJsonO
 // Declared here, defined as a member helper with the peer pointer.
 void WebRTCTransport::wireDataChannel(PeerConnection* peer,
                                        WebRTCTransport* transport,
-                                       const QString& peerKey)
+                                       const std::string& peerKey)
 {
     if (!peer || !peer->dc) return;
 
@@ -519,7 +521,7 @@ void WebRTCTransport::wireDataChannel(PeerConnection* peer,
             auto it = transport->m_peers.find(peerKey);
             if (it == transport->m_peers.end()) return;
             it->second->dcOpen = true;
-            qDebug() << "[WebRTC] data channel open with" << peerKey;
+            qDebug() << "[WebRTC] data channel open with" << QString::fromStdString(peerKey);
             transport->setOnline(true);
 
             // Subscribe this peer to our channels (re-request recent events).
@@ -607,8 +609,8 @@ void WebRTCTransport::setOnline(bool online)
 void WebRTCTransport::updateOnlineState()
 {
     bool anyOpen = false;
-    for (const auto& [key, peer] : m_peers) {
-        if (peer->dcOpen) { anyOpen = true; break; }
+    for (auto it = m_peers.cbegin(); it != m_peers.cend(); ++it) {
+        if (it->second->dcOpen) { anyOpen = true; break; }
     }
     setOnline(anyOpen || m_signaling.state() == QAbstractSocket::ConnectedState);
 }

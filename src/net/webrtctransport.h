@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <vector>
 #include <functional>
+#include <unordered_map>
 
 // Forward-declare libdatachannel types to avoid exposing the header.
 namespace rtc {
@@ -61,8 +62,8 @@ public:
     void setSignalingUrl(const QUrl& url);
 
     // Configure ICE servers (STUN/TURN URLs).
-    // Example: { "stun:colo-apps.les-crevettes-cevenoles.fr:3478",
-    //            "turn:colo-apps.les-crevettes-cevenoles.fr:3478" }
+    // Example: { "stun:colo-apps.les-crevettes-cevenoles.fr:3479",
+    //            "turn:colo-apps.les-crevettes-cevenoles.fr:3479" }
     void setIceServers(const QStringList& urls);
 
     // Our device identity (from AppController).
@@ -122,7 +123,7 @@ private:
     // ── Helpers ──
     void wireDataChannel(PeerConnection* peer,
                          WebRTCTransport* transport,
-                         const QString& peerKey);
+                         const std::string& peerKey);
     void setOnline(bool online);
     void updateOnlineState();
 
@@ -133,7 +134,7 @@ private:
     QString m_deviceId;
 
     // peer connections: keyed by (peerDeviceId + ":" + channelTag)
-    QHash<QString, std::unique_ptr<PeerConnection>> m_peers;
+    std::unordered_map<std::string, std::unique_ptr<PeerConnection>> m_peers;
 
     // Channels we've subscribed to (and announced on signaling).
     QSet<QString> m_subscribedChannels;

@@ -99,7 +99,7 @@ cat > /etc/strfry.conf << 'EOF'
 
 relay {
     db = "/var/lib/strfry"
-    maxEventSize = 65536
+    maxEventSize = 262144
     maxReqLimit = 500
 }
 

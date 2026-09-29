@@ -504,7 +504,12 @@ Item {
             listId: root.listId
             cookMode: root.recipeCookMode
             filterText: AppController.items.filter
-            onIngredientClicked: function (item) { readDialog.openFor(item) }
+            // Édition directe comme pour un article de liste : pas d'étape
+            // lecture seule qui fige l'ingrédient.
+            onIngredientClicked: function (item) { editDialog.openFor(item) }
+            onIngredientDeleteRequested: function (itemId, name) {
+                deleteDialog.openFor([itemId], name)
+            }
             onEditPrepRequested: prepDialog.open()
         }
 
@@ -1268,6 +1273,7 @@ Item {
         property string itemId: ""
         property string itemName: ""
         property string itemQty: ""
+        property string itemBaseQty: ""
         property string itemNote: ""
         property string itemAisle: ""
         property string itemImage: ""
@@ -1290,6 +1296,9 @@ Item {
             doneAtMs  = item.doneAt
             author    = item.byName || ""
             itemDone  = item.done === true
+            // Garder la qty de base pour l'édition (échelle personnes).
+            itemBaseQty = (item.baseQty !== undefined && item.baseQty !== null)
+                          ? item.baseQty : itemQty
             open()
         }
 
@@ -1389,6 +1398,7 @@ Item {
                 itemId: readDialog.itemId,
                 name: readDialog.itemName,
                 qty: readDialog.itemQty,
+                baseQty: readDialog.itemBaseQty,
                 note: readDialog.itemNote,
                 aisle: readDialog.itemAisle,
                 image: readDialog.itemImage,
@@ -1404,7 +1414,7 @@ Item {
 
     ColoDialog {
         id: editDialog
-        title: "Modifier l'article"
+        title: root.isRecipe ? "Modifier l'ingrédient" : "Modifier l'article"
         acceptText: "Enregistrer"
         acceptEnabled: editName.text.trim().length > 0
 
@@ -1425,9 +1435,12 @@ Item {
             author    = item.byName
             image     = item.image || ""
             editName.text = item.name
-            editQty.text  = item.baseQty !== undefined ? item.baseQty : item.qty
-            editNote.text = item.note
-            editAisle.aisle = item.aisle
+            // Quantité de base (hors échelle « personnes ») : sinon on réécrit
+            // la qty déjà multipliée et les portions dérivent à chaque save.
+            editQty.text  = (item.baseQty !== undefined && item.baseQty !== null)
+                            ? item.baseQty : (item.qty || "")
+            editNote.text = item.note || ""
+            editAisle.aisle = item.aisle || ""
             open()
             editName.forceActiveFocus()
             editName.selectAll()
@@ -1463,7 +1476,7 @@ Item {
                 ColoTextField {
                     id: editName
                     Layout.fillWidth: true
-                    hint: "Article"
+                    hint: root.isRecipe ? "Ingrédient" : "Article"
                     onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
                 }
 
@@ -1477,13 +1490,14 @@ Item {
                 ColoTextField {
                     id: editNote
                     Layout.fillWidth: true
-                    hint: "Description"
+                    hint: root.isRecipe ? "Précision (facultatif)" : "Description"
                     onAccepted: if (editDialog.acceptEnabled) editDialog.accept()
                 }
 
                 AisleBox {
                     id: editAisle
                     Layout.fillWidth: true
+                    visible: !root.isRecipe
                 }
 
                 // Photos : vignettes + ajout / retrait, sans page détail séparée.
@@ -1491,7 +1505,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.topMargin: 4
                     spacing: 8
-                    visible: editDialog.photoShas.length > 0
+                    visible: !root.isRecipe && editDialog.photoShas.length > 0
 
                     Repeater {
                         model: editDialog.photoShas
@@ -1550,6 +1564,7 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: 8
+                    visible: !root.isRecipe
 
                     Button {
                         Layout.fillWidth: true
@@ -1625,7 +1640,7 @@ Item {
                 flat: true
                 implicitHeight: Theme.touchTarget
                 contentItem: Label {
-                    text: "Supprimer l'article"
+                    text: root.isRecipe ? "Supprimer l'ingrédient" : "Supprimer l'article"
                     color: Theme.danger
                     font.pixelSize: 14
                     horizontalAlignment: Text.AlignHCenter
@@ -1681,7 +1696,9 @@ Item {
         onAccepted: {
             const nm = AppController.items.normalizeIngredientName(editName.text.trim())
             if (AppController.items.hasDuplicateName(nm, editDialog.itemId)) {
-                AppController.toast("« " + nm + " » est déjà sur la liste")
+                AppController.toast(root.isRecipe
+                    ? ("« " + nm + " » est déjà dans la recette")
+                    : ("« " + nm + " » est déjà sur la liste"))
                 return
             }
             AppController.items.editItem(editDialog.itemId, nm,
@@ -1897,7 +1914,11 @@ Item {
                 color: Theme.text
                 font.pixelSize: 15
                 selectByMouse: true
-                placeholderText: "1. Couper les légumes\n2. Faire mijoter 30 min\n3. …"
+                // Même piège que ColoTextField : sous Material le placeholder flotte
+                // en accent et reste dessiné par-dessus le texte (Android).
+                property string hint: "Une étape par ligne…"
+                placeholderText: (activeFocus || length > 0) ? "" : hint
+                placeholderTextColor: Theme.textDim
                 background: Rectangle {
                     radius: 12
                     color: Theme.surfaceHigh

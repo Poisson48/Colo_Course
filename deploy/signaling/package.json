@@ -1,0 +1,13 @@
+{
+  "name": "colocourse-signaling",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WebRTC signaling server for Colo Course P2P sync",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}
