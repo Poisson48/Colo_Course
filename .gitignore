@@ -29,6 +29,7 @@ android-build/
 
 # Node
 node_modules/
+npm-cache/
 
 # Python
 __pycache__/
