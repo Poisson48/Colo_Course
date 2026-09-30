@@ -27,6 +27,17 @@ android-build/
 *.swp
 .DS_Store
 
+# Node
+node_modules/
+
+# Python
+__pycache__/
+
+# Temp
+tmp/
+tmp_*.jpg
+tmp_*.png
+
 # Local
 *.local
 .env

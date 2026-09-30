@@ -47,8 +47,20 @@ FetchContent_Declare(zxing
 FetchContent_MakeAvailable(zxing)
 
 # libdatachannel : WebRTC data channels pour la synchronisation P2P.
-# Statique, sans les examples/tests/ni la dépendance OpenSSL optionnelle.
+# Statique, DTLS via OpenSSL (Android : fourni par android_openssl FetchContent).
 include(FetchContent)
+
+# Android : OpenSSL n'est pas dans le NDK. On le récupère via KDAB/android_openssl
+# AVANT libdatachannel pour que FindOpenSSL fonctionne dans le cross-build.
+if(ANDROID)
+    FetchContent_Declare(android_openssl
+        GIT_REPOSITORY https://github.com/KDAB/android_openssl.git
+        GIT_TAG master
+    )
+    FetchContent_MakeAvailable(android_openssl)
+    include(${android_openssl_SOURCE_DIR}/android_openssl.cmake)
+endif()
+
 set(NO_MEDIA   ON  CACHE BOOL "" FORCE)
 set(NO_WEBSOCKET ON  CACHE BOOL "" FORCE)
 set(NO_EXAMPLES ON  CACHE BOOL "" FORCE)

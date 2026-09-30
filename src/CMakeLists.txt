@@ -221,15 +221,7 @@ set_property(TARGET colocourse PROPERTY QT_ANDROID_VERSION_CODE "${COLO_VERSION_
 # release publiée. Sans ça, il ne saurait pas de quelle version il part.
 target_compile_definitions(applib PUBLIC COLO_APP_VERSION="${COLO_VERSION_NAME}")
 
-# Android n'embarque pas OpenSSL : sans ces .so, QSslSocket est muet et les
-# connexions wss:// aux relais échouent silencieusement.
+# Android : OpenSSL fourni par android_openssl (FetchContent dans le root CMakeLists.txt).
 if(ANDROID)
-    include(FetchContent)
-    FetchContent_Declare(android_openssl
-        GIT_REPOSITORY https://github.com/KDAB/android_openssl.git
-        GIT_TAG master
-    )
-    FetchContent_MakeAvailable(android_openssl)
-    include(${android_openssl_SOURCE_DIR}/android_openssl.cmake)
     add_android_openssl_libraries(colocourse)
 endif()
