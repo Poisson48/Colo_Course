@@ -10,6 +10,7 @@
 #include <QWebSocket>
 #include <QTimer>
 #include <QJsonObject>
+#include <QNetworkAccessManager>
 #include <memory>
 #include <cstdint>
 #include <vector>
@@ -61,6 +62,10 @@ public:
     // Configure the signaling server URL (wss://…).
     void setSignalingUrl(const QUrl& url);
 
+    // Base HTTPS du serveur P2P (pour /turn-credentials). Indépendant du signaling.
+    void setP2pServerUrl(const QUrl& url);
+    void setAppId(const QString& appId);
+
     // Configure ICE servers (STUN/TURN URLs).
     // Example: { "stun:colo-apps.les-crevettes-cevenoles.fr:3479",
     //            "turn:colo-apps.les-crevettes-cevenoles.fr:3479" }
@@ -74,8 +79,12 @@ public:
     void disconnectAll() override;
     void shutdown() override;
     void publishToAll(const NostrEvent& ev) override;
+    void publishToPeer(const QString& peerId, const NostrEvent& ev) override;
+    void requestImage(const QString& channelTag, const QString& sha,
+                      const QString& variant) override;
     void subscribeAll(const QString& channelTag, int64_t since) override;
     bool isOnline() const override;
+    int peerCount(const QString& channelTag = QString()) const override;
 
 private:
     // ── Signaling ──
@@ -85,6 +94,7 @@ private:
 
     void onSignalingConnected();
     void onSignalingDisconnected();
+    void refreshTurnCredentials();
     void onSignalingError(QAbstractSocket::SocketError error);
     void onSignalingMessage(const QString& text);
 
@@ -130,8 +140,16 @@ private:
     // ── State ──
     QWebSocket m_signaling;
     QUrl m_signalingUrl;
+    QUrl m_p2pServerUrl;
+    QString m_appId = QStringLiteral("colocourse");
     QStringList m_iceUrls;
+    QStringList m_fetchedTurnUrls;
+    QString m_turnUser;
+    QString m_turnPassword;
     QString m_deviceId;
+    QNetworkAccessManager m_net;
+    QTimer m_turnRefreshTimer;
+    bool m_waitingForTurn = false;
 
     // peer connections: keyed by (peerDeviceId + ":" + channelTag)
     std::unordered_map<std::string, std::unique_ptr<PeerConnection>> m_peers;

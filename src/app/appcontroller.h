@@ -11,8 +11,7 @@
 #include "../store/database.h"
 #include "../core/types.h"
 #include "../core/pairing.h"
-#include "../net/relaypool.h"
-#include "../net/webrtctransport.h"
+#include "../net/hybridtransport.h"
 #include "itemmodel.h"
 #include "recipelibrarymodel.h"
 #include "syncengine.h"
@@ -139,9 +138,11 @@ class AppController : public QObject {
     Q_PROPERTY(QString relayUrls READ relayUrls NOTIFY relayUrlsChanged)
     Q_PROPERTY(bool pushEnabled READ pushEnabled NOTIFY pushSettingsChanged)
     Q_PROPERTY(QString pushBaseUrl READ pushBaseUrl NOTIFY pushSettingsChanged)
-    // Mode de synchronisation : 0 = relais Nostr, 1 = WebRTC P2P.
+    // Mode de synchronisation : 0 = relais seul, 1 = P2P seul, 2 = hybride.
     Q_PROPERTY(int syncMode READ syncMode NOTIFY syncModeChanged)
-    // URL du serveur de signalisation WebRTC (pour le mode P2P).
+    // Serveur P2P (base HTTPS) : signaling + credentials TURN. Indépendant du relais.
+    Q_PROPERTY(QString p2pServerUrl READ p2pServerUrl NOTIFY syncModeChanged)
+    // URL du serveur de signalisation WebRTC (override avancé).
     Q_PROPERTY(QString signalingUrl READ signalingUrl NOTIFY syncModeChanged)
     // Serveurs ICE (STUN/TURN) pour la traversée NAT.
     Q_PROPERTY(QString iceServers READ iceServers NOTIFY syncModeChanged)
@@ -176,6 +177,7 @@ public:
     bool    pushEnabled();
     QString pushBaseUrl();
     int     syncMode() const { return m_syncMode; }
+    QString p2pServerUrl() const;
     QString signalingUrl() const;
     QString iceServers() const;
 
@@ -241,6 +243,8 @@ public slots:
     bool setItemImage(const QString &itemId, const QUrl &fileUrl);
     // Retire UNE photo de l'article (les autres restent).
     void removeItemImage(const QString &itemId, const QString &sha);
+    // Demande la HD d'une vignette à un pair P2P (P2P best-effort).
+    Q_INVOKABLE void requestHd(const QString &sha);
     // Chemin temporaire pour une capture caméra (fichier local, prêt pour setItemImage).
     Q_INVOKABLE QString tempPhotoPath() const;
 
@@ -317,9 +321,12 @@ public slots:
     Q_INVOKABLE QString defaultPushBaseUrl() const;
     void refreshPushTopics();
 
-    // Mode de synchronisation : 0 = relais Nostr, 1 = WebRTC P2P.
+    // Mode de synchronisation : 0 = relais seul, 1 = P2P seul, 2 = hybride.
     Q_INVOKABLE void setSyncMode(int mode);
-    // URL du serveur de signalisation WebRTC.
+    // Serveur P2P (base HTTPS) : dérive l'URL de signaling si pas d'override.
+    Q_INVOKABLE void setP2pServerUrl(const QString &url);
+    Q_INVOKABLE QString defaultP2pServerUrl() const;
+    // URL du serveur de signalisation WebRTC (override avancé).
     Q_INVOKABLE void setSignalingUrl(const QString &url);
     Q_INVOKABLE QString defaultSignalingUrl() const;
     // Serveurs ICE (STUN/TURN), un par ligne.
@@ -393,8 +400,7 @@ private:
     RecipeLibraryModel *m_recipeLibraryModel;
     bool             m_recipeLibraryLoading = false;
     ItemModel        m_itemModel;
-    net::RelayPool   m_relayPool;
-    net::WebRTCTransport m_webrtcTransport;
+    net::HybridTransport m_transport;
     SyncEngine       m_syncEngine;
     bool             m_online = false;
     int              m_pendingChanges = 0;
@@ -406,7 +412,7 @@ private:
     std::string      m_openListId;   // liste actuellement chargée dans m_itemModel
     QString          m_pendingPrepListId; // recette neuve → proposer la préparation
     int              m_imageRevision = 0;
-    int              m_syncMode = 0; // 0 = Nostr, 1 = WebRTC P2P
+    int              m_syncMode = 2; // 0 = relais seul, 1 = P2P seul, 2 = hybride
 };
 
 } // namespace app

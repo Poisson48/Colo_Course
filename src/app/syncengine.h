@@ -73,6 +73,8 @@ public:
     // Appelé à l'ajout d'une photo, et au snapshot pour re-semer les blobs
     // référencés (rétention limitée des relais).
     void publishImage(const std::string& listId, const std::string& sha);
+    // Variante HD : P2P uniquement, jamais relais/outbox.
+    void publishImageHd(const std::string& listId, const std::string& sha);
 
     // Called by AppController/ItemModel after a local modification.
     // Schedules a debounced publish for listId.
@@ -120,6 +122,10 @@ private slots:
     void onRelayEvent(const net::NostrEvent& ev);
     void onRelayOnline(bool online);
     void onPublishAck(const QString& eventId, bool accepted, const QString& msg);
+    void onPublishAckKind(const QString& eventId, net::AckKind kind, const QString& msg);
+    void onCatchUpRequested(const QString& channelTag, const QString& peerId, int64_t since);
+    void onImageRequested(const QString& channelTag, const QString& peerId,
+                          const QString& sha, const QString& variant);
     void onDebounceTimer();
 
 private:
@@ -129,10 +135,26 @@ private:
     // Publish a full snapshot for listId.
     void publishSnap(const std::string& listId);
 
+    // Envoie un snap complet à un pair P2P (rattrapage à la connexion).
+    void publishSnapToPeer(const std::string& listId, const QString& peerId);
+
+    // Sérialise le snap complet d'une liste (sans publier).
+    std::string snapPayloadJson(const std::string& listId);
+
+    // Encrypt, sign, and build an event without touching the outbox.
+    std::optional<net::NostrEvent> buildEvent(const std::string& listId,
+                                              const std::string& payloadJson);
+
     // Encrypt, sign, and publish a payload string for listId.
     // If sign fails, do not publish. Stores in outbox.
     // Returns event id string (empty on error).
     std::string buildAndPublish(const std::string& listId, const std::string& payloadJson);
+
+    // Envoie une vignette existante à un pair (rattrapage).
+    void publishImageToPeer(const std::string& listId, const std::string& sha,
+                            const QString& peerId);
+    void publishImageHdToPeer(const std::string& listId, const std::string& sha,
+                              const QString& peerId);
 
     // Flush the outbox for all known lists (called on reconnect).
     void flushOutbox();
@@ -201,6 +223,8 @@ private:
     QHash<QString, QTimer*> m_pushWakeTimers;
     QHash<QString, QTimer*> m_remoteNotifTimers;
     QHash<QString, PendingRemoteNotif> m_pendingRemoteNotifs;
+    // Anti-tempête de snaps : peerId:channelTag -> dernier envoi ms.
+    QHash<QString, qint64> m_lastCatchUp;
 
     // Per-event outbox tracking: eventId -> listId.
     std::map<QString, std::string> m_pendingAcks;

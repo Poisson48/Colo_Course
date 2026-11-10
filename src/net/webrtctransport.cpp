@@ -6,6 +6,9 @@
 #include <QJsonArray>
 #include <QDebug>
 #include <QUuid>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QUrlQuery>
 
 #include <rtc/rtc.hpp>
 
@@ -20,6 +23,49 @@ static std::string peerKey(const QString& deviceId, const QString& channelTag)
     return (deviceId + QStringLiteral(":") + channelTag).toStdString();
 }
 
+// Construit un IceServer TURN avec credentials. libdatachannel n'accepte pas
+// directement une URL TURN + user/pass : il faut séparer host/service/type.
+static rtc::IceServer makeIceServer(const QString& url,
+                                    const QString& user,
+                                    const QString& pass)
+{
+    const bool tls = url.startsWith(QStringLiteral("turns:"), Qt::CaseInsensitive);
+    const bool turn = tls || url.startsWith(QStringLiteral("turn:"), Qt::CaseInsensitive);
+    if (!turn || user.isEmpty())
+        return rtc::IceServer{url.toStdString()};
+
+    QString rest = url.mid(url.indexOf(QLatin1Char(':')) + 1);
+    QString transport = QStringLiteral("udp");
+    const int q = rest.indexOf(QStringLiteral("?transport="), 0, Qt::CaseInsensitive);
+    if (q >= 0) {
+        transport = rest.mid(q + 11);
+        rest = rest.left(q);
+    }
+
+    QString host;
+    int port = 3479;
+    if (rest.startsWith(QLatin1Char('['))) {
+        const int close = rest.indexOf(QStringLiteral("]:"));
+        if (close < 0) return rtc::IceServer{url.toStdString()};
+        host = rest.mid(1, close - 1);
+        port = rest.mid(close + 2).toInt();
+    } else {
+        const int colon = rest.lastIndexOf(QLatin1Char(':'));
+        if (colon < 0) return rtc::IceServer{url.toStdString()};
+        host = rest.left(colon);
+        port = rest.mid(colon + 1).toInt();
+    }
+    if (host.isEmpty() || port <= 0 || port > 65535)
+        return rtc::IceServer{url.toStdString()};
+
+    auto relay = tls ? rtc::IceServer::RelayType::TurnTls
+                     : (transport.compare(QStringLiteral("tcp"), Qt::CaseInsensitive) == 0
+                            ? rtc::IceServer::RelayType::TurnTcp
+                            : rtc::IceServer::RelayType::TurnUdp);
+    return rtc::IceServer(host.toStdString(), static_cast<uint16_t>(port),
+                          user.toStdString(), pass.toStdString(), relay);
+}
+
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
@@ -30,6 +76,21 @@ WebRTCTransport::WebRTCTransport(QObject* parent)
     // Signaling reconnect backoff.
     m_reconnectTimer.setSingleShot(true);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &WebRTCTransport::connectSignaling);
+
+    m_turnRefreshTimer.setSingleShot(true);
+    connect(&m_turnRefreshTimer, &QTimer::timeout,
+            this, &WebRTCTransport::refreshTurnCredentials);
+
+    // Connecter les signaux UNE SEULE FOIS : les reconnecter à chaque tentative
+    // dupliquait les handlers après chaque coupure.
+    connect(&m_signaling, &QWebSocket::connected,
+            this, &WebRTCTransport::onSignalingConnected);
+    connect(&m_signaling, &QWebSocket::disconnected,
+            this, &WebRTCTransport::onSignalingDisconnected);
+    connect(&m_signaling, &QWebSocket::textMessageReceived,
+            this, &WebRTCTransport::onSignalingMessage);
+    connect(&m_signaling, &QWebSocket::errorOccurred,
+            this, &WebRTCTransport::onSignalingError);
 
     // Default ICE servers (Google public STUN + colo crevettes).
     m_iceUrls = {
@@ -52,6 +113,19 @@ void WebRTCTransport::setSignalingUrl(const QUrl& url)
     m_signalingUrl = url;
 }
 
+void WebRTCTransport::setP2pServerUrl(const QUrl& url)
+{
+    m_p2pServerUrl = url;
+    if (!m_deviceId.isEmpty())
+        refreshTurnCredentials();
+}
+
+void WebRTCTransport::setAppId(const QString& appId)
+{
+    if (!appId.isEmpty())
+        m_appId = appId;
+}
+
 void WebRTCTransport::setIceServers(const QStringList& urls)
 {
     m_iceUrls = urls;
@@ -69,6 +143,21 @@ void WebRTCTransport::setDeviceId(const QString& deviceId)
 void WebRTCTransport::connectAll()
 {
     if (m_shuttingDown) return;
+
+    // TURN est obligatoire pour la 4G : on laisse une courte fenêtre au serveur
+    // pour fournir les credentials avant d'ouvrir le signaling. En cas d'échec
+    // (serveur plus ancien, endpoint absent), on continue en STUN + relais.
+    if (!m_p2pServerUrl.isEmpty() && m_turnUser.isEmpty() && !m_waitingForTurn) {
+        m_waitingForTurn = true;
+        refreshTurnCredentials();
+        QTimer::singleShot(3000, this, [this]() {
+            if (m_waitingForTurn) {
+                m_waitingForTurn = false;
+                connectSignaling();
+            }
+        });
+        return;
+    }
     connectSignaling();
 }
 
@@ -82,6 +171,7 @@ void WebRTCTransport::disconnectAll()
         if (peer->pc) peer->pc->close();
     }
     m_peers.clear();
+    m_waitingForTurn = false;
     setOnline(false);
 }
 
@@ -113,6 +203,7 @@ void WebRTCTransport::publishToAll(const NostrEvent& ev)
     QJsonObject eventJson;
     eventJson[QStringLiteral("type")] = QStringLiteral("event");
     eventJson[QStringLiteral("id")] = ev.id;
+    eventJson[QStringLiteral("pubkey")] = ev.pubkey;
     eventJson[QStringLiteral("created_at")] = static_cast<qint64>(ev.created_at);
     eventJson[QStringLiteral("kind")] = ev.kind;
     eventJson[QStringLiteral("tags")] = ev.tags;
@@ -136,15 +227,64 @@ void WebRTCTransport::publishToAll(const NostrEvent& ev)
         }
     }
 
-    // Emit ack immediately — WebRTC data channels (reliable ordered) guarantee
-    // delivery at the SCTP level. No relay-style OK needed.
+    // Un ack immédiat n'est valable que si au moins un pair a effectivement
+    // reçu le message. Sans pair, on n'acquitte RIEN : l'outbox doit rester
+    // en attente (le relais hybride, lui, acquittera de façon durable).
     if (sentCount > 0) {
         emit publishAck(ev.id, true, QStringLiteral("p2p"));
+        emit publishAckKind(ev.id, AckKind::PeerDelivered, QStringLiteral("p2p"));
     } else {
-        // No peers connected on this channel — still ack so outbox clears
-        // (data will sync when a peer connects via signaling).
-        emit publishAck(ev.id, true, QStringLiteral("p2p:queued"));
+        qDebug() << "[WebRTC] no peer on channel" << channelTag
+                 << "— event kept pending" << ev.id.left(12);
     }
+}
+
+void WebRTCTransport::publishToPeer(const QString& peerId, const NostrEvent& ev)
+{
+    QString channelTag;
+    for (const auto& tagVal : ev.tags) {
+        const QJsonArray tag = tagVal.toArray();
+        if (tag.size() >= 2 && tag[0].toString() == QStringLiteral("t")) {
+            channelTag = tag[1].toString();
+            break;
+        }
+    }
+    if (channelTag.isEmpty()) return;
+
+    auto it = m_peers.find(peerKey(peerId, channelTag));
+    if (it == m_peers.end() || !it->second->dcOpen || !it->second->dc)
+        return;
+
+    QJsonObject eventJson;
+    eventJson[QStringLiteral("type")] = QStringLiteral("event");
+    eventJson[QStringLiteral("id")] = ev.id;
+    eventJson[QStringLiteral("pubkey")] = ev.pubkey;
+    eventJson[QStringLiteral("created_at")] = static_cast<qint64>(ev.created_at);
+    eventJson[QStringLiteral("kind")] = ev.kind;
+    eventJson[QStringLiteral("tags")] = ev.tags;
+    eventJson[QStringLiteral("content")] = ev.content;
+    eventJson[QStringLiteral("sig")] = ev.sig;
+
+    try {
+        it->second->dc->send(QJsonDocument(eventJson)
+                                 .toJson(QJsonDocument::Compact)
+                                 .toStdString());
+    } catch (const std::exception& e) {
+        qWarning() << "[WebRTC] targeted send failed to" << peerId << ":" << e.what();
+    }
+}
+
+void WebRTCTransport::requestImage(const QString& channelTag, const QString& sha,
+                                   const QString& variant)
+{
+    if (channelTag.isEmpty() || sha.isEmpty()) return;
+    QJsonObject msg;
+    msg[QStringLiteral("type")] = QStringLiteral("want_image");
+    msg[QStringLiteral("channel_tag")] = channelTag;
+    msg[QStringLiteral("sha")] = sha;
+    msg[QStringLiteral("variant")] = variant.isEmpty()
+        ? QStringLiteral("hd") : variant;
+    broadcastToChannel(channelTag, msg);
 }
 
 void WebRTCTransport::subscribeAll(const QString& channelTag, int64_t /*since*/)
@@ -181,13 +321,6 @@ void WebRTCTransport::connectSignaling()
         return;
 
     qDebug() << "[WebRTC] connecting signaling" << m_signalingUrl;
-
-    connect(&m_signaling, &QWebSocket::connected,
-            this, &WebRTCTransport::onSignalingConnected);
-    connect(&m_signaling, &QWebSocket::disconnected,
-            this, &WebRTCTransport::onSignalingDisconnected);
-    connect(&m_signaling, &QWebSocket::textMessageReceived,
-            this, &WebRTCTransport::onSignalingMessage);
 
     m_signaling.open(m_signalingUrl);
 }
@@ -241,6 +374,15 @@ void WebRTCTransport::onSignalingDisconnected()
 void WebRTCTransport::onSignalingError(QAbstractSocket::SocketError error)
 {
     qWarning() << "[WebRTC] signaling error" << error << m_signaling.errorString();
+    // Un échec de connexion ne déclenche pas toujours disconnected() : il faut
+    // reprogrammer explicitement, sinon le P2P ne revient jamais après un
+    // serveur temporairement injoignable.
+    if (!m_shuttingDown
+        && m_signaling.state() != QAbstractSocket::ConnectedState
+        && !m_reconnectTimer.isActive()) {
+        m_reconnectTimer.start(m_reconnectDelay);
+        m_reconnectDelay = std::min(m_reconnectDelay * 2, 30000);
+    }
 }
 
 void WebRTCTransport::onSignalingMessage(const QString& text)
@@ -276,8 +418,15 @@ void WebRTCTransport::handlePeerJoined(const QJsonObject& msg)
 
     qDebug() << "[WebRTC] peer joined" << peerId << "on" << channelTag;
 
-    // We are the "polite" peer (we create the offer when someone joins our channel).
-    auto* peer = ensurePeer(peerId, channelTag, /*polite=*/true);
+    // Un seul côté offre : le deviceId lexicographiquement le plus petit.
+    // Les deux côtés reçoivent peer_joined ; sans ce tie-break, les deux
+    // créaient une offre et se croisaient (glare).
+    if (m_deviceId > peerId) {
+        qDebug() << "[WebRTC] waiting for offer from" << peerId;
+        return;
+    }
+
+    auto* peer = ensurePeer(peerId, channelTag, /*offerer=*/true);
 
     // Create SDP offer. The onLocalDescription callback (set up in ensurePeer)
     // will send it to the signaling server automatically.
@@ -362,10 +511,87 @@ void WebRTCTransport::handlePeerLeft(const QJsonObject& msg)
 std::vector<rtc::IceServer> WebRTCTransport::buildIceServers() const
 {
     std::vector<rtc::IceServer> servers;
-    for (const QString& url : m_iceUrls) {
-        servers.push_back(rtc::IceServer{url.toStdString()});
-    }
+    QSet<QString> seen;
+    const auto add = [&](const QString& url) {
+        if (url.isEmpty() || seen.contains(url)) return;
+        seen.insert(url);
+        servers.push_back(makeIceServer(url, m_turnUser, m_turnPassword));
+    };
+    for (const QString& url : m_iceUrls)
+        add(url);
+    for (const QString& url : m_fetchedTurnUrls)
+        add(url);
     return servers;
+}
+
+void WebRTCTransport::refreshTurnCredentials()
+{
+    if (m_p2pServerUrl.isEmpty() || m_deviceId.isEmpty()) {
+        if (m_waitingForTurn) {
+            m_waitingForTurn = false;
+            connectSignaling();
+        }
+        return;
+    }
+
+    QUrl u = m_p2pServerUrl;
+    QString scheme = u.scheme().toLower();
+    if (scheme == QLatin1String("wss")) u.setScheme(QStringLiteral("https"));
+    else if (scheme == QLatin1String("ws")) u.setScheme(QStringLiteral("http"));
+    else if (scheme != QLatin1String("https") && scheme != QLatin1String("http")) {
+        if (m_waitingForTurn) { m_waitingForTurn = false; connectSignaling(); }
+        return;
+    }
+    QString path = u.path();
+    while (path.endsWith(QLatin1Char('/'))) path.chop(1);
+    u.setPath(path + QStringLiteral("/turn-credentials"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("app"), m_appId);
+    query.addQueryItem(QStringLiteral("device_id"), m_deviceId);
+    u.setQuery(query);
+
+    QNetworkRequest req(u);
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
+    auto* reply = m_net.get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[WebRTC] TURN credentials indisponibles:"
+                       << reply->errorString();
+            if (m_waitingForTurn) {
+                m_waitingForTurn = false;
+                connectSignaling();
+            }
+            return;
+        }
+
+        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+        if (!doc.isObject()) {
+            if (m_waitingForTurn) { m_waitingForTurn = false; connectSignaling(); }
+            return;
+        }
+        const QJsonObject obj = doc.object();
+        const QString user = obj.value(QStringLiteral("username")).toString();
+        const QString pass = obj.value(QStringLiteral("credential")).toString();
+        if (!user.isEmpty() && !pass.isEmpty()) {
+            m_turnUser = user;
+            m_turnPassword = pass;
+            m_fetchedTurnUrls.clear();
+            for (const QJsonValue& v : obj.value(QStringLiteral("urls")).toArray()) {
+                const QString s = v.toString();
+                if (!s.isEmpty()) m_fetchedTurnUrls.append(s);
+            }
+            const int ttl = obj.value(QStringLiteral("ttl")).toInt(43200);
+            m_turnRefreshTimer.start(std::max(3600, ttl - 1800) * 1000);
+            qInfo() << "[WebRTC] TURN credentials reçues, urls="
+                    << m_fetchedTurnUrls.size();
+        }
+        if (m_waitingForTurn) {
+            m_waitingForTurn = false;
+            connectSignaling();
+        }
+    });
 }
 
 WebRTCTransport::PeerConnection*
@@ -437,6 +663,8 @@ WebRTCTransport::ensurePeer(const QString& peerDeviceId,
                 auto it = transport->m_peers.find(pKey);
                 if (it != transport->m_peers.end()) {
                     it->second->dcOpen = false;
+                    emit transport->peerStateChanged(it->second->channelTag,
+                                                     transport->peerCount(it->second->channelTag));
                 }
                 transport->updateOnlineState();
             }
@@ -473,9 +701,11 @@ void WebRTCTransport::removePeer(const QString& peerDeviceId, const QString& cha
     auto it = m_peers.find(key);
     if (it == m_peers.end()) return;
 
+    const QString tag = it->second->channelTag;
     if (it->second->dc) it->second->dc->close();
     if (it->second->pc) it->second->pc->close();
     m_peers.erase(it);
+    emit peerStateChanged(tag, peerCount(tag));
     updateOnlineState();
 }
 
@@ -523,23 +753,26 @@ void WebRTCTransport::wireDataChannel(PeerConnection* peer,
             it->second->dcOpen = true;
             qDebug() << "[WebRTC] data channel open with" << QString::fromStdString(peerKey);
             transport->setOnline(true);
+            emit transport->peerStateChanged(it->second->channelTag,
+                                             transport->peerCount(it->second->channelTag));
 
-            // Subscribe this peer to our channels (re-request recent events).
-            for (const QString& tag : transport->m_subscribedChannels) {
-                QJsonObject sub;
-                sub[QStringLiteral("type")] = QStringLiteral("subscribe");
-                sub[QStringLiteral("channel_tag")] = tag;
-                sub[QStringLiteral("since")] = 0;  // catch up
-                transport->sendToPeer(*it->second, sub);
-            }
+            // Demander le rattrapage uniquement pour le canal de ce pair.
+            QJsonObject sub;
+            sub[QStringLiteral("type")] = QStringLiteral("subscribe");
+            sub[QStringLiteral("channel_tag")] = it->second->channelTag;
+            sub[QStringLiteral("since")] = 0;  // catch up
+            transport->sendToPeer(*it->second, sub);
         });
     });
 
     dc->onClosed([transport, peerKey]() {
         QMetaObject::invokeMethod(transport, [transport, peerKey]() {
             auto it = transport->m_peers.find(peerKey);
-            if (it != transport->m_peers.end())
+            if (it != transport->m_peers.end()) {
                 it->second->dcOpen = false;
+                emit transport->peerStateChanged(it->second->channelTag,
+                                                 transport->peerCount(it->second->channelTag));
+            }
             transport->updateOnlineState();
         });
     });
@@ -558,8 +791,8 @@ void WebRTCTransport::wireDataChannel(PeerConnection* peer,
 // Data channel message handling
 // ---------------------------------------------------------------------------
 
-void WebRTCTransport::onDataChannelMessage(const QString& /*peerDeviceId*/,
-                                           const QString& /*channelTag*/,
+void WebRTCTransport::onDataChannelMessage(const QString& peerDeviceId,
+                                           const QString& channelTag,
                                            const std::string& msg)
 {
     const QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(msg));
@@ -569,8 +802,29 @@ void WebRTCTransport::onDataChannelMessage(const QString& /*peerDeviceId*/,
 
     if (type == QStringLiteral("event")) {
         handleEvent(obj);
+        // Accusé de réception applicatif : le pair a bien reçu l'événement.
+        const std::string key = peerKey(peerDeviceId, channelTag);
+        auto it = m_peers.find(key);
+        if (it != m_peers.end() && it->second->dcOpen) {
+            QJsonObject ack;
+            ack[QStringLiteral("type")] = QStringLiteral("ack");
+            ack[QStringLiteral("event_id")] = obj.value(QStringLiteral("id"));
+            sendToPeer(*it->second, ack);
+        }
     } else if (type == QStringLiteral("ack")) {
         handleAck(obj);
+    } else if (type == QStringLiteral("want_image")) {
+        const QString sha = obj[QStringLiteral("sha")].toString();
+        const QString variant = obj[QStringLiteral("variant")].toString();
+        if (!sha.isEmpty())
+            emit imageRequested(channelTag, peerDeviceId, sha,
+                                variant.isEmpty() ? QStringLiteral("hd") : variant);
+    } else if (type == QStringLiteral("subscribe")) {
+        const QString requested = obj[QStringLiteral("channel_tag")].toString();
+        if (!requested.isEmpty() && requested != channelTag)
+            return;
+        const int64_t since = obj[QStringLiteral("since")].toVariant().toLongLong();
+        emit catchUpRequested(channelTag, peerDeviceId, since);
     }
 }
 
@@ -595,8 +849,10 @@ void WebRTCTransport::handleEvent(const QJsonObject& obj)
 void WebRTCTransport::handleAck(const QJsonObject& obj)
 {
     const QString eventId = obj[QStringLiteral("event_id")].toString();
-    if (!eventId.isEmpty())
+    if (!eventId.isEmpty()) {
         emit publishAck(eventId, true, QStringLiteral("p2p"));
+        emit publishAckKind(eventId, AckKind::PeerDelivered, QStringLiteral("p2p"));
+    }
 }
 
 void WebRTCTransport::setOnline(bool online)
@@ -612,7 +868,19 @@ void WebRTCTransport::updateOnlineState()
     for (auto it = m_peers.cbegin(); it != m_peers.cend(); ++it) {
         if (it->second->dcOpen) { anyOpen = true; break; }
     }
-    setOnline(anyOpen || m_signaling.state() == QAbstractSocket::ConnectedState);
+    setOnline(anyOpen);
+}
+
+int WebRTCTransport::peerCount(const QString& channelTag) const
+{
+    int count = 0;
+    for (const auto& [key, peer] : m_peers) {
+        Q_UNUSED(key);
+        if (!peer->dcOpen) continue;
+        if (!channelTag.isEmpty() && peer->channelTag != channelTag) continue;
+        ++count;
+    }
+    return count;
 }
 
 } // namespace net

@@ -1,5 +1,7 @@
 # Colo Course — Rapport : passage Nostr → P2P (découverte IP seule)
 
+> **Mise à jour 2026-11-10** : la cible retenue est un transport **hybride** (relais durable + P2P WebRTC, TURN obligatoire pour la 4G). Voir [SYNC-HYBRID.md](SYNC-HYBRID.md). Le présent document reste le cadrage historique.
+
 > Document de cadrage. **Pas d’implémentation ici** — référence pour reprendre le travail plus tard.
 > Date de rédaction : 2026-09-12.
 > Contexte code : sync actuelle = CRDT + chiffrement `listKey` + transport Nostr kind 4545 via `wss://colo-apps.les-crevettes-cevenoles.fr` (Strfry).

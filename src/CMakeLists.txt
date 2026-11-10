@@ -19,6 +19,7 @@ add_library(net STATIC
     net/pushclient.cpp
     net/synctransport.cpp
     net/webrtctransport.cpp
+    net/hybridtransport.cpp
 )
 
 target_include_directories(net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -29,6 +30,12 @@ target_link_libraries(net PUBLIC
     Qt6::WebSockets
     datachannel-static
 )
+
+# libdatachannel static utilise OpenSSL pour DTLS. En Android, les cibles
+# importées viennent de KDAB/android_openssl ; il faut les lier explicitement.
+if(ANDROID)
+    target_link_libraries(net PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+endif()
 
 # --- core static library (pure C++/STL, no Qt) ---
 add_library(core STATIC

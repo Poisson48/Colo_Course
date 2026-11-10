@@ -39,6 +39,8 @@
 
 namespace app {
 
+static QString deriveSignalingUrl(const QString& base);
+
 // ---------------------------------------------------------------------------
 // ListsModel
 // ---------------------------------------------------------------------------
@@ -339,7 +341,7 @@ AppController::AppController(QObject *parent)
     , m_listsModel(new ListsModel(this))
     , m_recipesModel(new ListsModel(this))
     , m_recipeLibraryModel(new RecipeLibraryModel(this))
-    , m_relayPool()
+    , m_transport()
     , m_syncEngine()
 {
     m_recipesModel->setKindFilter(QStringLiteral("recipe"));
@@ -367,8 +369,7 @@ void AppController::shutdown()
     shutdownRecipeCatalogLoader(this);
     releaseRecipeLibraryCatalog();
     m_syncEngine.shutdown();
-    m_relayPool.shutdown();
-    m_webrtcTransport.shutdown();
+    m_transport.shutdown();
 }
 
 QString AppController::databasePath() {
@@ -452,35 +453,50 @@ bool AppController::init() {
         for (const QUrl& u : relayUrls) parts.append(u.toString());
         m_db.setSetting("relays", parts.join(',').toStdString());
     }
-    m_relayPool.setRelays(relayUrls);
+    m_transport.setRelays(relayUrls);
 
     // --- Setup WebRTC transport ---
+    // Serveur P2P = base HTTPS ; l'URL de signaling en est dérivée sauf override.
+    auto p2pSetting = m_db.getSetting("p2pServerUrl");
+    const QString p2pBase = p2pSetting && !p2pSetting->empty()
+        ? QString::fromStdString(*p2pSetting)
+        : defaultP2pServerUrl();
     auto signalingSetting = m_db.getSetting("signalingUrl");
     const QString sigUrl = signalingSetting && !signalingSetting->empty()
         ? QString::fromStdString(*signalingSetting)
-        : QStringLiteral("wss://colo-apps.les-crevettes-cevenoles.fr/signal");
-    m_webrtcTransport.setSignalingUrl(QUrl(sigUrl));
-    m_webrtcTransport.setDeviceId(m_deviceId);
+        : deriveSignalingUrl(p2pBase);
+    m_transport.setSignalingUrl(QUrl(sigUrl));
+    m_transport.setDeviceId(m_deviceId);
+    m_transport.setAppId(QStringLiteral("colocourse"));
+    m_transport.setP2pServerUrl(QUrl(p2pBase));
 
     auto iceSetting = m_db.getSetting("iceServers");
     if (iceSetting && !iceSetting->empty()) {
-        m_webrtcTransport.setIceServers(
+        m_transport.setIceServers(
             QString::fromStdString(*iceSetting).split(QLatin1Char(','), Qt::SkipEmptyParts));
     } else {
-        m_webrtcTransport.setIceServers(defaultIceServers().split(QLatin1Char('\n'), Qt::SkipEmptyParts));
+        m_transport.setIceServers(defaultIceServers().split(QLatin1Char('\n'), Qt::SkipEmptyParts));
     }
 
-    // Load sync mode from settings (default = 0 = Nostr).
+    // Load sync mode. Les installations d'avant le mode hybride n'ont pas de
+    // drapeau de migration : on les bascule une seule fois vers Hybrid.
     auto syncModeSetting = m_db.getSetting("syncMode");
-    m_syncMode = syncModeSetting ? std::stoi(*syncModeSetting) : 0;
+    m_syncMode = syncModeSetting ? std::stoi(*syncModeSetting) : 2;
+    if (m_syncMode < 0 || m_syncMode > 2)
+        m_syncMode = 2;
+    if (!m_db.getSetting("syncModeV2Migrated")) {
+        m_syncMode = 2;
+        m_db.setSetting("syncMode", "2");
+        m_db.setSetting("syncModeV2Migrated", "1");
+    }
 
-    // Select active transport.
-    net::SyncTransport* activeTransport =
-        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
-                          : static_cast<net::SyncTransport*>(&m_relayPool);
+    const auto mode = (m_syncMode == 0) ? net::HybridTransport::Mode::RelayOnly
+                    : (m_syncMode == 1) ? net::HybridTransport::Mode::P2POnly
+                                        : net::HybridTransport::Mode::Hybrid;
+    m_transport.setMode(mode);
 
     // --- Wire SyncEngine ---
-    m_syncEngine.init(&m_db, activeTransport, m_deviceId, m_displayName);
+    m_syncEngine.init(&m_db, &m_transport, m_deviceId, m_displayName);
     connect(&m_syncEngine, &SyncEngine::onlineChanged,
             this,          &AppController::onSyncOnlineChanged);
     connect(&m_syncEngine, &SyncEngine::remoteChanges,
@@ -519,12 +535,9 @@ bool AppController::init() {
             this,         &AppController::favoritesChanged);
 
     // --- Connect and subscribe ---
-    net::SyncTransport* transport =
-        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
-                          : static_cast<net::SyncTransport*>(&m_relayPool);
-    transport->connectAll();
+    m_transport.connectAll();
     m_syncEngine.subscribeAllLists();
-    m_online = transport->isOnline();
+    m_online = m_transport.isOnline();
 
     const bool active = QGuiApplication::applicationState() == Qt::ApplicationActive;
     m_syncEngine.setAppInForeground(active);
@@ -541,10 +554,7 @@ bool AppController::init() {
 }
 
 void AppController::resumeSync() {
-    net::SyncTransport* transport =
-        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
-                          : static_cast<net::SyncTransport*>(&m_relayPool);
-    transport->connectAll();
+    m_transport.connectAll();
     m_syncEngine.catchUpOnForeground();
 }
 
@@ -740,12 +750,12 @@ void AppController::setRelayUrls(const QString &text)
         stored.append(u.toString());
     m_db.setSetting("relays", stored.join(QLatin1Char(',')).toStdString());
 
-    m_relayPool.setRelays(urls);
-    m_relayPool.connectAll();
+    m_transport.setRelays(urls);
+    m_transport.connectAll();
     m_syncEngine.subscribeAllLists();
     m_syncEngine.catchUpOnForeground();
 
-    const bool online = m_relayPool.isOnline();
+    const bool online = m_transport.isOnline();
     if (online != m_online) {
         m_online = online;
         emit onlineChanged();
@@ -831,6 +841,42 @@ void AppController::refreshPushTopics()
 // Sync mode (Nostr ↔ WebRTC)
 // ---------------------------------------------------------------------------
 
+static QString deriveSignalingUrl(const QString& base)
+{
+    QUrl u(base.trimmed());
+    if (!u.isValid() || u.host().isEmpty())
+        return {};
+    QString scheme = u.scheme().toLower();
+    if (scheme == QLatin1String("https")) scheme = QStringLiteral("wss");
+    else if (scheme == QLatin1String("http")) scheme = QStringLiteral("ws");
+    else if (scheme != QLatin1String("wss") && scheme != QLatin1String("ws"))
+        return {};
+
+    QString path = u.path();
+    while (path.endsWith(QLatin1Char('/'))) path.chop(1);
+    path += QStringLiteral("/signal");
+
+    QUrl out;
+    out.setScheme(scheme);
+    out.setHost(u.host());
+    out.setPort(u.port());
+    out.setPath(path);
+    return out.toString();
+}
+
+QString AppController::p2pServerUrl() const
+{
+    const auto v = m_db.getSetting("p2pServerUrl");
+    if (v && !v->empty())
+        return QString::fromStdString(*v);
+    return defaultP2pServerUrl();
+}
+
+QString AppController::defaultP2pServerUrl() const
+{
+    return QStringLiteral("https://colo-apps.les-crevettes-cevenoles.fr");
+}
+
 QString AppController::signalingUrl() const
 {
     const auto v = m_db.getSetting("signalingUrl");
@@ -841,7 +887,7 @@ QString AppController::signalingUrl() const
 
 QString AppController::defaultSignalingUrl() const
 {
-    return QStringLiteral("wss://colo-apps.les-crevettes-cevenoles.fr/signal");
+    return deriveSignalingUrl(defaultP2pServerUrl());
 }
 
 QString AppController::iceServers() const
@@ -861,37 +907,61 @@ QString AppController::defaultIceServers() const
 
 void AppController::setSyncMode(int mode)
 {
-    if (mode != 0 && mode != 1) return;
+    if (mode < 0 || mode > 2) return;
     if (mode == m_syncMode) return;
-
-    // Shut down current transport.
-    if (m_syncMode == 0)
-        m_relayPool.disconnectAll();
-    else
-        m_webrtcTransport.disconnectAll();
 
     m_syncMode = mode;
     m_db.setSetting("syncMode", std::to_string(mode));
 
-    // Select new transport and rewire SyncEngine.
-    net::SyncTransport* transport =
-        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
-                          : static_cast<net::SyncTransport*>(&m_relayPool);
-    m_syncEngine.init(&m_db, transport, m_deviceId, m_displayName);
+    const auto transportMode =
+        (m_syncMode == 0) ? net::HybridTransport::Mode::RelayOnly
+      : (m_syncMode == 1) ? net::HybridTransport::Mode::P2POnly
+                          : net::HybridTransport::Mode::Hybrid;
+    m_transport.setMode(transportMode);
 
-    // Connect and subscribe.
-    transport->connectAll();
+    // Rewire SyncEngine on the same hybrid transport (les backends restent
+    // inchangés ; seul le routage publish/subscribe change).
+    m_syncEngine.init(&m_db, &m_transport, m_deviceId, m_displayName);
+    m_transport.connectAll();
     m_syncEngine.subscribeAllLists();
 
-    const bool online = transport->isOnline();
+    const bool online = m_transport.isOnline();
     if (online != m_online) {
         m_online = online;
         emit onlineChanged();
     }
 
     emit syncModeChanged();
-    emit toast(mode == 1 ? QStringLiteral("Mode P2P activé")
-                         : QStringLiteral("Mode relais Nostr activé"));
+    emit toast(mode == 2 ? QStringLiteral("Mode hybride activé")
+               : mode == 1 ? QStringLiteral("Mode P2P seul activé")
+                           : QStringLiteral("Mode relais seul activé"));
+}
+
+void AppController::setP2pServerUrl(const QString &url)
+{
+    if (!m_db.isOpen())
+        return;
+    const QUrl base(url.trimmed());
+    if (!base.isValid() || base.host().isEmpty()
+        || (base.scheme() != QStringLiteral("http")
+            && base.scheme() != QStringLiteral("https"))) {
+        emit toast(QStringLiteral("URL de serveur P2P invalide (http/https attendu)"));
+        return;
+    }
+    const QString derived = deriveSignalingUrl(url);
+    if (derived.isEmpty()) {
+        emit toast(QStringLiteral("URL de serveur P2P invalide"));
+        return;
+    }
+    m_db.setSetting("p2pServerUrl", url.trimmed().toStdString());
+    m_db.setSetting("signalingUrl", derived.toStdString());
+    m_transport.setSignalingUrl(QUrl(derived));
+    m_transport.setP2pServerUrl(base);
+    if (m_syncMode != 0) {
+        m_transport.p2p().disconnectAll();
+        m_transport.p2p().connectAll();
+    }
+    emit syncModeChanged();
 }
 
 void AppController::setSignalingUrl(const QString &url)
@@ -904,7 +974,11 @@ void AppController::setSignalingUrl(const QString &url)
         return;
     }
     m_db.setSetting("signalingUrl", url.trimmed().toStdString());
-    m_webrtcTransport.setSignalingUrl(u);
+    m_transport.setSignalingUrl(u);
+    if (m_syncMode != 0) {
+        m_transport.p2p().disconnectAll();
+        m_transport.p2p().connectAll();
+    }
     emit syncModeChanged();
 }
 
@@ -915,8 +989,12 @@ void AppController::setIceServers(const QString &text)
     // Store as comma-separated.
     const QString stored = text.trimmed().replace(QLatin1Char('\n'), QLatin1Char(','));
     m_db.setSetting("iceServers", stored.toStdString());
-    m_webrtcTransport.setIceServers(
+    m_transport.setIceServers(
         stored.split(QLatin1Char(','), Qt::SkipEmptyParts));
+    if (m_syncMode != 0) {
+        m_transport.p2p().disconnectAll();
+        m_transport.p2p().connectAll();
+    }
     emit syncModeChanged();
 }
 
@@ -2009,6 +2087,42 @@ QByteArray compressItemImage(const QUrl &fileUrl) {
         side = side * 2 / 3;
     }
 }
+// Variante haute résolution, P2P uniquement. 2048 px max, JPEG 85, cap 2 Mo.
+// Pas d'upscale ; on redescend qualité/dimension si l'original dépasse le cap.
+QByteArray compressItemHd(const QUrl &fileUrl) {
+    const QString target = fileUrl.isLocalFile() ? fileUrl.toLocalFile()
+                                                 : fileUrl.toString();
+    QFile f(target);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    const QByteArray raw = f.readAll();
+    f.close();
+    const QImage img = QImage::fromData(raw);
+    if (img.isNull())
+        return {};
+
+    constexpr int kMaxHdBytes = 2000000;
+    int side = 2048;
+    for (;;) {
+        const QImage scaled = (img.width() > side || img.height() > side)
+            ? img.scaled(side, side, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+            : img;
+        for (const int quality : { 90, 85, 80, 75, 70, 60 }) {
+            QByteArray out;
+            QBuffer buf(&out);
+            if (!buf.open(QIODevice::WriteOnly))
+                continue;
+            if (!scaled.save(&buf, "JPEG", quality))
+                continue;
+            buf.close();
+            if (out.size() > 0 && out.size() <= kMaxHdBytes)
+                return out;
+        }
+        if (side <= 640)
+            return {};
+        side = side * 3 / 4;
+    }
+}
 } // namespace
 
 QString AppController::tempPhotoPath() const {
@@ -2035,15 +2149,34 @@ bool AppController::setItemImage(const QString &itemId, const QUrl &fileUrl) {
         return false;
     }
 
+    // HD best-effort : stockée localement, jamais envoyée au relais.
+    const QByteArray jpegHd = compressItemHd(fileUrl);
+    if (!jpegHd.isEmpty())
+        m_db.putImageHd(sha.toStdString(), jpegHd);
+
     // Champ CRDT d'abord (delta débouncé), blob ensuite (événement img direct).
     // L'ordre d'arrivée chez les pairs est indifférent : la vignette s'affiche dès
     // que le blob ET le champ sont là.
     m_itemModel.addItemImage(itemId, sha);
     m_syncEngine.publishImage(m_openListId, sha.toStdString());
+    if (!jpegHd.isEmpty())
+        m_syncEngine.publishImageHd(m_openListId, sha.toStdString());
 
     ++m_imageRevision;
     emit imageRevisionChanged();
     return true;
+}
+
+void AppController::requestHd(const QString &sha) {
+    if (m_openListId.empty() || sha.isEmpty())
+        return;
+    auto metaOpt = m_db.getList(m_openListId);
+    if (!metaOpt)
+        return;
+    if (m_db.hasImageHd(sha.toStdString()))
+        return;
+    const QString tag = QString::fromStdString(net::deriveChannelTag(metaOpt->key));
+    m_transport.requestImage(tag, sha, QStringLiteral("hd"));
 }
 
 void AppController::removeItemImage(const QString &itemId, const QString &sha) {

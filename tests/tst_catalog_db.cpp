@@ -8,6 +8,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
+#include <QCoreApplication>
 #include <QString>
 
 #include <cstdio>
@@ -138,7 +139,8 @@ static void test_emptyFtsRebuiltOnOpen() {
     RecipeCatalogDb::close();
 }
 
-int main() {
+int main(int argc, char** argv) {
+    QCoreApplication app(argc, argv);
     std::printf("=== tst_catalog_db ===\n");
     test_importAndFilter();
     test_emptyFtsRebuiltOnOpen();

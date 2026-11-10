@@ -147,6 +147,18 @@ void RelayPool::onClientAck(const QString& eventId, bool accepted, const QString
     if (m_shuttingDown)
         return;
     emit publishAck(eventId, accepted, msg);
+
+    // Un OK explicite, ou un « duplicate/already/stored », signifie que le
+    // relais possède déjà l'événement. C'est le seul ack qui autorise à vider
+    // l'outbox. Tout le reste est un refus.
+    const QString lower = msg.toLower();
+    const bool durable = accepted
+        || lower.contains(QStringLiteral("duplicate"))
+        || lower.contains(QStringLiteral("already"))
+        || lower.contains(QStringLiteral("stored"));
+    emit publishAckKind(eventId,
+                        durable ? AckKind::RelayDurable : AckKind::Rejected,
+                        msg);
 }
 
 // ── Private helpers ────────────────────────────────────────────────────────
@@ -168,7 +180,10 @@ void RelayPool::updateOnlineState()
 
     if (anyConnected != m_online) {
         m_online = anyConnected;
+        // QML lit le signal sans argument (Q_PROPERTY NOTIFY). SyncEngine écoute
+        // le signal de base avec son booléen : les deux doivent partir.
         emit onlineChanged();
+        emit SyncTransport::onlineChanged(m_online);
     }
 }
 

@@ -29,8 +29,6 @@ static constexpr int     kPushWakeDebounceMs    = 60'000;  // 1 min après derni
 static constexpr int     kRemoteNotifDebounceMs = 60'000; // idem pour notifs locales
 static constexpr int64_t kSnapDeltaThresh   = 100;    // deltas before forcing a snap
 static constexpr int64_t kSnapAgeMs         = 7LL * 24 * 3600 * 1000; // 7 days
-// Outbox : au-delà de ce délai sans ACK, l'event a déjà été republié — on purge.
-static constexpr int64_t kOutboxStaleMs     = 45'000;
 
 // Settings key prefixes
 static constexpr const char* kDeltaCountKey  = "sync.delta_count.";
@@ -110,8 +108,12 @@ void SyncEngine::init(store::Database* db,
             this,        &SyncEngine::onRelayEvent);
     connect(m_transport, &net::SyncTransport::onlineChanged,
             this,        &SyncEngine::onRelayOnline);
-    connect(m_transport, &net::SyncTransport::publishAck,
-            this,        &SyncEngine::onPublishAck);
+    connect(m_transport, &net::SyncTransport::publishAckKind,
+            this,        &SyncEngine::onPublishAckKind);
+    connect(m_transport, &net::SyncTransport::catchUpRequested,
+            this,        &SyncEngine::onCatchUpRequested);
+    connect(m_transport, &net::SyncTransport::imageRequested,
+            this,        &SyncEngine::onImageRequested);
 
     // Forward online state.
     connect(m_transport, &net::SyncTransport::onlineChanged,
@@ -220,12 +222,11 @@ void SyncEngine::publishDelta(const std::string& listId)
     buildAndPublish(listId, json);
 }
 
-void SyncEngine::publishSnap(const std::string& listId)
+std::string SyncEngine::snapPayloadJson(const std::string& listId)
 {
-    if (!m_db) return;
-
+    if (!m_db) return {};
     auto metaOpt = m_db->getList(listId);
-    if (!metaOpt) return;
+    if (!metaOpt) return {};
 
     const auto items = m_db->getItems(listId);
     const auto rawMembers = m_db->getMembers(listId);
@@ -242,28 +243,41 @@ void SyncEngine::publishSnap(const std::string& listId)
     const std::string devId = m_deviceId.toStdString();
     p.by = devId;
 
-    // Populate members from DB.
-    // getMembers only returns (deviceId, name) — we need the ver.
-    // We reconstruct a minimal ver; the authoritative ver is in the items' by field.
-    // For member ver, we store a best-effort ver using the list lamport.
     for (const auto& [did, name] : rawMembers) {
         p.members[did] = {name, core::Ver{metaOpt->lamport, did}};
     }
-    // Ensure our own entry is present.
     p.members[devId] = {m_displayName.toStdString(),
                         core::Ver{metaOpt->lamport, devId}};
 
-    const std::string json = core::serializePayload(p);
+    return core::serializePayload(p);
+}
+
+void SyncEngine::publishSnap(const std::string& listId)
+{
+    const std::string json = snapPayloadJson(listId);
+    if (json.empty()) return;
+
     buildAndPublish(listId, json);
 
-    // Re-semer les blobs des photos encore référencées : les relais ont une
-    // rétention limitée, le snap protège l'état — les images doivent l'être aussi,
-    // sinon un pair qui rejoint tard verrait des articles aux photos manquantes.
+    // Re-semer les vignettes : les relais ont une rétention limitée.
     for (const std::string& sha : m_db->imagesReferenced(listId))
         publishImage(listId, sha);
 
-    // Reset counter + timestamp.
     resetDeltaCounter(listId);
+}
+
+void SyncEngine::publishSnapToPeer(const std::string& listId, const QString& peerId)
+{
+    if (!m_transport || peerId.isEmpty()) return;
+    const std::string json = snapPayloadJson(listId);
+    if (json.empty()) return;
+
+    if (auto ev = buildEvent(listId, json))
+        m_transport->publishToPeer(peerId, *ev);
+
+    // Les vignettes voyagent aussi pour que le nouveau pair affiche les photos.
+    for (const std::string& sha : m_db->imagesReferenced(listId))
+        publishImageToPeer(listId, sha, peerId);
 }
 
 void SyncEngine::publishImage(const std::string& listId, const std::string& sha)
@@ -279,26 +293,49 @@ void SyncEngine::publishImage(const std::string& listId, const std::string& sha)
     buildAndPublish(listId, json);
 }
 
-std::string SyncEngine::buildAndPublish(const std::string& listId,
-                                        const std::string& payloadJson)
+void SyncEngine::publishImageHd(const std::string& listId, const std::string& sha)
 {
-    if (!m_db || !m_transport) return {};
+    if (!m_transport || !m_db || sha.empty()) return;
+    const QByteArray blob = m_db->getImageHd(sha);
+    if (blob.isEmpty()) return;
 
+    std::vector<uint8_t> data(blob.constData(), blob.constData() + blob.size());
+    const std::string json = core::serializeImagePayload(
+        listId, m_deviceId.toStdString(), sha, data, "hd");
+    if (auto ev = buildEvent(listId, json))
+        m_transport->publishToPeers(*ev);
+}
+
+void SyncEngine::publishImageHdToPeer(const std::string& listId, const std::string& sha,
+                                      const QString& peerId)
+{
+    if (!m_transport || !m_db || sha.empty()) return;
+    const QByteArray blob = m_db->getImageHd(sha);
+    if (blob.isEmpty()) return;
+
+    std::vector<uint8_t> data(blob.constData(), blob.constData() + blob.size());
+    const std::string json = core::serializeImagePayload(
+        listId, m_deviceId.toStdString(), sha, data, "hd");
+    if (auto ev = buildEvent(listId, json))
+        m_transport->publishToPeer(peerId, *ev);
+}
+
+std::optional<net::NostrEvent> SyncEngine::buildEvent(const std::string& listId,
+                                                       const std::string& payloadJson)
+{
+    if (!m_db) return std::nullopt;
     auto metaOpt = m_db->getList(listId);
-    if (!metaOpt) return {};
+    if (!metaOpt) return std::nullopt;
 
-    // Derive channel tag and Nostr seed from list key.
     const std::string channelTag = net::deriveChannelTag(metaOpt->key);
     const auto        seed       = net::deriveNostrSeed(metaOpt->key);
 
-    // Encrypt payload.
     const std::string cipherBase64 = net::encryptPayload(metaOpt->key, channelTag, payloadJson);
     if (cipherBase64.empty()) {
         qWarning() << "[SyncEngine] encryptPayload failed for list" << QString::fromStdString(listId);
-        return {};
+        return std::nullopt;
     }
 
-    // Build NostrEvent.
     net::NostrEvent ev;
     ev.created_at = QDateTime::currentSecsSinceEpoch();
     ev.kind       = 4545;
@@ -309,29 +346,47 @@ std::string SyncEngine::buildAndPublish(const std::string& listId,
     tagT.append(QString::fromStdString(channelTag));
     ev.tags.append(tagT);
 
-    // Sign the event. If signing fails, do NOT publish.
     if (!net::signEvent(ev, seed)) {
         qWarning() << "[SyncEngine] signEvent failed — not publishing";
-        return {};
+        return std::nullopt;
     }
+    return ev;
+}
 
-    const std::string eventId = ev.id.toStdString();
+std::string SyncEngine::buildAndPublish(const std::string& listId,
+                                        const std::string& payloadJson)
+{
+    const auto evOpt = buildEvent(listId, payloadJson);
+    if (!evOpt) return {};
+    const net::NostrEvent& ev = *evOpt;
 
     // Always push to outbox first (we remove it only when we get an OK ack).
-    // Serialize event for outbox.
     const QJsonDocument doc(ev.toJson());
     const std::string eventJson = doc.toJson(QJsonDocument::Compact).toStdString();
     m_db->outboxPush(listId, eventJson);
     emit outboxChanged();
     startOutboxReconcileTimer();
 
-    // Publish if online.
-    if (m_transport->isOnline()) {
+    if (m_transport && m_transport->isOnline()) {
         m_transport->publishToAll(ev);
         trackPendingAck(ev.id, listId);
     }
 
-    return eventId;
+    return ev.id.toStdString();
+}
+
+void SyncEngine::publishImageToPeer(const std::string& listId, const std::string& sha,
+                                    const QString& peerId)
+{
+    if (!m_transport || !m_db || sha.empty()) return;
+    const QByteArray blob = m_db->getImage(sha);
+    if (blob.isEmpty()) return;
+
+    std::vector<uint8_t> data(blob.constData(), blob.constData() + blob.size());
+    const std::string json = core::serializeImagePayload(
+        listId, m_deviceId.toStdString(), sha, data);
+    if (auto ev = buildEvent(listId, json))
+        m_transport->publishToPeer(peerId, *ev);
 }
 
 // ---------------------------------------------------------------------------
@@ -402,7 +457,10 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
         if (payload.imageSha.empty() || payload.imageData.empty()) return;
         const QByteArray blob(reinterpret_cast<const char*>(payload.imageData.data()),
                               static_cast<int>(payload.imageData.size()));
-        m_db->putImage(payload.imageSha, blob);
+        if (payload.imageVariant == "hd")
+            m_db->putImageHd(payload.imageSha, blob);
+        else
+            m_db->putImage(payload.imageSha, blob);
         m_db->updateLastSync(listId, ev.created_at * 1000);
         emit imageArrived(QString::fromStdString(listId),
                           QString::fromStdString(payload.imageSha));
@@ -709,57 +767,84 @@ void SyncEngine::reconcileStuckOutbox()
     if (!m_db)
         return;
 
+    // Seules les entrées dont la liste n'existe plus sont retirées. Une entrée
+    // sans ack n'est JAMAIS supprimée : c'est la garantie « aucune perte ».
     const int purged = m_db->outboxPurgeOrphaned();
     if (purged > 0)
         emit outboxChanged();
 
-    const int64_t now = QDateTime::currentMSecsSinceEpoch();
-    const bool online = m_transport && m_transport->isOnline();
-    bool changed = false;
-    for (const auto& row : m_db->outboxPeekAllEntries()) {
-        // Laisser le temps à flushOutbox de republier (reconnexion, démarrage).
-        if (now - row.created < kOutboxStaleMs)
-            continue;
+    if (m_db->outboxCount() == 0)
+        m_outboxReconcileTimer.stop();
+}
 
-        const QJsonDocument doc = QJsonDocument::fromJson(
-            QByteArray::fromStdString(row.eventJson));
-        if (!doc.isObject()) {
-            m_db->outboxRemove(row.rowid);
-            changed = true;
-            continue;
+void SyncEngine::onCatchUpRequested(const QString& channelTag, const QString& peerId,
+                                    int64_t since)
+{
+    Q_UNUSED(since);
+    if (m_shuttingDown || !m_db || !m_transport)
+        return;
+    if (channelTag.isEmpty() || peerId.isEmpty())
+        return;
+
+    const QString key = peerId + QLatin1Char(':') + channelTag;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_lastCatchUp.contains(key) && now - m_lastCatchUp.value(key) < 5000)
+        return;
+    m_lastCatchUp.insert(key, now);
+
+    for (const auto& meta : m_db->getLists()) {
+        if (net::deriveChannelTag(meta.key) == channelTag.toStdString()) {
+            qInfo() << "[SyncEngine] catch-up snap for peer" << peerId.left(8)
+                    << "on" << channelTag.left(8);
+            publishSnapToPeer(meta.listId, peerId);
+            return;
         }
-        const auto evOpt = net::NostrEvent::fromJson(doc.object());
-        if (!evOpt) {
-            m_db->outboxRemove(row.rowid);
-            changed = true;
-            continue;
-        }
-
-        // Hors ligne : conserver l'outbox jusqu'à un flush réussi.
-        if (!online)
-            continue;
-
-        const std::string eventId = evOpt->id.toStdString();
-        // Après 45 s en ligne : l'événement a été republié plusieurs fois ;
-        // s'il est encore en attente d'accusé, le retirer de l'outbox seulement si
-        // un ACK ou un echo l'a confirmé (pendingAcks vide pour cet id).
-        if (m_pendingAcks.find(evOpt->id) == m_pendingAcks.end()) {
-            qInfo() << "[SyncEngine] purging stale delivered outbox entry" << evOpt->id.left(12);
-            m_db->outboxRemove(row.rowid);
-            changed = true;
-            continue;
-        }
-
-        // Sans accusé après 45 s en ligne : débloquer le bandeau (événement perdu).
-        qInfo() << "[SyncEngine] purging stale unacked outbox entry" << evOpt->id.left(12);
-        m_db->outboxRemove(row.rowid);
-        m_pendingAcks.erase(evOpt->id);
-        changed = true;
     }
-    if (changed) {
-        emit outboxChanged();
-        if (m_db->outboxCount() == 0)
-            m_outboxReconcileTimer.stop();
+}
+
+void SyncEngine::onImageRequested(const QString& channelTag, const QString& peerId,
+                                  const QString& sha, const QString& variant)
+{
+    if (m_shuttingDown || !m_db || !m_transport || sha.isEmpty() || peerId.isEmpty())
+        return;
+
+    for (const auto& meta : m_db->getLists()) {
+        if (net::deriveChannelTag(meta.key) != channelTag.toStdString())
+            continue;
+        if (variant == "hd")
+            publishImageHdToPeer(meta.listId, sha.toStdString(), peerId);
+        else
+            publishImageToPeer(meta.listId, sha.toStdString(), peerId);
+        return;
+    }
+}
+
+void SyncEngine::onPublishAckKind(const QString& eventId, net::AckKind kind,
+                                  const QString& msg)
+{
+    if (m_shuttingDown || eventId.isEmpty())
+        return;
+
+    if (kind == net::AckKind::Rejected) {
+        qWarning() << "[SyncEngine] publish rejected" << eventId.left(12) << msg;
+        emit publishRejected(msg);
+        return;
+    }
+
+    if (kind == net::AckKind::PeerDelivered) {
+        // Le pair a reçu l'événement, mais ce n'est pas un stockage durable :
+        // en hybride, l'outbox reste jusqu'à l'ack du relais.
+        qInfo() << "[SyncEngine] peer delivered" << eventId.left(12);
+        return;
+    }
+
+    // RelayDurable : seul cas où l'outbox peut être vidée.
+    removeOutboxEntryForEventId(eventId);
+    for (auto it = m_pendingAcks.begin(); it != m_pendingAcks.end(); ) {
+        if (it->first.compare(eventId, Qt::CaseInsensitive) == 0)
+            it = m_pendingAcks.erase(it);
+        else
+            ++it;
     }
 }
 
@@ -774,13 +859,7 @@ void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QStri
         return;
     }
 
-    std::optional<std::string> listId = removeOutboxEntryForEventId(eventId);
-    if (!listId) {
-        const auto it = m_pendingAcks.find(eventId);
-        if (it != m_pendingAcks.end())
-            listId = it->second;
-    }
-
+    removeOutboxEntryForEventId(eventId);
     for (auto it = m_pendingAcks.begin(); it != m_pendingAcks.end(); ) {
         if (it->first.compare(eventId, Qt::CaseInsensitive) == 0)
             it = m_pendingAcks.erase(it);
