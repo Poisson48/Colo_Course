@@ -455,29 +455,6 @@ bool AppController::init() {
     }
     m_transport.setRelays(relayUrls);
 
-    // --- Setup WebRTC transport ---
-    // Serveur P2P = base HTTPS ; l'URL de signaling en est dérivée sauf override.
-    auto p2pSetting = m_db.getSetting("p2pServerUrl");
-    const QString p2pBase = p2pSetting && !p2pSetting->empty()
-        ? QString::fromStdString(*p2pSetting)
-        : defaultP2pServerUrl();
-    auto signalingSetting = m_db.getSetting("signalingUrl");
-    const QString sigUrl = signalingSetting && !signalingSetting->empty()
-        ? QString::fromStdString(*signalingSetting)
-        : deriveSignalingUrl(p2pBase);
-    m_transport.setSignalingUrl(QUrl(sigUrl));
-    m_transport.setDeviceId(m_deviceId);
-    m_transport.setAppId(QStringLiteral("colocourse"));
-    m_transport.setP2pServerUrl(QUrl(p2pBase));
-
-    auto iceSetting = m_db.getSetting("iceServers");
-    if (iceSetting && !iceSetting->empty()) {
-        m_transport.setIceServers(
-            QString::fromStdString(*iceSetting).split(QLatin1Char(','), Qt::SkipEmptyParts));
-    } else {
-        m_transport.setIceServers(defaultIceServers().split(QLatin1Char('\n'), Qt::SkipEmptyParts));
-    }
-
     // Synchronisation serveur uniquement. Le P2P n'est plus un mode produit :
     // les installations existantes sont migrées une fois vers le relais seul.
     m_syncMode = 0;
