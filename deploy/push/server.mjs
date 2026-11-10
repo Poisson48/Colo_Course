@@ -86,6 +86,9 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/healthz') {
     return json(res, 200, { ok: true, fcm: !!sa, project: sa?.project_id || null });
   }
+  if (req.method === 'GET' && req.url === '/push') {
+    return json(res, 200, { ok: true, fcm: !!sa, project: sa?.project_id || null });
+  }
   if (req.method === 'GET' && req.url === '/config') {
     return json(res, 200, { notifications: { fcm: !!sa, unifiedpush: false } });
   }
