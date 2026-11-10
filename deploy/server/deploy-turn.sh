@@ -9,9 +9,10 @@ DOMAIN="${DOMAIN:-colo-apps.les-crevettes-cevenoles.fr}"
 PUBLIC_IP="${PUBLIC_IP:-78.122.112.36}"
 PRIVATE_IP="${PRIVATE_IP:-192.168.1.40}"
 COLO_DATA_DIR="${COLO_DATA_DIR:-/data/leo/colo-apps}"
+COTURN_DIR="${COLO_DATA_DIR}-coturn"
 SECRET_FILE="${COLO_DATA_DIR}/turn.secret"
-TLS_DIR="${COLO_DATA_DIR}/tls"
-LOG_DIR="${COLO_DATA_DIR}/logs/coturn"
+TLS_DIR="${COTURN_DIR}/tls"
+LOG_DIR="${COTURN_DIR}/logs"
 CONF="/etc/turnserver.conf"
 CERT_SRC="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
 KEY_SRC="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
@@ -49,10 +50,10 @@ if [[ ! -r "$CERT_SRC" || ! -r "$KEY_SRC" ]]; then
   echo "  attendu : $CERT_SRC et $KEY_SRC" >&2
   exit 1
 fi
-install -d -m 750 -o root -g turnserver "$TLS_DIR" "$LOG_DIR"
+install -d -m 750 -o root -g turnserver "$COTURN_DIR" "$TLS_DIR" "$LOG_DIR"
 install -m 640 -o root -g turnserver "$CERT_SRC" "$TLS_DIR/fullchain.pem"
 install -m 640 -o root -g turnserver "$KEY_SRC" "$TLS_DIR/privkey.pem"
-chown turnserver:turnserver "$LOG_DIR"
+chown -R turnserver:turnserver "$LOG_DIR"
 
 echo "=== 4/6 — configuration coturn ==="
 umask 077
