@@ -9,6 +9,8 @@
  *   HOST=127.0.0.1                 (nginx expose /signal)
  *   PUBLIC_URL=https://exemple.org (base des URLs renvoyées par /config)
  *   ALLOWED_APPS=colocourse,colotaches
+ *   MAX_ROOMS_PER_CLIENT=32
+ *   MAX_PEERS_PER_ROOM=8
  *   STUN_URLS=stun:exemple.org:3479
  *   TURN_URLS=turn:exemple.org:3479?transport=udp,...
  *   TURN_SECRET_FILE=/data/.../turn.secret
@@ -43,8 +45,8 @@ const STUN_URLS = (process.env.STUN_URLS || "")
 const TURN_URLS = (process.env.TURN_URLS || "")
   .split(",").map((s) => s.trim()).filter(Boolean);
 const TURN_TTL = parseInt(process.env.TURN_TTL || "43200", 10);
-const MAX_ROOMS_PER_CLIENT = 32;
-const MAX_PEERS_PER_ROOM = 8;
+const MAX_ROOMS_PER_CLIENT = parseInt(process.env.MAX_ROOMS_PER_CLIENT || "32", 10);
+const MAX_PEERS_PER_ROOM = parseInt(process.env.MAX_PEERS_PER_ROOM || "8", 10);
 const RATE_LIMIT_PER_SEC = 40;
 const TURN_RATE_LIMIT_PER_HOUR = 40;
 
