@@ -6,6 +6,7 @@ import android.app.job.JobScheduler;
 import android.app.job.JobService;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.util.Log;
 
@@ -96,6 +97,9 @@ public class DeferredPushJob extends JobService {
     }
 
     private void pollOnce() {
+        // Réveil best-effort du process Qt pour merger, avant/après la notification.
+        sendBroadcast(new Intent(this, BackgroundSyncReceiver.class)
+                .setAction("org.colocourse.app.BACKGROUND_SYNC"));
         SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         final String baseUrl = prefs.getString("baseUrl", "");
         final Set<String> topics = prefs.getStringSet("topics", null);

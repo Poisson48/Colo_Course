@@ -1,4 +1,7 @@
 #include "platform.h"
+#include "appcontroller.h"
+
+#include <QMetaObject>
 
 #ifdef Q_OS_ANDROID
 #  include <QCoreApplication>
@@ -103,6 +106,13 @@ void platformKeepScreenOn(bool on)
     QJniObject::callStaticMethod<void>(
         kPlatformClass, "keepScreenOn",
         "(Landroid/content/Context;Z)V", ctx.object(), static_cast<jboolean>(on));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_colocourse_app_BackgroundSyncReceiver_nativeSync(JNIEnv*, jclass)
+{
+    if (auto* controller = app::AppController::instance())
+        QMetaObject::invokeMethod(controller, "backgroundSyncNow", Qt::QueuedConnection);
 }
 
 void platformConfigureNotifications(const QString &mode, const QString &provider,

@@ -344,6 +344,7 @@ AppController::AppController(QObject *parent)
     , m_transport()
     , m_syncEngine()
 {
+    s_instance = this;
     m_recipesModel->setKindFilter(QStringLiteral("recipe"));
     setRecipeCatalogStateListener([this]() {
         emit recipeCatalogStateChanged();
@@ -355,6 +356,7 @@ AppController::~AppController()
 {
     qDebug() << "[shutdown] ~AppController entry";
     shutdown();
+    if (s_instance == this) s_instance = nullptr;
     qDebug() << "[shutdown] ~AppController exit";
 }
 
@@ -825,6 +827,20 @@ void AppController::testNotification()
 {
     platformNotify(QStringLiteral("Colo Course"),
                    QStringLiteral("Les notifications fonctionnent."));
+}
+
+void AppController::backgroundSyncNow()
+{
+    if (m_shutdownDone || !m_db.isOpen()) return;
+    // Le job a réveillé le process : on se reconnecte au relais et on rattrape.
+    // Si l'UI est vivante, les modèles se mettent à jour normalement.
+    m_transport.connectAll();
+    m_syncEngine.catchUpOnForeground();
+    // Ne pas laisser la socket en arrière-plan au-delà du court budget du job.
+    QTimer::singleShot(15'000, this, [this]() {
+        if (QGuiApplication::applicationState() != Qt::ApplicationActive)
+            m_transport.disconnectAll();
+    });
 }
 
 QString AppController::pushBaseUrl()

@@ -195,6 +195,8 @@ public:
 
     store::Database &db() { return m_db; }
 
+    static AppController* instance() { return s_instance; }
+
 public slots:
     void createList(const QString &title);
     // Crée une recette (kind=recipe) dans la bibliothèque et l'ouvre (invite à saisir
@@ -337,6 +339,9 @@ public slots:
     Q_INVOKABLE void markNotificationOnboardingSeen();
     Q_INVOKABLE void setNotificationInterval(int minutes);
     Q_INVOKABLE void testNotification();
+    // Réveil best-effort depuis le JobService : si le process Qt est encore
+    // vivant, on rattrape et on merge sans ouvrir l'UI.
+    Q_INVOKABLE void backgroundSyncNow();
     void refreshPushTopics();
 
     // Mode de synchronisation : 0 = relais seul, 1 = P2P seul, 2 = hybride.
@@ -428,6 +433,7 @@ private:
     bool             m_hasDisplayName = false;
     bool             m_pushLifecycleReady = false;
     bool             m_shutdownDone = false;
+    static inline AppController* s_instance = nullptr;
     std::string      m_openListId;   // liste actuellement chargée dans m_itemModel
     QString          m_pendingPrepListId; // recette neuve → proposer la préparation
     int              m_imageRevision = 0;

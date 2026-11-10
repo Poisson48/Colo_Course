@@ -82,6 +82,9 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name="org.colocourse.app.BackgroundSyncReceiver"
+            android:exported="false"/>
         <!-- Veille différée : JobScheduler, aucune notification permanente. -->
         <service
             android:name="org.colocourse.app.DeferredPushJob"
