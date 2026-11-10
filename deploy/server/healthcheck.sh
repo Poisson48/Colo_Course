@@ -7,6 +7,8 @@ fail=0
 check() { if eval "$2" >/dev/null 2>&1; then echo "  ✓ $1"; else echo "  ✗ $1"; fail=1; fi; }
 
 check "nginx actif" "systemctl is-active --quiet nginx"
+check "colopush actif" "systemctl is-active --quiet colopush"
+check "FCM /push" "curl -fsS '$BASE/push'"
 check "relais Strfry (port 7777)" "ss -lntp | grep -q ':7777 '"
 check "ntfy (port 8077)" "ss -lntp | grep -q ':8077 '"
 check "STUN meownopoly 3478" "ss -lnup | grep -q ':3478 '"
