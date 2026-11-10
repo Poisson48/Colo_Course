@@ -1,5 +1,8 @@
 # Ouvrir les ports TURN sur la box NB6
 
+> **Obsolète depuis le 2026-11-10** : le P2P/TURN est retiré du produit. Ces
+> ports ne sont plus nécessaires. Ce document reste pour l’historique/rollback.
+
 Le serveur Colo est derrière une **NB6** (`192.168.1.1`). Le signaling passe par
 nginx en 443 : **aucun port supplémentaire** n'est nécessaire pour lui. TURN,
 lui, exige des redirections NAT.

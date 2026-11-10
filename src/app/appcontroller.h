@@ -412,7 +412,7 @@ private:
     std::string      m_openListId;   // liste actuellement chargée dans m_itemModel
     QString          m_pendingPrepListId; // recette neuve → proposer la préparation
     int              m_imageRevision = 0;
-    int              m_syncMode = 2; // 0 = relais seul, 1 = P2P seul, 2 = hybride
+    int              m_syncMode = 0; // relais seul (le P2P est retiré)
 };
 
 } // namespace app

@@ -17,7 +17,7 @@ participants différents. Notification quand des changements arrivent hors ligne
 - **CRDT fait maison** : set d'items avec tombstones, Last-Writer-Wins par champ
   (nom, quantité, coché), horloges de Lamport + ID d'appareil. Gère N participants.
 - **SQLite** pour la persistance locale.
-- **Transport : hybride relais Nostr privé + P2P WebRTC** (store-and-forward asynchrone + data channels directs, TURN pour la 4G). Le relais reste le filet durable ; le P2P accélère les échanges quand les pairs sont en ligne.
+- **Transport : relais serveur chiffré uniquement** (store-and-forward). Le P2P/WebRTC/TURN a été retiré : il ne passe pas à l’échelle et complique inutilement des listes de courses/tâches.
   mobile fait échouer STUN trop souvent. Bonus : sync LAN directe (mDNS) sur le même Wi-Fi.
 - **Chiffrement E2E** : une clé symétrique par liste, échangée dans le QR code d'appairage.
   Les relais ne voient que des blobs chiffrés. Une liste = un canal = une clé.

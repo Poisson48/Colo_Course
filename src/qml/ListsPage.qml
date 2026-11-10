@@ -1041,49 +1041,9 @@ Item {
             wrapMode: Text.WordWrap
             color: Theme.textDim
             font.pixelSize: 13
-            text: "Mode de synchronisation entre appareils."
-        }
-
-        ComboBox {
-            id: modeBox
-            Layout.fillWidth: true
-            model: [
-                "Relais seul",
-                "P2P seul (expérimental)",
-                "Hybride (recommandé)"
-            ]
-            font.pixelSize: 14
-            palette.text: Theme.text
-        }
-
-        Label {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.textDim
-            font.pixelSize: 12
-            visible: modeBox.currentIndex === 0
-            text: "Les données passent uniquement par le relais Nostr. "
-                  + "Mode de dépannage : pas de P2P."
-        }
-
-        Label {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.textDim
-            font.pixelSize: 12
-            visible: modeBox.currentIndex === 1
-            text: "⚠ P2P seul : les appareils doivent être ouverts en même temps. "
-                  + "Aucune récupération par le relais si un pair est hors ligne."
-        }
-
-        Label {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.textDim
-            font.pixelSize: 12
-            visible: modeBox.currentIndex === 2
-            text: "P2P direct quand c'est possible, relais Nostr en secours. "
-                  + "C'est le mode recommandé : rapide et sans perte."
+            text: "Synchronisation via le relais chiffré Colo. "
+                  + "Aucun P2P, aucun TURN : le relais conserve les changements "
+                  + "jusqu'à ce que tous les appareils les aient reçus."
         }
 
         Label {
@@ -1091,19 +1051,15 @@ Item {
             wrapMode: Text.WordWrap
             color: Theme.textDim
             font.pixelSize: 13
-            visible: modeBox.currentIndex !== 1
             text: "Adresses WebSocket des relais Nostr (wss://…). "
                   + "Une URL par ligne. Plusieurs relais possibles."
         }
 
         ScrollView {
             Layout.fillWidth: true
-            Layout.preferredHeight: modeBox.currentIndex !== 1
-                                    ? Math.max(120, Math.min(relaysField.implicitHeight + 16,
+            Layout.preferredHeight: Math.max(120, Math.min(relaysField.implicitHeight + 16,
                                                              relaysDialog.scrollMaxHeight))
-                                    : 0
             clip: true
-            visible: modeBox.currentIndex !== 1
 
             TextArea {
                 id: relaysField
@@ -1126,92 +1082,12 @@ Item {
             Layout.fillWidth: true
             flat: true
             implicitHeight: 40
-            visible: modeBox.currentIndex !== 1
             contentItem: Label {
                 text: "Rétablir par défaut"
                 color: Theme.accent
                 horizontalAlignment: Text.AlignHCenter
             }
             onClicked: relaysField.text = AppController.defaultRelayUrls()
-        }
-
-        // --- WebRTC P2P settings (visible when P2P is enabled) ---
-
-        Label {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.textDim
-            font.pixelSize: 13
-            visible: modeBox.currentIndex !== 0
-            text: "Serveur P2P (URL)"
-        }
-
-        ColoTextField {
-            id: p2pServerField
-            Layout.fillWidth: true
-            visible: modeBox.currentIndex !== 0
-            placeholderText: AppController.defaultP2pServerUrl()
-        }
-
-        Label {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.textDim
-            font.pixelSize: 12
-            visible: modeBox.currentIndex !== 0
-            text: "Laisse vide pour le serveur Colo par défaut. "
-                  + "Un hôte self-hosté doit exposer /signal et /turn-credentials."
-        }
-
-        Label {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.textDim
-            font.pixelSize: 13
-            visible: modeBox.currentIndex !== 0
-            text: "Signalisation WebSocket (avancé)"
-        }
-
-        ColoTextField {
-            id: signalingUrlField
-            Layout.fillWidth: true
-            visible: modeBox.currentIndex !== 0
-            placeholderText: AppController.defaultSignalingUrl()
-        }
-
-        Label {
-            Layout.fillWidth: true
-            wrapMode: Text.WordWrap
-            color: Theme.textDim
-            font.pixelSize: 13
-            visible: modeBox.currentIndex !== 0
-            text: "Serveurs ICE (STUN/TURN), un par ligne"
-        }
-
-        ScrollView {
-            Layout.fillWidth: true
-            Layout.preferredHeight: modeBox.currentIndex !== 0
-                                    ? Math.max(80, Math.min(iceField.implicitHeight + 16,
-                                                            relaysDialog.scrollMaxHeight))
-                                    : 0
-            clip: true
-            visible: modeBox.currentIndex !== 0
-
-            TextArea {
-                id: iceField
-                width: parent.width
-                wrapMode: TextArea.Wrap
-                color: Theme.text
-                font.pixelSize: 14
-                font.family: "monospace"
-                selectByMouse: true
-                placeholderText: AppController.defaultIceServers()
-                background: Rectangle {
-                    radius: 12
-                    color: Theme.surfaceHigh
-                    border.color: Theme.outline
-                }
-            }
         }
 
         // --- Push notifications ---
@@ -1238,28 +1114,13 @@ Item {
         }
 
         onOpened: {
-            modeBox.currentIndex = Math.max(0, Math.min(2, AppController.syncMode))
             relaysField.text = AppController.relayUrls
-            p2pServerField.text = AppController.p2pServerUrl
-            signalingUrlField.text = AppController.signalingUrl
-            iceField.text = AppController.iceServers
             pushEnabledSwitch.checked = AppController.pushEnabled
             pushUrlField.text = AppController.pushBaseUrl
         }
         onAccepted: {
-            // Appliquer les URLs AVANT le mode : setSyncMode reconnecte le transport.
-            if (modeBox.currentIndex !== 1)
-                AppController.setRelayUrls(relaysField.text)
-            if (modeBox.currentIndex !== 0) {
-                const baseChanged = p2pServerField.text.trim() !== AppController.p2pServerUrl
-                if (baseChanged)
-                    AppController.setP2pServerUrl(p2pServerField.text)
-                else
-                    AppController.setSignalingUrl(signalingUrlField.text)
-                AppController.setIceServers(iceField.text)
-            }
-            AppController.setSyncMode(modeBox.currentIndex)
-            // Apply push settings.
+            AppController.setRelayUrls(relaysField.text)
+            AppController.setSyncMode(0)
             AppController.setPushSettings(pushEnabledSwitch.checked, pushUrlField.text)
         }
     }

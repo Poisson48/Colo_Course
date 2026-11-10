@@ -478,22 +478,14 @@ bool AppController::init() {
         m_transport.setIceServers(defaultIceServers().split(QLatin1Char('\n'), Qt::SkipEmptyParts));
     }
 
-    // Load sync mode. Les installations d'avant le mode hybride n'ont pas de
-    // drapeau de migration : on les bascule une seule fois vers Hybrid.
-    auto syncModeSetting = m_db.getSetting("syncMode");
-    m_syncMode = syncModeSetting ? std::stoi(*syncModeSetting) : 2;
-    if (m_syncMode < 0 || m_syncMode > 2)
-        m_syncMode = 2;
-    if (!m_db.getSetting("syncModeV2Migrated")) {
-        m_syncMode = 2;
-        m_db.setSetting("syncMode", "2");
-        m_db.setSetting("syncModeV2Migrated", "1");
+    // Synchronisation serveur uniquement. Le P2P n'est plus un mode produit :
+    // les installations existantes sont migrées une fois vers le relais seul.
+    m_syncMode = 0;
+    if (!m_db.getSetting("syncModeServerOnlyMigrated")) {
+        m_db.setSetting("syncMode", "0");
+        m_db.setSetting("syncModeServerOnlyMigrated", "1");
     }
-
-    const auto mode = (m_syncMode == 0) ? net::HybridTransport::Mode::RelayOnly
-                    : (m_syncMode == 1) ? net::HybridTransport::Mode::P2POnly
-                                        : net::HybridTransport::Mode::Hybrid;
-    m_transport.setMode(mode);
+    m_transport.setMode(net::HybridTransport::Mode::RelayOnly);
 
     // --- Wire SyncEngine ---
     m_syncEngine.init(&m_db, &m_transport, m_deviceId, m_displayName);

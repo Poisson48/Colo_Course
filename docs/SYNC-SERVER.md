@@ -1,7 +1,9 @@
 # Proposition : serveur de synchronisation chiffré (hub)
 
 > Cible : 1 000 utilisateurs simultanés, groupes de 15, 20 listes par personne,
-> propagation < 10 s, sans perte. Le P2P n’est plus le chemin principal.
+> propagation < 10 s. **Décision 2026-11-10 : le P2P/WebRTC/TURN est retiré.**
+> Le relais serveur chiffré est le chemin unique ; les photos HD ne sont plus
+> synchronisées.
 
 ## 1. Principe
 
@@ -175,9 +177,9 @@ un pair en ligne.
 
 ## 9. Ce que cela change pour la v0.32.0
 
-La v0.32.0 famille (P2P hybride, 2–8 appareils/liste) reste une base utile.
-Le hub chiffré est une **v0.33** : il remplace le maillage pour les grands
-groupes, sans TURN cluster et sans 7 000 ports.
+La v0.32.0 est désormais **relais seul** : plus de P2P, plus de TURN, plus de
+photos HD synchronisées. Le hub décrit ici est la cible pour 1 000 utilisateurs ;
+il peut être déployé derrière le même relais/API sans maillage.
 
 ## 10. Décisions à prendre
 

@@ -40,12 +40,12 @@ le QR code (ou le lien) aux autres — les modifications s'y synchronisent en di
 
 ### Architecture
 - **Copie locale complète** : chaque appareil stocke tous les items et l'historique en SQLite.
-- **Sync chiffrée E2E, hybride** : un relais Nostr privé assure le stockage durable, et un **transport P2P WebRTC** (signaling + TURN) accélère les échanges quand les appareils sont en ligne. Relais et serveur P2P sont **deux URL configurables** ; on peut monter les siens. Le serveur ne voit que des blobs chiffrés, et le serveur P2P ne stocke aucune donnée de liste.
+- **Sync chiffrée E2E, serveur uniquement** : un relais Nostr privé (configurable, self-host possible) assure le stockage durable et le fan-out. **Pas de P2P, pas de TURN, pas de WebRTC** : un seul chemin, plus simple et plus prévisible à l'échelle. Le serveur ne voit que des blobs chiffrés.
 - **Sans conflits** : CRDT maison avec Last-Writer-Wins par champ (nom, quantité, coché) et horloges de Lamport. Les modifications simultanées convergent identiquement sur tous les appareils, sans intervention.
 - **Appairage simple** : créez une liste, puis soit l'autre appareil **scanne le QR code**, soit vous lui **envoyez le lien** `colocourse://` (WhatsApp, SMS…) — un appui dessus ouvre l'app et rejoint la liste. Le lien porte la clé : ne le publiez pas.
 - **Plusieurs listes, groupées** : autant de listes qu'il y a de contextes, rangées en **groupes** nommés (Maison, Boulot…). Chaque liste indique **avec qui elle est partagée**.
 - **Hors ligne d'abord** : les modifications s'ajoutent immédiatement localement dans une file d'attente. Au retour du réseau, la sync reprend automatiquement, et l'app **confirme** quand tout est parti. Aucune modification n'est supprimée de la file sans accusé durable du relais.
-- **Photos** : une vignette légère voyage par le relais ; la **haute résolution** (≤ 2 Mo) circule en P2P à la demande, sans gonfler le relais.
+- **Photos** : une vignette légère voyage par le relais. Pas de transfert HD : les listes de courses et de tâches n'en ont pas besoin, et cela évite de gonfler le serveur.
 
 ### Au quotidien
 - **Favoris appris à l'usage** : les articles que vous ajoutez souvent réapparaissent en pastilles sous la barre d'ajout, à remettre d'un tap (avec leur quantité et rayon habituels).
@@ -96,21 +96,21 @@ dans l'app avant une mise à jour).
 
 ## État du projet
 
-- **Desktop Linux (bêta)** : app fonctionnelle, AppImage publié à chaque release, tests CRDT complets, sync hybride relais + P2P, chiffrement E2E, appairage par QR.
-- **Android (bêta)** : APK arm64 signé publié à chaque release, notifications système, mode Courses, import/export, mise à jour intégrée, TURN pour la 4G.
-- **Serveur P2P configurable** : `https://…` dans Synchronisation ; self-host documenté dans `deploy/selfhost/`.
+- **Desktop Linux (bêta)** : app fonctionnelle, AppImage publié à chaque release, tests CRDT complets, sync par relais chiffré, appairage par QR.
+- **Android (bêta)** : APK arm64 signé publié à chaque release, notifications système, mode Courses, import/export, mise à jour intégrée.
+- **Relais configurable / self-host** : une URL `wss://…` dans Synchronisation.
 
 Plan détaillé et workflow : [docs/PLAN.md](docs/PLAN.md)  
 Spécification technique (CRDT, protocole relais, format données) : [docs/SPEC.md](docs/SPEC.md)  
-Transport hybride, P2P, TURN et self-host : [docs/SYNC-HYBRID.md](docs/SYNC-HYBRID.md)
+Architecture de synchronisation serveur, accusés et self-host : [docs/SYNC-SERVER.md](docs/SYNC-SERVER.md)
 
 ## Limitations connues
 
 - **Notifications hors app** : l'app doit être ouverte (ou en premier plan sur mobile) pour recevoir les changements en temps réel. Pas de push notification Firebase ou FCM par choix architectural (pas de serveur tiers, de compte requis). Piste v2 : foreground service Android optionnel.
 - **Révocation d'un membre** : non supportée en v1. Pour exclure quelqu'un d'une liste, recréez-la et repartagez la clé avec les nouveaux membres uniquement.
 - **Nettoyage des tombstones** : les éléments supprimés sont purgés localement après 30 jours sans modification. Un pair très en retard peut théoriquement ressusciter un item purgé (très rare, accepté).
-- **Photos HD** : la haute résolution est un bonus P2P, pas une garantie de conservation. Si aucun pair ne l'a reçue et que l'appareil source disparaît, seule la vignette reste.
-- **4G / NAT** : le P2P 4G nécessite TURN. Sans TURN joignable, l'app repasse par le relais (plus lent, mais sans perte).
+- **Pas de photos HD** : seules les vignettes sont synchronisées. La HD locale reste sur l'appareil qui l'a prise.
+- **Perte si tous les appareils disparaissent** : le relais supprime les deltas acquittés ; sans aucun appareil pour renvoyer un snapshot, une liste peut être perdue. C'est accepté pour des listes de courses/tâches.
 
 ## Licence
 
