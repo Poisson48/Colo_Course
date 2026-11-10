@@ -280,7 +280,15 @@ static void test_ImageRoundTrip() {
     EXPECT_TRUE(img.has_value());
     EXPECT_EQ(img->type, Payload::Type::image);
     EXPECT_EQ(img->imageSha, "deadbeef");
+    EXPECT_EQ(img->imageVariant, "thumb");
     EXPECT_TRUE(img->imageData == blob);
+
+    const std::string hdJson = serializeImagePayload(
+        "list-1", "devA", "deadbeef", blob, "hd");
+    auto hd = parsePayload(hdJson);
+    EXPECT_TRUE(hd.has_value());
+    EXPECT_EQ(hd->imageVariant, "hd");
+    EXPECT_TRUE(hd->imageData == blob);
 }
 
 static void test_MalformedJson() {
