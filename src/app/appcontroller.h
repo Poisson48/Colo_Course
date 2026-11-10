@@ -243,6 +243,8 @@ public slots:
     bool setItemImage(const QString &itemId, const QUrl &fileUrl);
     // Retire UNE photo de l'article (les autres restent).
     void removeItemImage(const QString &itemId, const QString &sha);
+    // Demande la HD d'une vignette à un pair P2P (P2P best-effort).
+    Q_INVOKABLE void requestHd(const QString &sha);
     // Chemin temporaire pour une capture caméra (fichier local, prêt pour setItemImage).
     Q_INVOKABLE QString tempPhotoPath() const;
 

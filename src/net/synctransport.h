@@ -52,6 +52,13 @@ public:
         publishToAll(ev);
     }
 
+    // Publish to P2P peers only, never to the relay (HD images).
+    virtual void publishToPeers(const NostrEvent& ev) { publishToAll(ev); }
+
+    // Demande une variante d'image aux pairs P2P (no-op si non supporté).
+    virtual void requestImage(const QString& /*channelTag*/, const QString& /*sha*/,
+                              const QString& /*variant*/) {}
+
     // Subscribe to a channel (identified by channelTag).
     // For Nostr: REQ subscription on all relays.
     // For WebRTC: join the signaling room for this channel.
@@ -82,6 +89,10 @@ signals:
 
     // Un pair demande le rattrapage d'un canal depuis `since` (0 = tout).
     void catchUpRequested(const QString& channelTag, const QString& peerId, int64_t since);
+
+    // Un pair demande une image (typiquement la HD) pour un sha donné.
+    void imageRequested(const QString& channelTag, const QString& peerId,
+                        const QString& sha, const QString& variant);
 };
 
 } // namespace net

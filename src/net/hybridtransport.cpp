@@ -27,6 +27,8 @@ HybridTransport::HybridTransport(QObject* parent)
             this, &SyncTransport::peerStateChanged);
     connect(&m_p2p, &SyncTransport::catchUpRequested,
             this, &SyncTransport::catchUpRequested);
+    connect(&m_p2p, &SyncTransport::imageRequested,
+            this, &SyncTransport::imageRequested);
 
     connect(&m_relay, &SyncTransport::onlineChanged, this, [this](bool online) {
         emit relayOnlineChanged(online);
@@ -133,6 +135,21 @@ void HybridTransport::publishToPeer(const QString& peerId, const NostrEvent& ev)
     if (m_mode == Mode::RelayOnly)
         return;
     m_p2p.publishToPeer(peerId, ev);
+}
+
+void HybridTransport::publishToPeers(const NostrEvent& ev)
+{
+    if (m_mode == Mode::RelayOnly)
+        return;
+    m_p2p.publishToAll(ev);
+}
+
+void HybridTransport::requestImage(const QString& channelTag, const QString& sha,
+                                   const QString& variant)
+{
+    if (m_mode == Mode::RelayOnly)
+        return;
+    m_p2p.requestImage(channelTag, sha, variant);
 }
 
 void HybridTransport::subscribeAll(const QString& channelTag, int64_t since)

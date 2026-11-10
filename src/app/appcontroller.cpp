@@ -2084,6 +2084,42 @@ QByteArray compressItemImage(const QUrl &fileUrl) {
         side = side * 2 / 3;
     }
 }
+// Variante haute résolution, P2P uniquement. 2048 px max, JPEG 85, cap 2 Mo.
+// Pas d'upscale ; on redescend qualité/dimension si l'original dépasse le cap.
+QByteArray compressItemHd(const QUrl &fileUrl) {
+    const QString target = fileUrl.isLocalFile() ? fileUrl.toLocalFile()
+                                                 : fileUrl.toString();
+    QFile f(target);
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    const QByteArray raw = f.readAll();
+    f.close();
+    const QImage img = QImage::fromData(raw);
+    if (img.isNull())
+        return {};
+
+    constexpr int kMaxHdBytes = 2000000;
+    int side = 2048;
+    for (;;) {
+        const QImage scaled = (img.width() > side || img.height() > side)
+            ? img.scaled(side, side, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+            : img;
+        for (const int quality : { 90, 85, 80, 75, 70, 60 }) {
+            QByteArray out;
+            QBuffer buf(&out);
+            if (!buf.open(QIODevice::WriteOnly))
+                continue;
+            if (!scaled.save(&buf, "JPEG", quality))
+                continue;
+            buf.close();
+            if (out.size() > 0 && out.size() <= kMaxHdBytes)
+                return out;
+        }
+        if (side <= 640)
+            return {};
+        side = side * 3 / 4;
+    }
+}
 } // namespace
 
 QString AppController::tempPhotoPath() const {
@@ -2110,15 +2146,34 @@ bool AppController::setItemImage(const QString &itemId, const QUrl &fileUrl) {
         return false;
     }
 
+    // HD best-effort : stockée localement, jamais envoyée au relais.
+    const QByteArray jpegHd = compressItemHd(fileUrl);
+    if (!jpegHd.isEmpty())
+        m_db.putImageHd(sha.toStdString(), jpegHd);
+
     // Champ CRDT d'abord (delta débouncé), blob ensuite (événement img direct).
     // L'ordre d'arrivée chez les pairs est indifférent : la vignette s'affiche dès
     // que le blob ET le champ sont là.
     m_itemModel.addItemImage(itemId, sha);
     m_syncEngine.publishImage(m_openListId, sha.toStdString());
+    if (!jpegHd.isEmpty())
+        m_syncEngine.publishImageHd(m_openListId, sha.toStdString());
 
     ++m_imageRevision;
     emit imageRevisionChanged();
     return true;
+}
+
+void AppController::requestHd(const QString &sha) {
+    if (m_openListId.empty() || sha.isEmpty())
+        return;
+    auto metaOpt = m_db.getList(m_openListId);
+    if (!metaOpt)
+        return;
+    if (m_db.hasImageHd(sha.toStdString()))
+        return;
+    const QString tag = QString::fromStdString(net::deriveChannelTag(metaOpt->key));
+    m_transport.requestImage(tag, sha, QStringLiteral("hd"));
 }
 
 void AppController::removeItemImage(const QString &itemId, const QString &sha) {

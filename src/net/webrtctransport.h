@@ -75,6 +75,8 @@ public:
     void shutdown() override;
     void publishToAll(const NostrEvent& ev) override;
     void publishToPeer(const QString& peerId, const NostrEvent& ev) override;
+    void requestImage(const QString& channelTag, const QString& sha,
+                      const QString& variant) override;
     void subscribeAll(const QString& channelTag, int64_t since) override;
     bool isOnline() const override;
     int peerCount(const QString& channelTag = QString()) const override;

@@ -1755,6 +1755,7 @@ Item {
         property string sha: ""
         function openFor(shaHex) {
             sha = shaHex
+            AppController.requestHd(shaHex)
             open()
         }
         background: Rectangle { color: "#CC000000" }
@@ -1767,7 +1768,7 @@ Item {
                 asynchronous: true
                 source: photoViewer.sha.length > 0
                         ? "image://itemimg/" + photoViewer.sha
-                          + "?r=" + AppController.imageRevision
+                          + "?hd=1&r=" + AppController.imageRevision
                         : ""
             }
             MouseArea {

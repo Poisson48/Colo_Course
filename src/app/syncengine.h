@@ -73,6 +73,8 @@ public:
     // Appelé à l'ajout d'une photo, et au snapshot pour re-semer les blobs
     // référencés (rétention limitée des relais).
     void publishImage(const std::string& listId, const std::string& sha);
+    // Variante HD : P2P uniquement, jamais relais/outbox.
+    void publishImageHd(const std::string& listId, const std::string& sha);
 
     // Called by AppController/ItemModel after a local modification.
     // Schedules a debounced publish for listId.
@@ -122,6 +124,8 @@ private slots:
     void onPublishAck(const QString& eventId, bool accepted, const QString& msg);
     void onPublishAckKind(const QString& eventId, net::AckKind kind, const QString& msg);
     void onCatchUpRequested(const QString& channelTag, const QString& peerId, int64_t since);
+    void onImageRequested(const QString& channelTag, const QString& peerId,
+                          const QString& sha, const QString& variant);
     void onDebounceTimer();
 
 private:
@@ -149,6 +153,8 @@ private:
     // Envoie une vignette existante à un pair (rattrapage).
     void publishImageToPeer(const std::string& listId, const std::string& sha,
                             const QString& peerId);
+    void publishImageHdToPeer(const std::string& listId, const std::string& sha,
+                              const QString& peerId);
 
     // Flush the outbox for all known lists (called on reconnect).
     void flushOutbox();

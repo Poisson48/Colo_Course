@@ -195,6 +195,19 @@ void WebRTCTransport::publishToPeer(const QString& peerId, const NostrEvent& ev)
     }
 }
 
+void WebRTCTransport::requestImage(const QString& channelTag, const QString& sha,
+                                   const QString& variant)
+{
+    if (channelTag.isEmpty() || sha.isEmpty()) return;
+    QJsonObject msg;
+    msg[QStringLiteral("type")] = QStringLiteral("want_image");
+    msg[QStringLiteral("channel_tag")] = channelTag;
+    msg[QStringLiteral("sha")] = sha;
+    msg[QStringLiteral("variant")] = variant.isEmpty()
+        ? QStringLiteral("hd") : variant;
+    broadcastToChannel(channelTag, msg);
+}
+
 void WebRTCTransport::subscribeAll(const QString& channelTag, int64_t /*since*/)
 {
     if (m_subscribedChannels.contains(channelTag))
@@ -644,6 +657,12 @@ void WebRTCTransport::onDataChannelMessage(const QString& peerDeviceId,
         }
     } else if (type == QStringLiteral("ack")) {
         handleAck(obj);
+    } else if (type == QStringLiteral("want_image")) {
+        const QString sha = obj[QStringLiteral("sha")].toString();
+        const QString variant = obj[QStringLiteral("variant")].toString();
+        if (!sha.isEmpty())
+            emit imageRequested(channelTag, peerDeviceId, sha,
+                                variant.isEmpty() ? QStringLiteral("hd") : variant);
     } else if (type == QStringLiteral("subscribe")) {
         const QString requested = obj[QStringLiteral("channel_tag")].toString();
         if (!requested.isEmpty() && requested != channelTag)

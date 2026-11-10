@@ -112,6 +112,8 @@ void SyncEngine::init(store::Database* db,
             this,        &SyncEngine::onPublishAckKind);
     connect(m_transport, &net::SyncTransport::catchUpRequested,
             this,        &SyncEngine::onCatchUpRequested);
+    connect(m_transport, &net::SyncTransport::imageRequested,
+            this,        &SyncEngine::onImageRequested);
 
     // Forward online state.
     connect(m_transport, &net::SyncTransport::onlineChanged,
@@ -291,6 +293,33 @@ void SyncEngine::publishImage(const std::string& listId, const std::string& sha)
     buildAndPublish(listId, json);
 }
 
+void SyncEngine::publishImageHd(const std::string& listId, const std::string& sha)
+{
+    if (!m_transport || !m_db || sha.empty()) return;
+    const QByteArray blob = m_db->getImageHd(sha);
+    if (blob.isEmpty()) return;
+
+    std::vector<uint8_t> data(blob.constData(), blob.constData() + blob.size());
+    const std::string json = core::serializeImagePayload(
+        listId, m_deviceId.toStdString(), sha, data, "hd");
+    if (auto ev = buildEvent(listId, json))
+        m_transport->publishToPeers(*ev);
+}
+
+void SyncEngine::publishImageHdToPeer(const std::string& listId, const std::string& sha,
+                                      const QString& peerId)
+{
+    if (!m_transport || !m_db || sha.empty()) return;
+    const QByteArray blob = m_db->getImageHd(sha);
+    if (blob.isEmpty()) return;
+
+    std::vector<uint8_t> data(blob.constData(), blob.constData() + blob.size());
+    const std::string json = core::serializeImagePayload(
+        listId, m_deviceId.toStdString(), sha, data, "hd");
+    if (auto ev = buildEvent(listId, json))
+        m_transport->publishToPeer(peerId, *ev);
+}
+
 std::optional<net::NostrEvent> SyncEngine::buildEvent(const std::string& listId,
                                                        const std::string& payloadJson)
 {
@@ -428,7 +457,10 @@ void SyncEngine::onRelayEvent(const net::NostrEvent& ev)
         if (payload.imageSha.empty() || payload.imageData.empty()) return;
         const QByteArray blob(reinterpret_cast<const char*>(payload.imageData.data()),
                               static_cast<int>(payload.imageData.size()));
-        m_db->putImage(payload.imageSha, blob);
+        if (payload.imageVariant == "hd")
+            m_db->putImageHd(payload.imageSha, blob);
+        else
+            m_db->putImage(payload.imageSha, blob);
         m_db->updateLastSync(listId, ev.created_at * 1000);
         emit imageArrived(QString::fromStdString(listId),
                           QString::fromStdString(payload.imageSha));
@@ -767,6 +799,23 @@ void SyncEngine::onCatchUpRequested(const QString& channelTag, const QString& pe
             publishSnapToPeer(meta.listId, peerId);
             return;
         }
+    }
+}
+
+void SyncEngine::onImageRequested(const QString& channelTag, const QString& peerId,
+                                  const QString& sha, const QString& variant)
+{
+    if (m_shuttingDown || !m_db || !m_transport || sha.isEmpty() || peerId.isEmpty())
+        return;
+
+    for (const auto& meta : m_db->getLists()) {
+        if (net::deriveChannelTag(meta.key) != channelTag.toStdString())
+            continue;
+        if (variant == "hd")
+            publishImageHdToPeer(meta.listId, sha.toStdString(), peerId);
+        else
+            publishImageToPeer(meta.listId, sha.toStdString(), peerId);
+        return;
     }
 }
 
