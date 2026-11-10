@@ -19,6 +19,7 @@ add_library(net STATIC
     net/pushclient.cpp
     net/synctransport.cpp
     net/webrtctransport.cpp
+    net/hybridtransport.cpp
 )
 
 target_include_directories(net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

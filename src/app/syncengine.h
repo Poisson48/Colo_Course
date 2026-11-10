@@ -120,6 +120,7 @@ private slots:
     void onRelayEvent(const net::NostrEvent& ev);
     void onRelayOnline(bool online);
     void onPublishAck(const QString& eventId, bool accepted, const QString& msg);
+    void onPublishAckKind(const QString& eventId, net::AckKind kind, const QString& msg);
     void onDebounceTimer();
 
 private:

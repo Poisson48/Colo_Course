@@ -11,8 +11,7 @@
 #include "../store/database.h"
 #include "../core/types.h"
 #include "../core/pairing.h"
-#include "../net/relaypool.h"
-#include "../net/webrtctransport.h"
+#include "../net/hybridtransport.h"
 #include "itemmodel.h"
 #include "recipelibrarymodel.h"
 #include "syncengine.h"
@@ -393,8 +392,7 @@ private:
     RecipeLibraryModel *m_recipeLibraryModel;
     bool             m_recipeLibraryLoading = false;
     ItemModel        m_itemModel;
-    net::RelayPool   m_relayPool;
-    net::WebRTCTransport m_webrtcTransport;
+    net::HybridTransport m_transport;
     SyncEngine       m_syncEngine;
     bool             m_online = false;
     int              m_pendingChanges = 0;
@@ -406,7 +404,7 @@ private:
     std::string      m_openListId;   // liste actuellement chargée dans m_itemModel
     QString          m_pendingPrepListId; // recette neuve → proposer la préparation
     int              m_imageRevision = 0;
-    int              m_syncMode = 0; // 0 = Nostr, 1 = WebRTC P2P
+    int              m_syncMode = 2; // 0 = relais seul, 1 = P2P seul, 2 = hybride
 };
 
 } // namespace app

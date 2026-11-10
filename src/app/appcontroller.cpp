@@ -339,7 +339,7 @@ AppController::AppController(QObject *parent)
     , m_listsModel(new ListsModel(this))
     , m_recipesModel(new ListsModel(this))
     , m_recipeLibraryModel(new RecipeLibraryModel(this))
-    , m_relayPool()
+    , m_transport()
     , m_syncEngine()
 {
     m_recipesModel->setKindFilter(QStringLiteral("recipe"));
@@ -367,8 +367,7 @@ void AppController::shutdown()
     shutdownRecipeCatalogLoader(this);
     releaseRecipeLibraryCatalog();
     m_syncEngine.shutdown();
-    m_relayPool.shutdown();
-    m_webrtcTransport.shutdown();
+    m_transport.shutdown();
 }
 
 QString AppController::databasePath() {
@@ -452,35 +451,43 @@ bool AppController::init() {
         for (const QUrl& u : relayUrls) parts.append(u.toString());
         m_db.setSetting("relays", parts.join(',').toStdString());
     }
-    m_relayPool.setRelays(relayUrls);
+    m_transport.setRelays(relayUrls);
 
     // --- Setup WebRTC transport ---
     auto signalingSetting = m_db.getSetting("signalingUrl");
     const QString sigUrl = signalingSetting && !signalingSetting->empty()
         ? QString::fromStdString(*signalingSetting)
         : QStringLiteral("wss://colo-apps.les-crevettes-cevenoles.fr/signal");
-    m_webrtcTransport.setSignalingUrl(QUrl(sigUrl));
-    m_webrtcTransport.setDeviceId(m_deviceId);
+    m_transport.setSignalingUrl(QUrl(sigUrl));
+    m_transport.setDeviceId(m_deviceId);
 
     auto iceSetting = m_db.getSetting("iceServers");
     if (iceSetting && !iceSetting->empty()) {
-        m_webrtcTransport.setIceServers(
+        m_transport.setIceServers(
             QString::fromStdString(*iceSetting).split(QLatin1Char(','), Qt::SkipEmptyParts));
     } else {
-        m_webrtcTransport.setIceServers(defaultIceServers().split(QLatin1Char('\n'), Qt::SkipEmptyParts));
+        m_transport.setIceServers(defaultIceServers().split(QLatin1Char('\n'), Qt::SkipEmptyParts));
     }
 
-    // Load sync mode from settings (default = 0 = Nostr).
+    // Load sync mode. Les installations d'avant le mode hybride n'ont pas de
+    // drapeau de migration : on les bascule une seule fois vers Hybrid.
     auto syncModeSetting = m_db.getSetting("syncMode");
-    m_syncMode = syncModeSetting ? std::stoi(*syncModeSetting) : 0;
+    m_syncMode = syncModeSetting ? std::stoi(*syncModeSetting) : 2;
+    if (m_syncMode < 0 || m_syncMode > 2)
+        m_syncMode = 2;
+    if (!m_db.getSetting("syncModeV2Migrated")) {
+        m_syncMode = 2;
+        m_db.setSetting("syncMode", "2");
+        m_db.setSetting("syncModeV2Migrated", "1");
+    }
 
-    // Select active transport.
-    net::SyncTransport* activeTransport =
-        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
-                          : static_cast<net::SyncTransport*>(&m_relayPool);
+    const auto mode = (m_syncMode == 0) ? net::HybridTransport::Mode::RelayOnly
+                    : (m_syncMode == 1) ? net::HybridTransport::Mode::P2POnly
+                                        : net::HybridTransport::Mode::Hybrid;
+    m_transport.setMode(mode);
 
     // --- Wire SyncEngine ---
-    m_syncEngine.init(&m_db, activeTransport, m_deviceId, m_displayName);
+    m_syncEngine.init(&m_db, &m_transport, m_deviceId, m_displayName);
     connect(&m_syncEngine, &SyncEngine::onlineChanged,
             this,          &AppController::onSyncOnlineChanged);
     connect(&m_syncEngine, &SyncEngine::remoteChanges,
@@ -519,12 +526,9 @@ bool AppController::init() {
             this,         &AppController::favoritesChanged);
 
     // --- Connect and subscribe ---
-    net::SyncTransport* transport =
-        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
-                          : static_cast<net::SyncTransport*>(&m_relayPool);
-    transport->connectAll();
+    m_transport.connectAll();
     m_syncEngine.subscribeAllLists();
-    m_online = transport->isOnline();
+    m_online = m_transport.isOnline();
 
     const bool active = QGuiApplication::applicationState() == Qt::ApplicationActive;
     m_syncEngine.setAppInForeground(active);
@@ -541,10 +545,7 @@ bool AppController::init() {
 }
 
 void AppController::resumeSync() {
-    net::SyncTransport* transport =
-        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
-                          : static_cast<net::SyncTransport*>(&m_relayPool);
-    transport->connectAll();
+    m_transport.connectAll();
     m_syncEngine.catchUpOnForeground();
 }
 
@@ -740,12 +741,12 @@ void AppController::setRelayUrls(const QString &text)
         stored.append(u.toString());
     m_db.setSetting("relays", stored.join(QLatin1Char(',')).toStdString());
 
-    m_relayPool.setRelays(urls);
-    m_relayPool.connectAll();
+    m_transport.setRelays(urls);
+    m_transport.connectAll();
     m_syncEngine.subscribeAllLists();
     m_syncEngine.catchUpOnForeground();
 
-    const bool online = m_relayPool.isOnline();
+    const bool online = m_transport.isOnline();
     if (online != m_online) {
         m_online = online;
         emit onlineChanged();
@@ -861,37 +862,34 @@ QString AppController::defaultIceServers() const
 
 void AppController::setSyncMode(int mode)
 {
-    if (mode != 0 && mode != 1) return;
+    if (mode < 0 || mode > 2) return;
     if (mode == m_syncMode) return;
-
-    // Shut down current transport.
-    if (m_syncMode == 0)
-        m_relayPool.disconnectAll();
-    else
-        m_webrtcTransport.disconnectAll();
 
     m_syncMode = mode;
     m_db.setSetting("syncMode", std::to_string(mode));
 
-    // Select new transport and rewire SyncEngine.
-    net::SyncTransport* transport =
-        (m_syncMode == 1) ? static_cast<net::SyncTransport*>(&m_webrtcTransport)
-                          : static_cast<net::SyncTransport*>(&m_relayPool);
-    m_syncEngine.init(&m_db, transport, m_deviceId, m_displayName);
+    const auto transportMode =
+        (m_syncMode == 0) ? net::HybridTransport::Mode::RelayOnly
+      : (m_syncMode == 1) ? net::HybridTransport::Mode::P2POnly
+                          : net::HybridTransport::Mode::Hybrid;
+    m_transport.setMode(transportMode);
 
-    // Connect and subscribe.
-    transport->connectAll();
+    // Rewire SyncEngine on the same hybrid transport (les backends restent
+    // inchangés ; seul le routage publish/subscribe change).
+    m_syncEngine.init(&m_db, &m_transport, m_deviceId, m_displayName);
+    m_transport.connectAll();
     m_syncEngine.subscribeAllLists();
 
-    const bool online = transport->isOnline();
+    const bool online = m_transport.isOnline();
     if (online != m_online) {
         m_online = online;
         emit onlineChanged();
     }
 
     emit syncModeChanged();
-    emit toast(mode == 1 ? QStringLiteral("Mode P2P activé")
-                         : QStringLiteral("Mode relais Nostr activé"));
+    emit toast(mode == 2 ? QStringLiteral("Mode hybride activé")
+               : mode == 1 ? QStringLiteral("Mode P2P seul activé")
+                           : QStringLiteral("Mode relais seul activé"));
 }
 
 void AppController::setSignalingUrl(const QString &url)
@@ -904,7 +902,11 @@ void AppController::setSignalingUrl(const QString &url)
         return;
     }
     m_db.setSetting("signalingUrl", url.trimmed().toStdString());
-    m_webrtcTransport.setSignalingUrl(u);
+    m_transport.setSignalingUrl(u);
+    if (m_syncMode != 0) {
+        m_transport.p2p().disconnectAll();
+        m_transport.p2p().connectAll();
+    }
     emit syncModeChanged();
 }
 
@@ -915,8 +917,12 @@ void AppController::setIceServers(const QString &text)
     // Store as comma-separated.
     const QString stored = text.trimmed().replace(QLatin1Char('\n'), QLatin1Char(','));
     m_db.setSetting("iceServers", stored.toStdString());
-    m_webrtcTransport.setIceServers(
+    m_transport.setIceServers(
         stored.split(QLatin1Char(','), Qt::SkipEmptyParts));
+    if (m_syncMode != 0) {
+        m_transport.p2p().disconnectAll();
+        m_transport.p2p().connectAll();
+    }
     emit syncModeChanged();
 }
 

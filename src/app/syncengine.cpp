@@ -29,8 +29,6 @@ static constexpr int     kPushWakeDebounceMs    = 60'000;  // 1 min après derni
 static constexpr int     kRemoteNotifDebounceMs = 60'000; // idem pour notifs locales
 static constexpr int64_t kSnapDeltaThresh   = 100;    // deltas before forcing a snap
 static constexpr int64_t kSnapAgeMs         = 7LL * 24 * 3600 * 1000; // 7 days
-// Outbox : au-delà de ce délai sans ACK, l'event a déjà été republié — on purge.
-static constexpr int64_t kOutboxStaleMs     = 45'000;
 
 // Settings key prefixes
 static constexpr const char* kDeltaCountKey  = "sync.delta_count.";
@@ -110,8 +108,8 @@ void SyncEngine::init(store::Database* db,
             this,        &SyncEngine::onRelayEvent);
     connect(m_transport, &net::SyncTransport::onlineChanged,
             this,        &SyncEngine::onRelayOnline);
-    connect(m_transport, &net::SyncTransport::publishAck,
-            this,        &SyncEngine::onPublishAck);
+    connect(m_transport, &net::SyncTransport::publishAckKind,
+            this,        &SyncEngine::onPublishAckKind);
 
     // Forward online state.
     connect(m_transport, &net::SyncTransport::onlineChanged,
@@ -709,57 +707,42 @@ void SyncEngine::reconcileStuckOutbox()
     if (!m_db)
         return;
 
+    // Seules les entrées dont la liste n'existe plus sont retirées. Une entrée
+    // sans ack n'est JAMAIS supprimée : c'est la garantie « aucune perte ».
     const int purged = m_db->outboxPurgeOrphaned();
     if (purged > 0)
         emit outboxChanged();
 
-    const int64_t now = QDateTime::currentMSecsSinceEpoch();
-    const bool online = m_transport && m_transport->isOnline();
-    bool changed = false;
-    for (const auto& row : m_db->outboxPeekAllEntries()) {
-        // Laisser le temps à flushOutbox de republier (reconnexion, démarrage).
-        if (now - row.created < kOutboxStaleMs)
-            continue;
+    if (m_db->outboxCount() == 0)
+        m_outboxReconcileTimer.stop();
+}
 
-        const QJsonDocument doc = QJsonDocument::fromJson(
-            QByteArray::fromStdString(row.eventJson));
-        if (!doc.isObject()) {
-            m_db->outboxRemove(row.rowid);
-            changed = true;
-            continue;
-        }
-        const auto evOpt = net::NostrEvent::fromJson(doc.object());
-        if (!evOpt) {
-            m_db->outboxRemove(row.rowid);
-            changed = true;
-            continue;
-        }
+void SyncEngine::onPublishAckKind(const QString& eventId, net::AckKind kind,
+                                  const QString& msg)
+{
+    if (m_shuttingDown || eventId.isEmpty())
+        return;
 
-        // Hors ligne : conserver l'outbox jusqu'à un flush réussi.
-        if (!online)
-            continue;
-
-        const std::string eventId = evOpt->id.toStdString();
-        // Après 45 s en ligne : l'événement a été republié plusieurs fois ;
-        // s'il est encore en attente d'accusé, le retirer de l'outbox seulement si
-        // un ACK ou un echo l'a confirmé (pendingAcks vide pour cet id).
-        if (m_pendingAcks.find(evOpt->id) == m_pendingAcks.end()) {
-            qInfo() << "[SyncEngine] purging stale delivered outbox entry" << evOpt->id.left(12);
-            m_db->outboxRemove(row.rowid);
-            changed = true;
-            continue;
-        }
-
-        // Sans accusé après 45 s en ligne : débloquer le bandeau (événement perdu).
-        qInfo() << "[SyncEngine] purging stale unacked outbox entry" << evOpt->id.left(12);
-        m_db->outboxRemove(row.rowid);
-        m_pendingAcks.erase(evOpt->id);
-        changed = true;
+    if (kind == net::AckKind::Rejected) {
+        qWarning() << "[SyncEngine] publish rejected" << eventId.left(12) << msg;
+        emit publishRejected(msg);
+        return;
     }
-    if (changed) {
-        emit outboxChanged();
-        if (m_db->outboxCount() == 0)
-            m_outboxReconcileTimer.stop();
+
+    if (kind == net::AckKind::PeerDelivered) {
+        // Le pair a reçu l'événement, mais ce n'est pas un stockage durable :
+        // en hybride, l'outbox reste jusqu'à l'ack du relais.
+        qInfo() << "[SyncEngine] peer delivered" << eventId.left(12);
+        return;
+    }
+
+    // RelayDurable : seul cas où l'outbox peut être vidée.
+    removeOutboxEntryForEventId(eventId);
+    for (auto it = m_pendingAcks.begin(); it != m_pendingAcks.end(); ) {
+        if (it->first.compare(eventId, Qt::CaseInsensitive) == 0)
+            it = m_pendingAcks.erase(it);
+        else
+            ++it;
     }
 }
 
@@ -774,13 +757,7 @@ void SyncEngine::onPublishAck(const QString& eventId, bool accepted, const QStri
         return;
     }
 
-    std::optional<std::string> listId = removeOutboxEntryForEventId(eventId);
-    if (!listId) {
-        const auto it = m_pendingAcks.find(eventId);
-        if (it != m_pendingAcks.end())
-            listId = it->second;
-    }
-
+    removeOutboxEntryForEventId(eventId);
     for (auto it = m_pendingAcks.begin(); it != m_pendingAcks.end(); ) {
         if (it->first.compare(eventId, Qt::CaseInsensitive) == 0)
             it = m_pendingAcks.erase(it);

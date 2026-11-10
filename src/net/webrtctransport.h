@@ -74,8 +74,10 @@ public:
     void disconnectAll() override;
     void shutdown() override;
     void publishToAll(const NostrEvent& ev) override;
+    void publishToPeer(const QString& peerId, const NostrEvent& ev) override;
     void subscribeAll(const QString& channelTag, int64_t since) override;
     bool isOnline() const override;
+    int peerCount(const QString& channelTag = QString()) const override;
 
 private:
     // ── Signaling ──
