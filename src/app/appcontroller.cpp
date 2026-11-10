@@ -39,6 +39,8 @@
 
 namespace app {
 
+static QString deriveSignalingUrl(const QString& base);
+
 // ---------------------------------------------------------------------------
 // ListsModel
 // ---------------------------------------------------------------------------
@@ -454,10 +456,15 @@ bool AppController::init() {
     m_transport.setRelays(relayUrls);
 
     // --- Setup WebRTC transport ---
+    // Serveur P2P = base HTTPS ; l'URL de signaling en est dérivée sauf override.
+    auto p2pSetting = m_db.getSetting("p2pServerUrl");
+    const QString p2pBase = p2pSetting && !p2pSetting->empty()
+        ? QString::fromStdString(*p2pSetting)
+        : defaultP2pServerUrl();
     auto signalingSetting = m_db.getSetting("signalingUrl");
     const QString sigUrl = signalingSetting && !signalingSetting->empty()
         ? QString::fromStdString(*signalingSetting)
-        : QStringLiteral("wss://colo-apps.les-crevettes-cevenoles.fr/signal");
+        : deriveSignalingUrl(p2pBase);
     m_transport.setSignalingUrl(QUrl(sigUrl));
     m_transport.setDeviceId(m_deviceId);
 
@@ -832,6 +839,42 @@ void AppController::refreshPushTopics()
 // Sync mode (Nostr ↔ WebRTC)
 // ---------------------------------------------------------------------------
 
+static QString deriveSignalingUrl(const QString& base)
+{
+    QUrl u(base.trimmed());
+    if (!u.isValid() || u.host().isEmpty())
+        return {};
+    QString scheme = u.scheme().toLower();
+    if (scheme == QLatin1String("https")) scheme = QStringLiteral("wss");
+    else if (scheme == QLatin1String("http")) scheme = QStringLiteral("ws");
+    else if (scheme != QLatin1String("wss") && scheme != QLatin1String("ws"))
+        return {};
+
+    QString path = u.path();
+    while (path.endsWith(QLatin1Char('/'))) path.chop(1);
+    path += QStringLiteral("/signal");
+
+    QUrl out;
+    out.setScheme(scheme);
+    out.setHost(u.host());
+    out.setPort(u.port());
+    out.setPath(path);
+    return out.toString();
+}
+
+QString AppController::p2pServerUrl() const
+{
+    const auto v = m_db.getSetting("p2pServerUrl");
+    if (v && !v->empty())
+        return QString::fromStdString(*v);
+    return defaultP2pServerUrl();
+}
+
+QString AppController::defaultP2pServerUrl() const
+{
+    return QStringLiteral("https://colo-apps.les-crevettes-cevenoles.fr");
+}
+
 QString AppController::signalingUrl() const
 {
     const auto v = m_db.getSetting("signalingUrl");
@@ -842,7 +885,7 @@ QString AppController::signalingUrl() const
 
 QString AppController::defaultSignalingUrl() const
 {
-    return QStringLiteral("wss://colo-apps.les-crevettes-cevenoles.fr/signal");
+    return deriveSignalingUrl(defaultP2pServerUrl());
 }
 
 QString AppController::iceServers() const
@@ -890,6 +933,32 @@ void AppController::setSyncMode(int mode)
     emit toast(mode == 2 ? QStringLiteral("Mode hybride activé")
                : mode == 1 ? QStringLiteral("Mode P2P seul activé")
                            : QStringLiteral("Mode relais seul activé"));
+}
+
+void AppController::setP2pServerUrl(const QString &url)
+{
+    if (!m_db.isOpen())
+        return;
+    const QUrl base(url.trimmed());
+    if (!base.isValid() || base.host().isEmpty()
+        || (base.scheme() != QStringLiteral("http")
+            && base.scheme() != QStringLiteral("https"))) {
+        emit toast(QStringLiteral("URL de serveur P2P invalide (http/https attendu)"));
+        return;
+    }
+    const QString derived = deriveSignalingUrl(url);
+    if (derived.isEmpty()) {
+        emit toast(QStringLiteral("URL de serveur P2P invalide"));
+        return;
+    }
+    m_db.setSetting("p2pServerUrl", url.trimmed().toStdString());
+    m_db.setSetting("signalingUrl", derived.toStdString());
+    m_transport.setSignalingUrl(QUrl(derived));
+    if (m_syncMode != 0) {
+        m_transport.p2p().disconnectAll();
+        m_transport.p2p().connectAll();
+    }
+    emit syncModeChanged();
 }
 
 void AppController::setSignalingUrl(const QString &url)

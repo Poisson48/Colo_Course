@@ -1143,7 +1143,33 @@ Item {
             color: Theme.textDim
             font.pixelSize: 13
             visible: modeBox.currentIndex !== 0
-            text: "Serveur de signalisation (WebSocket)"
+            text: "Serveur P2P (URL)"
+        }
+
+        ColoTextField {
+            id: p2pServerField
+            Layout.fillWidth: true
+            visible: modeBox.currentIndex !== 0
+            placeholderText: AppController.defaultP2pServerUrl()
+        }
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 12
+            visible: modeBox.currentIndex !== 0
+            text: "Laisse vide pour le serveur Colo par défaut. "
+                  + "Un hôte self-hosté doit exposer /signal et /turn-credentials."
+        }
+
+        Label {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            visible: modeBox.currentIndex !== 0
+            text: "Signalisation WebSocket (avancé)"
         }
 
         ColoTextField {
@@ -1214,6 +1240,7 @@ Item {
         onOpened: {
             modeBox.currentIndex = Math.max(0, Math.min(2, AppController.syncMode))
             relaysField.text = AppController.relayUrls
+            p2pServerField.text = AppController.p2pServerUrl
             signalingUrlField.text = AppController.signalingUrl
             iceField.text = AppController.iceServers
             pushEnabledSwitch.checked = AppController.pushEnabled
@@ -1224,7 +1251,11 @@ Item {
             if (modeBox.currentIndex !== 1)
                 AppController.setRelayUrls(relaysField.text)
             if (modeBox.currentIndex !== 0) {
-                AppController.setSignalingUrl(signalingUrlField.text)
+                const baseChanged = p2pServerField.text.trim() !== AppController.p2pServerUrl
+                if (baseChanged)
+                    AppController.setP2pServerUrl(p2pServerField.text)
+                else
+                    AppController.setSignalingUrl(signalingUrlField.text)
                 AppController.setIceServers(iceField.text)
             }
             AppController.setSyncMode(modeBox.currentIndex)
