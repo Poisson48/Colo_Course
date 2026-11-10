@@ -138,6 +138,13 @@ class AppController : public QObject {
     Q_PROPERTY(QString relayUrls READ relayUrls NOTIFY relayUrlsChanged)
     Q_PROPERTY(bool pushEnabled READ pushEnabled NOTIFY pushSettingsChanged)
     Q_PROPERTY(QString pushBaseUrl READ pushBaseUrl NOTIFY pushSettingsChanged)
+    // Notifications : "unset" tant que l'utilisateur n'a pas choisi (aucune
+    // présélection), puis "off", "deferred" ou "immediate".
+    Q_PROPERTY(QString notifMode READ notifMode NOTIFY notifSettingsChanged)
+    Q_PROPERTY(QString notifProvider READ notifProvider NOTIFY notifSettingsChanged)
+    Q_PROPERTY(int notifInterval READ notifInterval NOTIFY notifSettingsChanged)
+    Q_PROPERTY(bool notifOnboardingSeen READ notifOnboardingSeen NOTIFY notifSettingsChanged)
+    Q_PROPERTY(bool notifImmediateAvailable READ notifImmediateAvailable NOTIFY notifSettingsChanged)
     // Mode de synchronisation : 0 = relais seul, 1 = P2P seul, 2 = hybride.
     Q_PROPERTY(int syncMode READ syncMode NOTIFY syncModeChanged)
     // Serveur P2P (base HTTPS) : signaling + credentials TURN. Indépendant du relais.
@@ -176,6 +183,11 @@ public:
     QString relayUrls();
     bool    pushEnabled();
     QString pushBaseUrl();
+    QString notifMode();
+    QString notifProvider();
+    int     notifInterval();
+    bool    notifOnboardingSeen();
+    bool    notifImmediateAvailable() const { return false; }
     int     syncMode() const { return m_syncMode; }
     QString p2pServerUrl() const;
     QString signalingUrl() const;
@@ -319,6 +331,12 @@ public slots:
 
     Q_INVOKABLE void setPushSettings(bool enabled, const QString &baseUrl);
     Q_INVOKABLE QString defaultPushBaseUrl() const;
+    Q_INVOKABLE void setNotificationMode(const QString &mode,
+                                         const QString &provider = QStringLiteral("auto"),
+                                         int intervalMinutes = 15);
+    Q_INVOKABLE void markNotificationOnboardingSeen();
+    Q_INVOKABLE void setNotificationInterval(int minutes);
+    Q_INVOKABLE void testNotification();
     void refreshPushTopics();
 
     // Mode de synchronisation : 0 = relais seul, 1 = P2P seul, 2 = hybride.
@@ -363,6 +381,7 @@ signals:
     void displayNameChanged();
     void relayUrlsChanged();
     void pushSettingsChanged();
+    void notifSettingsChanged();
     void syncModeChanged();
     // Emitted when QML should push the item page.
     void listOpened(const QString &listId, const QString &title);

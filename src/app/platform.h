@@ -35,4 +35,11 @@ void platformKeepScreenOn(bool on);
 void platformConfigurePush(const QString &baseUrl, const QStringList &topics,
                            const QString &deviceId);
 
+// Android : mode de notifications "off", "deferred" (JobScheduler) ou
+// "immediate" (pas encore implémenté). intervalMinutes = 15/30/60.
+void platformConfigureNotifications(const QString &mode, const QString &provider,
+                                    int intervalMinutes, const QString &baseUrl,
+                                    const QStringList &topics,
+                                    const QString &deviceId);
+
 } // namespace app

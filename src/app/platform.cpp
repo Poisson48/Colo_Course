@@ -105,6 +105,36 @@ void platformKeepScreenOn(bool on)
         "(Landroid/content/Context;Z)V", ctx.object(), static_cast<jboolean>(on));
 }
 
+void platformConfigureNotifications(const QString &mode, const QString &provider,
+                                     int intervalMinutes, const QString &baseUrl,
+                                     const QStringList &topics,
+                                     const QString &deviceId)
+{
+    const QJniObject ctx = androidContext();
+    if (!ctx.isValid())
+        return;
+
+    QJniEnvironment env;
+    const jsize n = static_cast<jsize>(topics.size());
+    jobjectArray arr = env->NewObjectArray(n, env->FindClass("java/lang/String"), nullptr);
+    for (jsize i = 0; i < n; ++i) {
+        const QJniObject s = QJniObject::fromString(topics.at(static_cast<int>(i)));
+        env->SetObjectArrayElement(arr, i, s.object<jstring>());
+    }
+
+    const QJniObject jMode = QJniObject::fromString(mode);
+    const QJniObject jProvider = QJniObject::fromString(provider);
+    const QJniObject jUrl = QJniObject::fromString(baseUrl);
+    const QJniObject jDev = QJniObject::fromString(deviceId);
+    QJniObject::callStaticMethod<void>(
+        kPlatformClass, "configureNotifications",
+        "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;[Ljava/lang/String;Ljava/lang/String;)V",
+        ctx.object(), jMode.object<jstring>(), jProvider.object<jstring>(),
+        static_cast<jint>(intervalMinutes), jUrl.object<jstring>(), arr,
+        jDev.object<jstring>());
+    env->DeleteLocalRef(arr);
+}
+
 void platformConfigurePush(const QString &baseUrl, const QStringList &topics,
                            const QString &deviceId)
 {
@@ -144,6 +174,10 @@ void platformVibrate(int) {}
 void platformKeepScreenOn(bool) {}
 
 void platformConfigurePush(const QString &, const QStringList &, const QString &) {}
+
+void platformConfigureNotifications(const QString &, const QString &, int,
+                                     const QString &, const QStringList &,
+                                     const QString &) {}
 
 #endif
 

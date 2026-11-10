@@ -78,10 +78,18 @@ public class Platform {
         showNotification(ctx, title, body, 0L);
     }
 
-    // ntfy : démarre ou arrête la veille push (topics = colo-{channelTag}).
+    // Ancienne veille 5 s : conservée pour compatibilité, plus utilisée par l'app.
     public static void configurePush(Context ctx, String baseUrl, String[] topics,
                                      String deviceId) {
         PushService.configure(ctx, baseUrl, topics, deviceId);
+    }
+
+    // Nouvelle veille : off / deferred. Aucun service foreground, aucun 5 s.
+    public static void configureNotifications(Context ctx, String mode, String provider,
+                                              int intervalMinutes, String baseUrl,
+                                              String[] topics, String deviceId) {
+        DeferredPushJob.configure(ctx, mode, provider, intervalMinutes,
+                                  baseUrl, topics, deviceId);
     }
 
     // whenMs > 0 : horodatage de la notification = heure de la modification

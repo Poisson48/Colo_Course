@@ -365,7 +365,7 @@ void AppController::shutdown()
     m_shutdownDone = true;
 
     qDebug() << "[shutdown] AppController::shutdown";
-    platformConfigurePush(QString(), {}, QString());
+    platformConfigureNotifications(QStringLiteral("off"), notifProvider(), notifInterval(), QString(), {}, m_deviceId);
     shutdownRecipeCatalogLoader(this);
     releaseRecipeLibraryCatalog();
     m_syncEngine.shutdown();
@@ -513,7 +513,7 @@ bool AppController::init() {
     m_syncEngine.setDeferBackgroundNotificationsToPush(pushEnabled());
     if (active) {
         m_pushLifecycleReady = true;
-        platformConfigurePush(QString(), {}, QString());
+        platformConfigureNotifications(QStringLiteral("off"), notifProvider(), notifInterval(), QString(), {}, m_deviceId);
         resumeSync();
     } else if (m_pendingChanges == 0) {
         m_syncEngine.reconcileOutbox();
@@ -538,7 +538,7 @@ void AppController::onApplicationStateChanged(Qt::ApplicationState state)
 
     if (active) {
         m_pushLifecycleReady = true;
-        platformConfigurePush(QString(), {}, QString());
+        platformConfigureNotifications(QStringLiteral("off"), notifProvider(), notifInterval(), QString(), {}, m_deviceId);
         resumeSync();
         refreshRecipeLibraryFromServer(this, [this](bool updated) {
             if (updated) {
@@ -742,8 +742,89 @@ void AppController::resetRelayUrls()
 
 bool AppController::pushEnabled()
 {
-    const auto v = m_db.getSetting("pushEnabled");
-    return !v || *v != "0";
+    // Compatibilité : "push actif" = un mode de fond explicitement choisi.
+    const QString mode = notifMode();
+    return mode == QStringLiteral("deferred") || mode == QStringLiteral("immediate");
+}
+
+QString AppController::notifMode()
+{
+    const auto v = m_db.getSetting("notif.mode");
+    if (v && (*v == "off" || *v == "deferred" || *v == "immediate"))
+        return QString::fromStdString(*v);
+    return QStringLiteral("unset");
+}
+
+QString AppController::notifProvider()
+{
+    const auto v = m_db.getSetting("notif.provider");
+    return v ? QString::fromStdString(*v) : QStringLiteral("auto");
+}
+
+int AppController::notifInterval()
+{
+    const auto v = m_db.getSetting("notif.interval");
+    if (!v) return 15;
+    const int minutes = std::atoi(v->c_str());
+    return (minutes == 30 || minutes == 60) ? minutes : 15;
+}
+
+bool AppController::notifOnboardingSeen()
+{
+    return m_db.getSetting("notif.onboardingV1").has_value();
+}
+
+void AppController::markNotificationOnboardingSeen()
+{
+    if (!m_db.isOpen()) return;
+    m_db.setSetting("notif.onboardingV1", "1");
+    emit notifSettingsChanged();
+}
+
+void AppController::setNotificationMode(const QString &mode, const QString &provider,
+                                        int intervalMinutes)
+{
+    if (!m_db.isOpen()) return;
+    if (mode != "off" && mode != "deferred" && mode != "immediate") {
+        emit toast(QStringLiteral("Choisissez un mode de notifications"));
+        return;
+    }
+    if (mode == "immediate" && !notifImmediateAvailable()) {
+        emit toast(QStringLiteral("Le mode immédiat n'est pas encore disponible"));
+        return;
+    }
+    if (intervalMinutes != 30 && intervalMinutes != 60)
+        intervalMinutes = 15;
+    QString p = provider;
+    if (p != "fcm" && p != "unifiedpush" && p != "auto")
+        p = "auto";
+
+    m_db.setSetting("notif.mode", mode.toStdString());
+    m_db.setSetting("notif.provider", p.toStdString());
+    m_db.setSetting("notif.interval", std::to_string(intervalMinutes));
+    // Un choix explicite (y compris depuis Réglages) vaut onboarding vu :
+    // la feuille one-shot ne doit jamais revenir après.
+    m_db.setSetting("notif.onboardingV1", "1");
+    refreshPushTopics();
+    emit notifSettingsChanged();
+    emit pushSettingsChanged();
+    emit toast(mode == "off" ? QStringLiteral("Notifications désactivées")
+                             : QStringLiteral("Notifications différées activées"));
+}
+
+void AppController::setNotificationInterval(int minutes)
+{
+    if (minutes != 30 && minutes != 60) minutes = 15;
+    if (notifInterval() == minutes) return;
+    m_db.setSetting("notif.interval", std::to_string(minutes));
+    refreshPushTopics();
+    emit notifSettingsChanged();
+}
+
+void AppController::testNotification()
+{
+    platformNotify(QStringLiteral("Colo Course"),
+                   QStringLiteral("Les notifications fonctionnent."));
 }
 
 QString AppController::pushBaseUrl()
@@ -761,6 +842,8 @@ QString AppController::defaultPushBaseUrl() const
 
 void AppController::setPushSettings(bool enabled, const QString &baseUrl)
 {
+    // Ancien réglage : ne l'utilise plus pour choisir le mode (aucune
+    // présélection), mais conserve l'URL ntfy self-hostée.
     if (!m_db.isOpen())
         return;
 
@@ -773,28 +856,45 @@ void AppController::setPushSettings(bool enabled, const QString &baseUrl)
         }
     }
 
-    m_db.setSetting("pushEnabled", enabled ? "1" : "0");
     if (!trimmed.isEmpty())
         m_db.setSetting("pushBaseUrl", trimmed.toStdString());
 
-    refreshPushTopics();
+    // Compatibilité : l'ancien interrupteur ne force plus un mode. S'il est
+    // explicitement manipulé, il choisit off/différé et marque l'onboarding vu.
+    if (enabled && notifMode() == "unset")
+        setNotificationMode("deferred", "auto", notifInterval());
+    else if (!enabled)
+        setNotificationMode("off", "auto", notifInterval());
+    markNotificationOnboardingSeen();
     emit pushSettingsChanged();
-    emit toast(enabled ? QStringLiteral("Notifications push activées")
-                       : QStringLiteral("Notifications push désactivées"));
 }
 
 void AppController::refreshPushTopics()
 {
-    const bool pushOn = pushEnabled();
-    m_syncEngine.setDeferBackgroundNotificationsToPush(pushOn);
+    const QString mode = notifMode();
+    const bool backgroundMode = (mode == QStringLiteral("deferred")
+                                 || mode == QStringLiteral("immediate"));
+    m_syncEngine.setDeferBackgroundNotificationsToPush(backgroundMode);
 
-    if (!pushOn) {
-        platformConfigurePush(QString(), {}, QString());
+    // Aucun mode choisi, ou mode désactivé : aucun travail de fond.
+    if (!backgroundMode) {
+        platformConfigureNotifications(QStringLiteral("off"), notifProvider(),
+                                       notifInterval(), QString(), {}, m_deviceId);
         return;
     }
 
+    // Au premier plan, le WebSocket Qt s'en occupe : pas de job.
     if (QGuiApplication::applicationState() == Qt::ApplicationActive) {
-        platformConfigurePush(QString(), {}, QString());
+        platformConfigureNotifications(QStringLiteral("off"), notifProvider(),
+                                       notifInterval(), QString(), {}, m_deviceId);
+        return;
+    }
+
+    if (mode == QStringLiteral("immediate")) {
+        // Pas encore de fournisseur immédiat dans cette version : ne pas
+        // lancer de service 5 s. Le mode reste visible dans Réglages.
+        platformConfigureNotifications(QStringLiteral("off"), notifProvider(),
+                                       notifInterval(), QString(), {}, m_deviceId);
         return;
     }
 
@@ -803,7 +903,8 @@ void AppController::refreshPushTopics()
         topics.append(net::pushTopicForChannel(
             QString::fromStdString(net::deriveChannelTag(meta.key))));
     }
-    platformConfigurePush(pushBaseUrl(), topics, m_deviceId);
+    platformConfigureNotifications(QStringLiteral("deferred"), notifProvider(),
+                                   notifInterval(), pushBaseUrl(), topics, m_deviceId);
 }
 
 // ---------------------------------------------------------------------------
