@@ -1,4 +1,8 @@
-# Notifications — plan POST-migration v4
+# Notifications — plan POST-migration v4 (historique)
+
+> **Remplacé par [BATTERY-NOTIFICATIONS.md](BATTERY-NOTIFICATIONS.md)** pour
+> l’architecture serveur sans P2P/TURN. Ce document garde les contrats détaillés
+> (payloads, tests) mais ses prérequis `/config` P2P ne sont plus valides.
 
 > **Statut : à lancer après le merge de la v4 (v0.32.0).** Ne pas démarrer avant.
 > Référence : « Plan de migration totale v4 — Colo Course + Colo Tâches ».
