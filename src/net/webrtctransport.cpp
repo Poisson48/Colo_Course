@@ -6,6 +6,9 @@
 #include <QJsonArray>
 #include <QDebug>
 #include <QUuid>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QUrlQuery>
 
 #include <rtc/rtc.hpp>
 
@@ -20,6 +23,49 @@ static std::string peerKey(const QString& deviceId, const QString& channelTag)
     return (deviceId + QStringLiteral(":") + channelTag).toStdString();
 }
 
+// Construit un IceServer TURN avec credentials. libdatachannel n'accepte pas
+// directement une URL TURN + user/pass : il faut séparer host/service/type.
+static rtc::IceServer makeIceServer(const QString& url,
+                                    const QString& user,
+                                    const QString& pass)
+{
+    const bool tls = url.startsWith(QStringLiteral("turns:"), Qt::CaseInsensitive);
+    const bool turn = tls || url.startsWith(QStringLiteral("turn:"), Qt::CaseInsensitive);
+    if (!turn || user.isEmpty())
+        return rtc::IceServer{url.toStdString()};
+
+    QString rest = url.mid(url.indexOf(QLatin1Char(':')) + 1);
+    QString transport = QStringLiteral("udp");
+    const int q = rest.indexOf(QStringLiteral("?transport="), 0, Qt::CaseInsensitive);
+    if (q >= 0) {
+        transport = rest.mid(q + 11);
+        rest = rest.left(q);
+    }
+
+    QString host;
+    int port = 3479;
+    if (rest.startsWith(QLatin1Char('['))) {
+        const int close = rest.indexOf(QStringLiteral("]:"));
+        if (close < 0) return rtc::IceServer{url.toStdString()};
+        host = rest.mid(1, close - 1);
+        port = rest.mid(close + 2).toInt();
+    } else {
+        const int colon = rest.lastIndexOf(QLatin1Char(':'));
+        if (colon < 0) return rtc::IceServer{url.toStdString()};
+        host = rest.left(colon);
+        port = rest.mid(colon + 1).toInt();
+    }
+    if (host.isEmpty() || port <= 0 || port > 65535)
+        return rtc::IceServer{url.toStdString()};
+
+    auto relay = tls ? rtc::IceServer::RelayType::TurnTls
+                     : (transport.compare(QStringLiteral("tcp"), Qt::CaseInsensitive) == 0
+                            ? rtc::IceServer::RelayType::TurnTcp
+                            : rtc::IceServer::RelayType::TurnUdp);
+    return rtc::IceServer(host.toStdString(), static_cast<uint16_t>(port),
+                          user.toStdString(), pass.toStdString(), relay);
+}
+
 // ---------------------------------------------------------------------------
 // Construction
 // ---------------------------------------------------------------------------
@@ -30,6 +76,10 @@ WebRTCTransport::WebRTCTransport(QObject* parent)
     // Signaling reconnect backoff.
     m_reconnectTimer.setSingleShot(true);
     connect(&m_reconnectTimer, &QTimer::timeout, this, &WebRTCTransport::connectSignaling);
+
+    m_turnRefreshTimer.setSingleShot(true);
+    connect(&m_turnRefreshTimer, &QTimer::timeout,
+            this, &WebRTCTransport::refreshTurnCredentials);
 
     // Connecter les signaux UNE SEULE FOIS : les reconnecter à chaque tentative
     // dupliquait les handlers après chaque coupure.
@@ -63,6 +113,19 @@ void WebRTCTransport::setSignalingUrl(const QUrl& url)
     m_signalingUrl = url;
 }
 
+void WebRTCTransport::setP2pServerUrl(const QUrl& url)
+{
+    m_p2pServerUrl = url;
+    if (!m_deviceId.isEmpty())
+        refreshTurnCredentials();
+}
+
+void WebRTCTransport::setAppId(const QString& appId)
+{
+    if (!appId.isEmpty())
+        m_appId = appId;
+}
+
 void WebRTCTransport::setIceServers(const QStringList& urls)
 {
     m_iceUrls = urls;
@@ -80,6 +143,21 @@ void WebRTCTransport::setDeviceId(const QString& deviceId)
 void WebRTCTransport::connectAll()
 {
     if (m_shuttingDown) return;
+
+    // TURN est obligatoire pour la 4G : on laisse une courte fenêtre au serveur
+    // pour fournir les credentials avant d'ouvrir le signaling. En cas d'échec
+    // (serveur plus ancien, endpoint absent), on continue en STUN + relais.
+    if (!m_p2pServerUrl.isEmpty() && m_turnUser.isEmpty() && !m_waitingForTurn) {
+        m_waitingForTurn = true;
+        refreshTurnCredentials();
+        QTimer::singleShot(3000, this, [this]() {
+            if (m_waitingForTurn) {
+                m_waitingForTurn = false;
+                connectSignaling();
+            }
+        });
+        return;
+    }
     connectSignaling();
 }
 
@@ -93,6 +171,7 @@ void WebRTCTransport::disconnectAll()
         if (peer->pc) peer->pc->close();
     }
     m_peers.clear();
+    m_waitingForTurn = false;
     setOnline(false);
 }
 
@@ -432,10 +511,87 @@ void WebRTCTransport::handlePeerLeft(const QJsonObject& msg)
 std::vector<rtc::IceServer> WebRTCTransport::buildIceServers() const
 {
     std::vector<rtc::IceServer> servers;
-    for (const QString& url : m_iceUrls) {
-        servers.push_back(rtc::IceServer{url.toStdString()});
-    }
+    QSet<QString> seen;
+    const auto add = [&](const QString& url) {
+        if (url.isEmpty() || seen.contains(url)) return;
+        seen.insert(url);
+        servers.push_back(makeIceServer(url, m_turnUser, m_turnPassword));
+    };
+    for (const QString& url : m_iceUrls)
+        add(url);
+    for (const QString& url : m_fetchedTurnUrls)
+        add(url);
     return servers;
+}
+
+void WebRTCTransport::refreshTurnCredentials()
+{
+    if (m_p2pServerUrl.isEmpty() || m_deviceId.isEmpty()) {
+        if (m_waitingForTurn) {
+            m_waitingForTurn = false;
+            connectSignaling();
+        }
+        return;
+    }
+
+    QUrl u = m_p2pServerUrl;
+    QString scheme = u.scheme().toLower();
+    if (scheme == QLatin1String("wss")) u.setScheme(QStringLiteral("https"));
+    else if (scheme == QLatin1String("ws")) u.setScheme(QStringLiteral("http"));
+    else if (scheme != QLatin1String("https") && scheme != QLatin1String("http")) {
+        if (m_waitingForTurn) { m_waitingForTurn = false; connectSignaling(); }
+        return;
+    }
+    QString path = u.path();
+    while (path.endsWith(QLatin1Char('/'))) path.chop(1);
+    u.setPath(path + QStringLiteral("/turn-credentials"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("app"), m_appId);
+    query.addQueryItem(QStringLiteral("device_id"), m_deviceId);
+    u.setQuery(query);
+
+    QNetworkRequest req(u);
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
+    auto* reply = m_net.get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "[WebRTC] TURN credentials indisponibles:"
+                       << reply->errorString();
+            if (m_waitingForTurn) {
+                m_waitingForTurn = false;
+                connectSignaling();
+            }
+            return;
+        }
+
+        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+        if (!doc.isObject()) {
+            if (m_waitingForTurn) { m_waitingForTurn = false; connectSignaling(); }
+            return;
+        }
+        const QJsonObject obj = doc.object();
+        const QString user = obj.value(QStringLiteral("username")).toString();
+        const QString pass = obj.value(QStringLiteral("credential")).toString();
+        if (!user.isEmpty() && !pass.isEmpty()) {
+            m_turnUser = user;
+            m_turnPassword = pass;
+            m_fetchedTurnUrls.clear();
+            for (const QJsonValue& v : obj.value(QStringLiteral("urls")).toArray()) {
+                const QString s = v.toString();
+                if (!s.isEmpty()) m_fetchedTurnUrls.append(s);
+            }
+            const int ttl = obj.value(QStringLiteral("ttl")).toInt(43200);
+            m_turnRefreshTimer.start(std::max(3600, ttl - 1800) * 1000);
+            qInfo() << "[WebRTC] TURN credentials reçues, urls="
+                    << m_fetchedTurnUrls.size();
+        }
+        if (m_waitingForTurn) {
+            m_waitingForTurn = false;
+            connectSignaling();
+        }
+    });
 }
 
 WebRTCTransport::PeerConnection*

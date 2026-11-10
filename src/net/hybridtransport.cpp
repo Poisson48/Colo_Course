@@ -78,6 +78,16 @@ void HybridTransport::setSignalingUrl(const QUrl& url)
     m_p2p.setSignalingUrl(url);
 }
 
+void HybridTransport::setP2pServerUrl(const QUrl& url)
+{
+    m_p2p.setP2pServerUrl(url);
+}
+
+void HybridTransport::setAppId(const QString& appId)
+{
+    m_p2p.setAppId(appId);
+}
+
 void HybridTransport::setIceServers(const QStringList& urls)
 {
     m_p2p.setIceServers(urls);

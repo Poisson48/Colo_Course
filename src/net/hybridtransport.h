@@ -39,6 +39,8 @@ public:
 
     void setRelays(const QList<QUrl>& urls);
     void setSignalingUrl(const QUrl& url);
+    void setP2pServerUrl(const QUrl& url);
+    void setAppId(const QString& appId);
     void setIceServers(const QStringList& urls);
     void setDeviceId(const QString& deviceId);
 

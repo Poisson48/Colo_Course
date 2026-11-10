@@ -467,6 +467,8 @@ bool AppController::init() {
         : deriveSignalingUrl(p2pBase);
     m_transport.setSignalingUrl(QUrl(sigUrl));
     m_transport.setDeviceId(m_deviceId);
+    m_transport.setAppId(QStringLiteral("colocourse"));
+    m_transport.setP2pServerUrl(QUrl(p2pBase));
 
     auto iceSetting = m_db.getSetting("iceServers");
     if (iceSetting && !iceSetting->empty()) {
@@ -954,6 +956,7 @@ void AppController::setP2pServerUrl(const QString &url)
     m_db.setSetting("p2pServerUrl", url.trimmed().toStdString());
     m_db.setSetting("signalingUrl", derived.toStdString());
     m_transport.setSignalingUrl(QUrl(derived));
+    m_transport.setP2pServerUrl(base);
     if (m_syncMode != 0) {
         m_transport.p2p().disconnectAll();
         m_transport.p2p().connectAll();
