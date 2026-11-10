@@ -85,6 +85,16 @@
         <receiver
             android:name="org.colocourse.app.BackgroundSyncReceiver"
             android:exported="false"/>
+        <service
+            android:name="org.colocourse.app.BackgroundSyncService"
+            android:process=":qt_service"
+            android:exported="false"
+            android:foregroundServiceType="dataSync">
+            <meta-data android:name="android.app.lib_name"
+                       android:value="-- %%INSERT_APP_LIB_NAME%% --"/>
+            <meta-data android:name="android.app.arguments" android:value="-service"/>
+            <meta-data android:name="android.app.background_running" android:value="true"/>
+        </service>
         <!-- Veille différée : JobScheduler, aucune notification permanente. -->
         <service
             android:name="org.colocourse.app.DeferredPushJob"

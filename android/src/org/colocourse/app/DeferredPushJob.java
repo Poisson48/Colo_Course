@@ -7,6 +7,7 @@ import android.app.job.JobService;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.app.ActivityManager;
 import android.content.SharedPreferences;
 import android.util.Log;
 
@@ -97,9 +98,17 @@ public class DeferredPushJob extends JobService {
     }
 
     private void pollOnce() {
-        // Réveil best-effort du process Qt pour merger, avant/après la notification.
-        sendBroadcast(new Intent(this, BackgroundSyncReceiver.class)
-                .setAction("org.colocourse.app.BACKGROUND_SYNC"));
+        // Réveil : si le process Qt est vivant, broadcast ; sinon service Qt court.
+        if (isAppProcessAlive()) {
+            sendBroadcast(new Intent(this, BackgroundSyncReceiver.class)
+                    .setAction("org.colocourse.app.BACKGROUND_SYNC"));
+        } else {
+            try {
+                startForegroundService(new Intent(this, BackgroundSyncService.class));
+            } catch (RuntimeException e) {
+                Log.w(TAG, "background sync service refusé", e);
+            }
+        }
         SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         final String baseUrl = prefs.getString("baseUrl", "");
         final Set<String> topics = prefs.getStringSet("topics", null);
@@ -163,6 +172,15 @@ public class DeferredPushJob extends JobService {
                 Log.w(TAG, "topic poll failed: " + topic, e);
             }
         }
+    }
+
+    private boolean isAppProcessAlive() {
+        ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        if (am == null) return false;
+        for (ActivityManager.RunningAppProcessInfo p : am.getRunningAppProcesses()) {
+            if (p.processName.equals(getPackageName())) return true;
+        }
+        return false;
     }
 
     private static boolean hasTag(JSONObject msg, String tag) {

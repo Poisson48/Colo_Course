@@ -92,6 +92,7 @@ target_link_libraries(qrdecode PUBLIC Qt6::Gui ZXing::ZXing)
 
 # --- app library (AppController, ItemModel, QrImageProvider, SyncEngine) ---
 set(APPLIB_SOURCES
+    app/backgroundsync.cpp
     app/appcontroller.cpp
     app/itemmodel.cpp
     app/recipelibrarymodel.cpp
@@ -192,6 +193,10 @@ qt_add_qml_module(colocourse
     VERSION 1.0
     QML_FILES ${COLO_QML_FILES}
 )
+
+if(ANDROID)
+    target_link_libraries(colocourse PRIVATE Qt6::CorePrivate)
+endif()
 
 target_link_libraries(colocourse PRIVATE
     applib
