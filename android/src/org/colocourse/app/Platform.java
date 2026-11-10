@@ -16,8 +16,6 @@ import android.os.Vibrator;
 import android.os.VibratorManager;
 import android.view.WindowManager;
 import android.app.ActivityManager;
-import com.google.android.gms.common.ConnectionResult;
-import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
 
@@ -90,9 +88,43 @@ public class Platform {
     }
 
     // Nouvelle veille : off / deferred. Aucun service foreground, aucun 5 s.
+    public static boolean isFcmAvailable(Context ctx) {
+        return ctx != null && !FirebaseApp.getApps(ctx).isEmpty();
+    }
+
+    public static void wakeBackgroundSync(Context ctx) {
+        if (ctx == null) return;
+        ActivityManager am = (ActivityManager) ctx.getSystemService(Context.ACTIVITY_SERVICE);
+        boolean appAlive = false;
+        if (am != null) {
+            for (ActivityManager.RunningAppProcessInfo p : am.getRunningAppProcesses()) {
+                if (p.processName.equals(ctx.getPackageName())) { appAlive = true; break; }
+            }
+        }
+        if (appAlive) {
+            ctx.sendBroadcast(new Intent(ctx, BackgroundSyncReceiver.class)
+                    .setAction("org.colocourse.app.BACKGROUND_SYNC"));
+        } else {
+            try {
+                ctx.startForegroundService(new Intent(ctx, BackgroundSyncService.class));
+            } catch (RuntimeException ignored) {}
+        }
+    }
+
     public static void configureNotifications(Context ctx, String mode, String provider,
                                               int intervalMinutes, String baseUrl,
                                               String[] topics, String deviceId) {
+        if ("immediate".equals(mode) && "fcm".equals(provider)) {
+            DeferredPushJob.configure(ctx, "off", provider, intervalMinutes,
+                                      "", new String[0], deviceId);
+            if (topics != null) {
+                for (String topic : topics) {
+                    if (topic != null && !topic.isEmpty())
+                        FirebaseMessaging.getInstance().subscribeToTopic(topic);
+                }
+            }
+            return;
+        }
         DeferredPushJob.configure(ctx, mode, provider, intervalMinutes,
                                   baseUrl, topics, deviceId);
     }
