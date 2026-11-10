@@ -69,7 +69,7 @@ external-ip=${PUBLIC_IP}/${PRIVATE_IP}
 listening-port=3479
 tls-listening-port=5350
 min-port=50000
-max-port=50100
+max-port=50019
 realm=${DOMAIN}
 server-name=${DOMAIN}
 use-auth-secret
@@ -129,4 +129,4 @@ else
   echo "  ⚠ STUN meownopoly :3478 non détecté" >&2
 fi
 echo "OK — coturn 3479/udp+tcp, 5350/tcp ; secret dans ${SECRET_FILE}"
-echo "Ports box à ouvrir : 3479/udp, 3479/tcp, 5350/tcp, 50000-50100/udp -> ${PRIVATE_IP}"
+echo "Ports box à ouvrir : 3479/udp, 3479/tcp, 5350/tcp, 50000-50019/udp -> ${PRIVATE_IP}"

@@ -13,7 +13,7 @@ Le serveur P2P est **indépendant du relais Nostr**. On peut self-host :
   - 80/tcp et 443/tcp (TLS + ACME)
   - 3479/udp + 3479/tcp (STUN/TURN)
   - 5350/tcp (TURNS)
-  - 50000–50100/udp (relais TURN)
+  - 50000–50019/udp (relais TURN)
 - Docker pour Strfry (le reste est natif : Node, coturn, nginx).
 
 ## Installation

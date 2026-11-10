@@ -34,7 +34,7 @@ Le script :
 | 3479 | UDP | STUN/TURN principal |
 | 3479 | TCP | STUN/TURN fallback (réseaux restrictifs) |
 | 5350 | TCP | TURNS (TURN over TLS) |
-| 50000-50100 | UDP | Plage relay pour les data WebRTC (100 ports) |
+| 50000-50019 | UDP | Plage relay pour les data WebRTC (100 ports) |
 
 ## Vérification
 
@@ -70,7 +70,7 @@ Internet :443   ──▶  nginx SNI router
 Internet :3478  ──▶  STUN meownopoly (autre utilisateur — ne pas toucher)
 Internet :3479  ──▶  coturn STUN/TURN (Colo Course WebRTC)
 Internet :5350  ──▶  coturn TURNS TLS
-Internet :50000-50100/udp ──▶  coturn relay
+Internet :50000-50019/udp ──▶  coturn relay
 ```
 
-Les ports coturn (3479, 5350, 50000-50100) sont **séparés** de tous les autres services. Aucun conflit possible.
+Les ports coturn (3479, 5350, 50000-50019) sont **séparés** de tous les autres services. Aucun conflit possible.

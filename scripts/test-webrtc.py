@@ -2,7 +2,7 @@
 """Test WebRTC pour Colo_Course.
 Vérifie :
   1. Le signaling server /signal (WebSocket)
-  2. Les ports coturn (3479, 5350, 50000-50100) via check-host.net
+  2. Les ports coturn (3479, 5350, 50000-50019) via check-host.net
   3. STUN Google public
 """
 import json

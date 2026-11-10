@@ -11,7 +11,7 @@ lui, exige des redirections NAT.
 | `colosync-turn-udp` | 3479 | **UDP** | 192.168.1.40 | 3479 |
 | `colosync-turn-tcp` | 3479 | **TCP** | 192.168.1.40 | 3479 |
 | `colosync-turns` | 5350 | **TCP** | 192.168.1.40 | 5350 |
-| `colosync-turn-relay` | 50000–50100 | **UDP** | 192.168.1.40 | 50000–50100 |
+| `colosync-turn-relay` | 50000–50019 | **UDP** | 192.168.1.40 | 50000–50019 |
 
 Ne pas toucher au **3478** (STUN meownopoly). Ne pas utiliser de DMZ.
 
@@ -22,9 +22,9 @@ Ne pas toucher au **3478** (STUN meownopoly). Ne pas utiliser de DMZ.
    (ou **Game & Application Sharing → Create a new game or application**
    selon le firmware).
 3. Créer chaque règle avec les valeurs ci-dessus.
-4. Pour la plage 50000–50100, créer une application personnalisée si le champ
+4. Pour la plage 50000–50019, créer une application personnalisée si le champ
    n'accepte qu'un port.
-5. Vérifier qu'aucune règle existante ne pointe 3479/5350/50000–50100 ailleurs.
+5. Vérifier qu'aucune règle existante ne pointe 3479/5350/50000–50019 ailleurs.
 6. Appliquer. Réserver si possible `192.168.1.40` dans le DHCP.
 
 ## Vérification depuis l'extérieur

@@ -36,4 +36,4 @@ echo
 echo "Terminé. Dans l'app :"
 echo "  Relais Nostr : wss://${DOMAIN}"
 echo "  Serveur P2P  : ${PUBLIC_URL}"
-echo "Ouvrir sur la box : 3479/udp+tcp, 5350/tcp, 50000-50100/udp -> ${PRIVATE_IP}"
+echo "Ouvrir sur la box : 3479/udp+tcp, 5350/tcp, 50000-50019/udp -> ${PRIVATE_IP}"

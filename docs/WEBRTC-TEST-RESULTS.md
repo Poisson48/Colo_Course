@@ -31,7 +31,7 @@ curl -I http://localhost:7778  # devrait répondre avec le serveur signaling
 
 ### 2. Ports TURN fermés
 
-Les ports 3479, 5350 et 50000-50100 ne sont pas ouverts sur la box.
+Les ports 3479, 5350 et 50000-50019 ne sont pas ouverts sur la box.
 
 **C'est attendu** : le rapport dit explicitement « il manque juste l'ouverture des ports sur la box » (étape 1).
 
@@ -41,7 +41,7 @@ Les ports 3479, 5350 et 50000-50100 ne sont pas ouverts sur la box.
 |------|-----------|-------|
 | 3479 | UDP + TCP | STUN/TURN coturn |
 | 5350 | TCP | TURNS (TLS) |
-| 50000-50100 | UDP | Relay data WebRTC |
+| 50000-50019 | UDP | Relay data WebRTC |
 
 ⚠️ Ne pas toucher au port 3478 (STUN meownopoly).
 

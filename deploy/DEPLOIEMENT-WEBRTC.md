@@ -40,7 +40,7 @@ _Généré le 2026-09-29 — Tout est prêt, il manque juste l'ouverture des por
 |------|-----------|-------|
 | 3479 | UDP + TCP | STUN/TURN coturn |
 | 5350 | TCP | TURNS (TLS) |
-| 50000-50100 | UDP | Relay data WebRTC |
+| 50000-50019 | UDP | Relay data WebRTC |
 
 ⚠️ **NE PAS toucher au port 3478** — STUN meownopoly (jeu + chat).
 
@@ -101,7 +101,7 @@ sudo ./deploy/install-webrtc.sh
 │  :3478 ──▶ STUN meownopoly — NE PAS TOUCHER                      │
 │  :3479 ──▶ coturn STUN/TURN — ⭐ NOUVEAU (à ouvrir)              │
 │  :5350 ──▶ coturn TURNS TLS — ⭐ NOUVEAU (à ouvrir)              │
-│  :50000-50100/udp ──▶ coturn relay — ⭐ NOUVEAU (à ouvrir)        │
+│  :50000-50019/udp ──▶ coturn relay — ⭐ NOUVEAU (à ouvrir)        │
 │                                                                   │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -115,7 +115,7 @@ deploy/
 ├── DEPLOIEMENT-WEBRTC.md       ← ce rapport (dans le repo)
 ├── install-webrtc.sh           ← script unique (signaling + coturn)
 ├── coturn/
-│   ├── turnserver.conf         ← config (3479/5350/50000-50100)
+│   ├── turnserver.conf         ← config (3479/5350/50000-50019)
 │   ├── install.sh              ← installe coturn
 │   └── README.md
 ├── signaling/
