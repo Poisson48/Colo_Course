@@ -42,4 +42,7 @@ void platformConfigureNotifications(const QString &mode, const QString &provider
                                     const QStringList &topics,
                                     const QString &deviceId);
 
+// Android : FCM réellement disponible (Play Services + Firebase initialisé).
+bool platformFcmAvailable();
+
 } // namespace app

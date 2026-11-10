@@ -115,6 +115,15 @@ Java_org_colocourse_app_BackgroundSyncReceiver_nativeSync(JNIEnv*, jclass)
         QMetaObject::invokeMethod(controller, "backgroundSyncNow", Qt::QueuedConnection);
 }
 
+bool platformFcmAvailable()
+{
+    const QJniObject ctx = androidContext();
+    if (!ctx.isValid()) return false;
+    return QJniObject::callStaticMethod<jboolean>(
+        kPlatformClass, "isFcmAvailable",
+        "(Landroid/content/Context;)Z", ctx.object());
+}
+
 void platformConfigureNotifications(const QString &mode, const QString &provider,
                                      int intervalMinutes, const QString &baseUrl,
                                      const QStringList &topics,
@@ -188,6 +197,8 @@ void platformConfigurePush(const QString &, const QStringList &, const QString &
 void platformConfigureNotifications(const QString &, const QString &, int,
                                      const QString &, const QStringList &,
                                      const QString &) {}
+
+bool platformFcmAvailable() { return false; }
 
 #endif
 

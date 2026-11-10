@@ -187,7 +187,7 @@ public:
     QString notifProvider();
     int     notifInterval();
     bool    notifOnboardingSeen();
-    bool    notifImmediateAvailable() const { return false; }
+    bool    notifImmediateAvailable();
     int     syncMode() const { return m_syncMode; }
     QString p2pServerUrl() const;
     QString signalingUrl() const;

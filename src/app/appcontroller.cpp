@@ -776,6 +776,11 @@ bool AppController::notifOnboardingSeen()
     return m_db.getSetting("notif.onboardingV1").has_value();
 }
 
+bool AppController::notifImmediateAvailable()
+{
+    return platformFcmAvailable();
+}
+
 void AppController::markNotificationOnboardingSeen()
 {
     if (!m_db.isOpen()) return;
@@ -907,10 +912,13 @@ void AppController::refreshPushTopics()
     }
 
     if (mode == QStringLiteral("immediate")) {
-        // Pas encore de fournisseur immédiat dans cette version : ne pas
-        // lancer de service 5 s. Le mode reste visible dans Réglages.
-        platformConfigureNotifications(QStringLiteral("off"), notifProvider(),
-                                       notifInterval(), QString(), {}, m_deviceId);
+        QStringList topics;
+        for (const auto &meta : m_db.getLists())
+            topics.append(net::pushTopicForChannel(
+                QString::fromStdString(net::deriveChannelTag(meta.key))));
+        platformConfigureNotifications(QStringLiteral("immediate"),
+                                       QStringLiteral("fcm"),
+                                       notifInterval(), QString(), topics, m_deviceId);
         return;
     }
 
