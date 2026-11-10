@@ -50,7 +50,8 @@ signals:
     void eose();
 
     // Redeclare onlineChanged without the bool parameter for Q_PROPERTY NOTIFY.
-    // The base class SyncTransport::onlineChanged(bool) is emitted by updateOnlineState().
+    // updateOnlineState() émet AUSSI SyncTransport::onlineChanged(bool), que
+    // SyncEngine utilise pour flush/resubscribe. Les deux signaux sont nécessaires.
     void onlineChanged();
 
 private slots:

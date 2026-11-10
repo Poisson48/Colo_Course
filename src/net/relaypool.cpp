@@ -168,7 +168,10 @@ void RelayPool::updateOnlineState()
 
     if (anyConnected != m_online) {
         m_online = anyConnected;
+        // QML lit le signal sans argument (Q_PROPERTY NOTIFY). SyncEngine écoute
+        // le signal de base avec son booléen : les deux doivent partir.
         emit onlineChanged();
+        emit SyncTransport::onlineChanged(m_online);
     }
 }
 

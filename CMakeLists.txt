@@ -59,6 +59,13 @@ if(ANDROID)
     )
     FetchContent_MakeAvailable(android_openssl)
     include(${android_openssl_SOURCE_DIR}/android_openssl.cmake)
+
+    # KDAB fournit les cibles OpenSSL::Crypto/SSL, mais pas les variables que
+    # FindOpenSSL (utilisé par libdatachannel) attend. Sans ces hints, le
+    # cross-build Android échoue sur « missing OPENSSL_CRYPTO_LIBRARY ».
+    set(OPENSSL_INCLUDE_DIR "${OPENSSL_INCLUDE_DIR}")
+    set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_LIB_DIR}/${libcrypto}")
+    set(OPENSSL_SSL_LIBRARY "${OPENSSL_LIB_DIR}/${libssl}")
 endif()
 
 set(NO_MEDIA   ON  CACHE BOOL "" FORCE)

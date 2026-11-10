@@ -30,6 +30,12 @@ target_link_libraries(net PUBLIC
     datachannel-static
 )
 
+# libdatachannel static utilise OpenSSL pour DTLS. En Android, les cibles
+# importées viennent de KDAB/android_openssl ; il faut les lier explicitement.
+if(ANDROID)
+    target_link_libraries(net PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
 # --- core static library (pure C++/STL, no Qt) ---
 add_library(core STATIC
     core/crdt.cpp
