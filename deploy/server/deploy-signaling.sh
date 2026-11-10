@@ -39,6 +39,11 @@ if ! id "$SERVICE_USER" >/dev/null 2>&1; then
   useradd --system --home /nonexistent --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
 install -d -m 750 -o root -g "$SERVICE_USER" "$COLO_DATA_DIR" "$SIGNALING_DIR"
+# nginx (www-data) doit traverser $COLO_DATA_DIR pour servir /releases/ ;
+# le sous-dossier signaling reste protégé (750 root:colosync).
+if command -v setfacl >/dev/null 2>&1; then
+  setfacl -m u:www-data:x "$COLO_DATA_DIR"
+fi
 
 echo "=== 2/6 — code et dépendances ==="
 install -m 640 -o root -g "$SERVICE_USER" "$REPO_DIR/deploy/signaling/server.js" "$SIGNALING_DIR/server.js"
