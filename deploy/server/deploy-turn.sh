@@ -23,6 +23,11 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 echo "=== 1/6 — préflight ==="
+# Mise à jour idempotente : libérer nos propres ports avant de vérifier.
+if systemctl is-active --quiet coturn 2>/dev/null; then
+  echo "  arrêt de coturn pour mise à jour"
+  systemctl stop coturn
+fi
 if ss -lnup 2>/dev/null | grep -qE ':3479\b' || ss -lntp 2>/dev/null | grep -qE ':3479\b'; then
   echo "ERREUR : port 3479 déjà utilisé" >&2
   ss -lntup | grep ':3479' >&2 || true
