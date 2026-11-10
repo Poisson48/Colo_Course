@@ -981,8 +981,8 @@ void SyncEngine::maybeSendPushWake(const std::string &listId)
     if (!m_db)
         return;
 
-    const auto enabled = m_db->getSetting("pushEnabled");
-    if (enabled && *enabled == "0")
+    const auto mode = m_db->getSetting("notif.mode");
+    if (!mode || *mode != "deferred")
         return;
 
     const auto urlOpt = m_db->getSetting("pushBaseUrl");
@@ -995,14 +995,10 @@ void SyncEngine::maybeSendPushWake(const std::string &listId)
     if (!tagOpt)
         return;
 
-    const auto metaOpt = m_db->getList(listId);
-    const QString listKey = QString::fromStdString(listId);
-    const QString title =
-        metaOpt ? QString::fromStdString(metaOpt->title) : listKey;
-
+    // Jamais le titre de la liste dans le wake : seulement un signal générique.
     net::sendPushWake(base,
                       net::pushTopicForChannel(QString::fromStdString(*tagOpt)),
-                      title,
+                      QStringLiteral("Liste mise à jour"),
                       m_deviceId);
 }
 
