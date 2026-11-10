@@ -981,25 +981,30 @@ void SyncEngine::maybeSendPushWake(const std::string &listId)
     if (!m_db)
         return;
 
-    const auto mode = m_db->getSetting("notif.mode");
-    if (!mode || *mode != "deferred")
+    const auto modeOpt = m_db->getSetting("notif.mode");
+    const QString mode = modeOpt ? QString::fromStdString(*modeOpt) : QString();
+    if (mode != "deferred" && mode != "immediate")
         return;
-
-    const auto urlOpt = m_db->getSetting("pushBaseUrl");
-    const QString base =
-        urlOpt && !urlOpt->empty()
-            ? QString::fromStdString(*urlOpt)
-            : QStringLiteral("https://colo-apps.les-crevettes-cevenoles.fr/ntfy");
 
     const auto tagOpt = channelTagForList(listId);
     if (!tagOpt)
         return;
+    const QString topic = net::pushTopicForChannel(QString::fromStdString(*tagOpt));
+
+    const auto urlOpt = m_db->getSetting("pushBaseUrl");
+    QString base = urlOpt && !urlOpt->empty()
+        ? QString::fromStdString(*urlOpt)
+        : QStringLiteral("https://colo-apps.les-crevettes-cevenoles.fr/ntfy");
+
+    if (mode == "immediate") {
+        // Broker FCM ; le topic ne contient aucun contenu.
+        base.replace(QStringLiteral("/ntfy"), QStringLiteral("/push"));
+        net::sendFcmPush(base, topic);
+        return;
+    }
 
     // Jamais le titre de la liste dans le wake : seulement un signal générique.
-    net::sendPushWake(base,
-                      net::pushTopicForChannel(QString::fromStdString(*tagOpt)),
-                      QStringLiteral("Liste mise à jour"),
-                      m_deviceId);
+    net::sendPushWake(base, topic, QStringLiteral("Liste mise à jour"), m_deviceId);
 }
 
 } // namespace app

@@ -1,0 +1,22 @@
+[Unit]
+Description=Colo Push FCM data-only
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=colosync
+Group=colosync
+WorkingDirectory=/data/leo/colo-apps/push
+ExecStart=/usr/bin/node /data/leo/colo-apps/push/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ReadOnlyPaths=/data/leo/colo-apps/secrets/fcm-service-account.json
+Environment=PUSH_PORT=7780
+Environment=FCM_SERVICE_ACCOUNT=/data/leo/colo-apps/secrets/fcm-service-account.json
+
+[Install]
+WantedBy=multi-user.target
