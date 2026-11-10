@@ -14,7 +14,7 @@ User1 ──(event chiffré + seq)──► Colo Sync Server ──► User2…U
                                       │
                                       ├─ roster de la liste (device IDs)
                                       ├─ watermarks d’ack par device
-                                      └─ snapshots chiffrés
+                                      └─ demandes de snapshot (orchestration)
 ```
 
 Le serveur ne stocke **aucune clé** et ne lit aucun payload.
@@ -90,36 +90,55 @@ delete events where seq <= minAck - grace
   suppression ;
 - un appareil qui revient reçoit `gap` + snapshot.
 
-### Pourquoi garder un snapshot
+### Un nouvel appareil n’a pas besoin de l’historique
 
-Supprimer tous les deltas dès que les 15 membres actuels ont ack serait correct
-pour eux, mais :
+C’est vrai pour cette app : il n’y a pas d’écran d’historique. Un nouvel appareil
+a besoin de **l’état courant**, pas des deltas passés. Un appareil resté 31 jours
+hors ligne a encore son ancienne liste : il peut l’afficher, puis demander ce qui
+lui manque. Il n’a pas « plus rien ».
 
-- un **nouvel appareil** n’aurait aucun historique ;
-- un appareil resté 31 jours hors ligne n’aurait plus rien ;
-- si personne n’est en ligne, le serveur ne peut pas « demander à un user de
-  renvoyer ».
+Le serveur n’a donc pas besoin de garder un snapshot en permanence. Il garde :
 
-**Règle recommandée** : supprimer les deltas acquittés, mais conserver **le
-dernier snapshot chiffré par liste** (et les vignettes référencées) tant que la
-liste existe. C’est petit, borné, et cela permet le bootstrap sans dépendre d’un
-pair.
+- les deltas tant que tous les appareils actifs n’ont pas ack ;
+- un `gap` par appareil s’il a dû supprimer des deltas ;
+- une **demande de snapshot** tant qu’un appareil n’a pas récupéré l’état.
+
+### Qui renvoie l’état courant ?
+
+Quand le serveur a supprimé les deltas, il ne peut pas les renvoyer. Il
+**orchestre** :
+
+1. l’appareil en retard se connecte avec `last_ack` ;
+2. le serveur constate le `gap` et enregistre une demande ;
+3. il choisit un appareil **en ligne** avec `last_ack >= gap.to_seq` (le plus
+   récent) ;
+4. il lui envoie `snapshot_request { list_id, to_seq }` ;
+5. cet appareil chiffre son état courant, le signe et l’envoie ;
+6. le serveur le relaie au demandeur (et peut le garder temporairement jusqu’à
+   l’ack, puis l’oublier) ;
+7. le demandeur fusionne le snapshot avec son état local + son outbox, puis ack.
+
+Si aucun pair n’est en ligne, la demande reste en attente. Elle est satisfaite
+au prochain passage d’un pair complet. C’est le prix du « pas de stockage
+permanent » : la durabilité dépend d’au moins un pair.
 
 Le « flag non reçu » devient un `gap` par appareil : à la reconnexion, le client
 sait qu’il lui manque `[from_seq, to_seq]` et demande le snapshot.
 
 ## 5. Le « serveur demande à un user de renvoyer »
 
-À utiliser seulement si aucun snapshot n’est disponible :
+C’est la procédure principale quand les deltas sont supprimés, pas un simple
+fallback :
 
 1. le serveur choisit un appareil actif avec `last_ack >= gap.to_seq` ;
 2. il lui envoie `snapshot_request { list_id, to_seq }` ;
 3. l’appareil chiffre son état courant et le publie comme `snap` ;
-4. le serveur le stocke et le pousse au demandeur.
+4. le serveur le relaie au demandeur.
 
 Il faut un timeout, plusieurs candidats, et un fallback « réessayer plus tard ».
-Un snapshot serveur est plus simple et plus fiable ; garder cette procédure en
-secours.
+Un snapshot serveur permanent est plus simple et plus fiable, mais consomme du
+stockage ; le snapshot à la demande est plus économe, au prix d’une dépendance à
+un pair en ligne.
 
 ## 6. Dimensionnement 1 000 utilisateurs
 
@@ -131,7 +150,7 @@ secours.
 - Le serveur n’a plus besoin de TURN ni de maillage WebRTC pour ce chemin.
 - Postgres (ou SQLite pour un petit déploiement) + Redis/pub-sub pour plusieurs
   instances ; WebSocket derrière un load balancer avec sticky sessions.
-- Objets : snapshots/vignettes dans un stockage objet chiffré ou sur disque ;
+- Objets : vignettes et snapshots **temporaires** dans un stockage chiffré ;
   quotas par liste.
 
 ## 7. Sécurité
@@ -163,8 +182,9 @@ groupes, sans TURN cluster et sans 7 000 ports.
 ## 10. Décisions à prendre
 
 - Faut-il des comptes utilisateurs, ou seulement des appareils + preuve de liste ?
-- Le snapshot serveur est-il conservé jusqu’à suppression de la liste, ou 30/90 j ?
-- Que fait-on si un appareil reste inactif 30 j et qu’aucun snapshot n’existe ?
+- Accepte-t-on que la récupération dépende d’au moins un pair en ligne ?
+- Que fait-on si aucun pair complet n’est en ligne pendant longtemps ?
+- Garde-t-on un snapshot de secours pour les listes dormantes ?
 - Les vignettes sont-elles stockées sur le serveur (oui recommandé) et les HD
   restent-elles P2P (oui) ?
 - Quotas : taille par liste, nombre d’appareils, débit.
