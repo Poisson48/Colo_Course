@@ -1024,13 +1024,18 @@ Item {
 
         property string notifChoice: ""
         property int notifInterval: 15
+        property string notifAlert: "notify"
+        property string notifSignal: "sound"
 
         onOpened: {
             notifChoice = ""
             notifInterval = 15
+            notifAlert = AppController.notifAlert
+            notifSignal = AppController.notifSignal
             AppController.markNotificationOnboardingSeen()
         }
         onAccepted: {
+            AppController.setNotificationPreferences(notifAlert, notifSignal)
             if (notifChoice.length > 0)
                 AppController.setNotificationMode(notifChoice, "auto", notifInterval)
         }
@@ -1082,6 +1087,44 @@ Item {
                               : notifDialog.notifInterval === 60 ? 2 : 0
                 onActivated: notifDialog.notifInterval =
                              index === 1 ? 30 : (index === 2 ? 60 : 15)
+                font.pixelSize: 14
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            text: "Quand une liste change :"
+        }
+
+        ButtonGroup { id: notifAlertGroupBox }
+        RadioButton {
+            text: "Me notifier"
+            checked: notifDialog.notifAlert === "notify"
+            onCheckedChanged: if (checked) notifDialog.notifAlert = "notify"
+            ButtonGroup.group: notifAlertGroupBox
+        }
+        RadioButton {
+            text: "Synchroniser sans notification"
+            checked: notifDialog.notifAlert === "silent"
+            onCheckedChanged: if (checked) notifDialog.notifAlert = "silent"
+            ButtonGroup.group: notifAlertGroupBox
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: notifDialog.notifAlert === "notify"
+            Label { text: "Signal"; color: Theme.textDim; font.pixelSize: 13 }
+            Item { Layout.fillWidth: true }
+            ComboBox {
+                model: ["Son", "Vibration", "Visuel seulement"]
+                currentIndex: notifDialog.notifSignal === "vibrate" ? 1
+                              : notifDialog.notifSignal === "visual" ? 2 : 0
+                onActivated: notifDialog.notifSignal =
+                             index === 1 ? "vibrate" : (index === 2 ? "visual" : "sound")
                 font.pixelSize: 14
             }
         }
@@ -1239,6 +1282,44 @@ Item {
 
         Label {
             Layout.fillWidth: true
+            Layout.topMargin: 4
+            wrapMode: Text.WordWrap
+            color: Theme.textDim
+            font.pixelSize: 13
+            text: "Quand une liste change :"
+        }
+
+        ButtonGroup { id: settingsAlertGroup }
+        RadioButton {
+            text: "Me notifier"
+            checked: relaysDialog.notifAlert === "notify"
+            onCheckedChanged: if (checked) relaysDialog.notifAlert = "notify"
+            ButtonGroup.group: settingsAlertGroup
+        }
+        RadioButton {
+            text: "Synchroniser sans notification"
+            checked: relaysDialog.notifAlert === "silent"
+            onCheckedChanged: if (checked) relaysDialog.notifAlert = "silent"
+            ButtonGroup.group: settingsAlertGroup
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            visible: relaysDialog.notifAlert === "notify"
+            Label { text: "Signal"; color: Theme.textDim; font.pixelSize: 13 }
+            Item { Layout.fillWidth: true }
+            ComboBox {
+                model: ["Son", "Vibration", "Visuel seulement"]
+                currentIndex: relaysDialog.notifSignal === "vibrate" ? 1
+                              : relaysDialog.notifSignal === "visual" ? 2 : 0
+                onActivated: relaysDialog.notifSignal =
+                             index === 1 ? "vibrate" : (index === 2 ? "visual" : "sound")
+                font.pixelSize: 14
+            }
+        }
+
+        Label {
+            Layout.fillWidth: true
             wrapMode: Text.WordWrap
             color: Theme.textDim
             font.pixelSize: 12
@@ -1279,9 +1360,12 @@ Item {
             notifChoice = AppController.notifMode === "unset"
                         ? "" : AppController.notifMode
             notifInterval = AppController.notifInterval
+            notifAlert = AppController.notifAlert
+            notifSignal = AppController.notifSignal
         }
         onAccepted: {
             AppController.setRelayUrls(relaysField.text)
+            AppController.setNotificationPreferences(notifAlert, notifSignal)
             if (notifChoice.length > 0)
                 AppController.setNotificationMode(notifChoice, "auto", notifInterval)
         }

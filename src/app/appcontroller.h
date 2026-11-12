@@ -145,6 +145,8 @@ class AppController : public QObject {
     Q_PROPERTY(int notifInterval READ notifInterval NOTIFY notifSettingsChanged)
     Q_PROPERTY(bool notifOnboardingSeen READ notifOnboardingSeen NOTIFY notifSettingsChanged)
     Q_PROPERTY(bool notifImmediateAvailable READ notifImmediateAvailable NOTIFY notifSettingsChanged)
+    Q_PROPERTY(QString notifAlert READ notifAlert NOTIFY notifSettingsChanged)
+    Q_PROPERTY(QString notifSignal READ notifSignal NOTIFY notifSettingsChanged)
     // Mode de synchronisation : 0 = relais seul, 1 = P2P seul, 2 = hybride.
     Q_PROPERTY(int syncMode READ syncMode NOTIFY syncModeChanged)
     // Serveur P2P (base HTTPS) : signaling + credentials TURN. Indépendant du relais.
@@ -188,6 +190,8 @@ public:
     int     notifInterval();
     bool    notifOnboardingSeen();
     bool    notifImmediateAvailable();
+    QString notifAlert();
+    QString notifSignal();
     int     syncMode() const { return m_syncMode; }
     QString p2pServerUrl() const;
     QString signalingUrl() const;
@@ -340,6 +344,8 @@ public slots:
     Q_INVOKABLE void setNotificationInterval(int minutes);
     Q_INVOKABLE void testNotification();
     Q_INVOKABLE void resetNotificationOnboarding();
+    Q_INVOKABLE void setNotificationPreferences(const QString &alert,
+                                                const QString &signal);
     // Réveil best-effort depuis le JobService : si le process Qt est encore
     // vivant, on rattrape et on merge sans ouvrir l'UI.
     Q_INVOKABLE void backgroundSyncNow();

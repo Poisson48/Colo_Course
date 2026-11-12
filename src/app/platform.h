@@ -45,4 +45,7 @@ void platformConfigureNotifications(const QString &mode, const QString &provider
 // Android : FCM réellement disponible (Play Services + Firebase initialisé).
 bool platformFcmAvailable();
 
+// Android : notifier ou non, et son/vibration/visuel.
+void platformSetNotificationPreferences(const QString &alert, const QString &signal);
+
 } // namespace app

@@ -771,10 +771,35 @@ int AppController::notifInterval()
     return (minutes == 30 || minutes == 60) ? minutes : 15;
 }
 
+QString AppController::notifAlert()
+{
+    const auto v = m_db.getSetting("notif.alert");
+    return v && *v == "silent" ? QStringLiteral("silent") : QStringLiteral("notify");
+}
+
+QString AppController::notifSignal()
+{
+    const auto v = m_db.getSetting("notif.signal");
+    if (v && (*v == "vibrate" || *v == "visual")) return QString::fromStdString(*v);
+    return QStringLiteral("sound");
+}
+
 bool AppController::notifOnboardingSeen()
 {
     const auto v = m_db.getSetting("notif.onboardingV1");
     return v && *v == "1";
+}
+
+void AppController::setNotificationPreferences(const QString &alert, const QString &signal)
+{
+    if (!m_db.isOpen()) return;
+    const QString a = alert == "silent" ? "silent" : "notify";
+    QString sig = signal;
+    if (sig != "vibrate" && sig != "visual") sig = "sound";
+    m_db.setSetting("notif.alert", a.toStdString());
+    m_db.setSetting("notif.signal", sig.toStdString());
+    platformSetNotificationPreferences(a, sig);
+    emit notifSettingsChanged();
 }
 
 void AppController::resetNotificationOnboarding()
@@ -838,6 +863,10 @@ void AppController::setNotificationInterval(int minutes)
 
 void AppController::testNotification()
 {
+    if (notifAlert() == "silent") {
+        emit toast(QStringLiteral("Mode silencieux : aucune notification ne sera affichée"));
+        return;
+    }
     const bool ok = platformNotify(QStringLiteral("Colo Course"),
                                    QStringLiteral("Les notifications fonctionnent."));
     qInfo() << "[Notification] test demandé, ok=" << ok;

@@ -117,6 +117,18 @@ Java_org_colocourse_app_BackgroundSyncReceiver_nativeSync(JNIEnv*, jclass)
         QMetaObject::invokeMethod(controller, "backgroundSyncNow", Qt::QueuedConnection);
 }
 
+void platformSetNotificationPreferences(const QString &alert, const QString &signal)
+{
+    const QJniObject ctx = androidContext();
+    if (!ctx.isValid()) return;
+    const QJniObject a = QJniObject::fromString(alert);
+    const QJniObject s = QJniObject::fromString(signal);
+    QJniObject::callStaticMethod<void>(
+        kPlatformClass, "setNotificationPreferences",
+        "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)V",
+        ctx.object(), a.object<jstring>(), s.object<jstring>());
+}
+
 bool platformFcmAvailable()
 {
     const QJniObject ctx = androidContext();
@@ -207,6 +219,8 @@ void platformConfigurePush(const QString &, const QStringList &, const QString &
 void platformConfigureNotifications(const QString &, const QString &, int,
                                      const QString &, const QStringList &,
                                      const QString &) {}
+
+void platformSetNotificationPreferences(const QString &, const QString &) {}
 
 bool platformFcmAvailable()
 {
