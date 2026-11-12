@@ -954,17 +954,28 @@ void AppController::refreshPushTopics()
                                  || mode == QStringLiteral("immediate"));
     m_syncEngine.setDeferBackgroundNotificationsToPush(backgroundMode);
 
+    // Topics courants : aussi utilisés pour désabonner FCM si on passe à UnifiedPush.
+    auto currentTopics = [this]() {
+        QStringList topics;
+        for (const auto &meta : m_db.getLists())
+            topics.append(net::pushTopicForChannel(
+                QString::fromStdString(net::deriveChannelTag(meta.key))));
+        return topics;
+    };
+
     // Aucun mode choisi, ou mode désactivé : aucun travail de fond.
     if (!backgroundMode) {
         platformConfigureNotifications(QStringLiteral("off"), notifProvider(),
-                                       notifInterval(), QString(), {}, m_deviceId);
+                                       notifInterval(), pushBaseUrl(), currentTopics(),
+                                       m_deviceId);
         return;
     }
 
     // Au premier plan, le WebSocket Qt s'en occupe : pas de job.
     if (QGuiApplication::applicationState() == Qt::ApplicationActive) {
         platformConfigureNotifications(QStringLiteral("off"), notifProvider(),
-                                       notifInterval(), QString(), {}, m_deviceId);
+                                       notifInterval(), pushBaseUrl(), currentTopics(),
+                                       m_deviceId);
         return;
     }
 
@@ -973,16 +984,14 @@ void AppController::refreshPushTopics()
             platformRegisterUnifiedPush();
             platformConfigureNotifications(QStringLiteral("off"),
                                            QStringLiteral("unifiedpush"),
-                                           notifInterval(), QString(), {}, m_deviceId);
+                                           notifInterval(), pushBaseUrl(),
+                                           currentTopics(), m_deviceId);
             return;
         }
-        QStringList topics;
-        for (const auto &meta : m_db.getLists())
-            topics.append(net::pushTopicForChannel(
-                QString::fromStdString(net::deriveChannelTag(meta.key))));
         platformConfigureNotifications(QStringLiteral("immediate"),
                                        QStringLiteral("fcm"),
-                                       notifInterval(), QString(), topics, m_deviceId);
+                                       notifInterval(), pushBaseUrl(),
+                                       currentTopics(), m_deviceId);
         return;
     }
 
