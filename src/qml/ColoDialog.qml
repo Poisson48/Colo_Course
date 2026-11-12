@@ -62,9 +62,20 @@ Dialog {
         bottomPadding: 4
     }
 
-    contentItem: ColumnLayout {
-        id: content
-        spacing: Theme.gap
+    // Le contenu peut grandir (options de notification, relais…) : sans zone
+    // défilante, le pied du dialogue passait par-dessus les derniers contrôles.
+    contentItem: ScrollView {
+        id: contentScroll
+        Layout.fillWidth: true
+        implicitHeight: Math.min(content.implicitHeight, dlg.contentMaxHeight)
+        clip: true
+        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+        ColumnLayout {
+            id: content
+            width: contentScroll.availableWidth
+            spacing: Theme.gap
+        }
     }
 
     footer: RowLayout {
