@@ -856,8 +856,16 @@ void AppController::setNotificationMode(const QString &mode, const QString &prov
     m_db.setSetting("notif.mode", mode.toStdString());
     m_db.setSetting("notif.provider", p.toStdString());
     m_db.setSetting("notif.interval", std::to_string(intervalMinutes));
-    if (mode == "immediate" && p == "unifiedpush")
+    if (mode == "immediate" && p == "unifiedpush") {
         platformRegisterUnifiedPush();
+        QStringList topics;
+        for (const auto &meta : m_db.getLists())
+            topics.append(net::pushTopicForChannel(
+                QString::fromStdString(net::deriveChannelTag(meta.key))));
+        platformConfigureNotifications(QStringLiteral("off"),
+                                       QStringLiteral("unifiedpush"),
+                                       notifInterval(), pushBaseUrl(), topics, m_deviceId);
+    }
     // Un choix explicite (y compris depuis Réglages) vaut onboarding vu :
     // la feuille one-shot ne doit jamais revenir après.
     m_db.setSetting("notif.onboardingV1", "1");
