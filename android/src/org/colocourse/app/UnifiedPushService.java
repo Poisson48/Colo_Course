@@ -2,6 +2,8 @@ package org.colocourse.app;
 
 import android.util.Log;
 
+import java.nio.charset.StandardCharsets;
+
 import org.unifiedpush.android.connector.FailedReason;
 import org.unifiedpush.android.connector.PushService;
 import org.unifiedpush.android.connector.data.PushEndpoint;
@@ -14,8 +16,12 @@ public class UnifiedPushService extends PushService {
 
     @Override
     public void onMessage(PushMessage message, String instance) {
-        if (message == null || !message.getDecrypted()) {
-            Log.w(TAG, "message non déchiffré");
+        if (message == null) return;
+        final String text = new String(message.getContent(), StandardCharsets.UTF_8);
+        // Le broker envoie le jeton générique « sync ». Un distributeur peut le
+        // transmettre en clair (decrypted=false) : on accepte uniquement ce jeton.
+        if (!message.getDecrypted() && !"sync".equals(text)) {
+            Log.w(TAG, "message inattendu");
             return;
         }
         Platform.wakeBackgroundSync(this);
