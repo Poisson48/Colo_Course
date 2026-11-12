@@ -838,8 +838,11 @@ void AppController::setNotificationInterval(int minutes)
 
 void AppController::testNotification()
 {
-    platformNotify(QStringLiteral("Colo Course"),
-                   QStringLiteral("Les notifications fonctionnent."));
+    const bool ok = platformNotify(QStringLiteral("Colo Course"),
+                                   QStringLiteral("Les notifications fonctionnent."));
+    qInfo() << "[Notification] test demandé, ok=" << ok;
+    emit toast(ok ? QStringLiteral("Notification de test envoyée")
+                  : QStringLiteral("Notifications système indisponibles sur cet appareil"));
 }
 
 void AppController::backgroundSyncNow()

@@ -1,4 +1,6 @@
 #include "platform.h"
+
+#include <QProcess>
 #include "appcontroller.h"
 
 #include <QMetaObject>
@@ -182,7 +184,15 @@ void platformConfigurePush(const QString &baseUrl, const QStringList &topics,
 
 void initNotifications() {}
 
-bool platformNotify(const QString&, const QString&, qint64) { return false; }
+bool platformNotify(const QString& title, const QString& body, qint64)
+{
+#ifdef Q_OS_LINUX
+    return QProcess::startDetached(QStringLiteral("notify-send"),
+                                   {QStringLiteral("--app-name=Colo Course"), title, body});
+#else
+    return false;
+#endif
+}
 
 bool platformShare(const QString&) { return false; }
 
@@ -198,7 +208,12 @@ void platformConfigureNotifications(const QString &, const QString &, int,
                                      const QString &, const QStringList &,
                                      const QString &) {}
 
-bool platformFcmAvailable() { return false; }
+bool platformFcmAvailable()
+{
+    // Desktop : FCM n'est pas un récepteur, mais le PC doit pouvoir envoyer
+    // /push au broker. On autorise donc le mode Immédiat pour l'envoi.
+    return true;
+}
 
 #endif
 

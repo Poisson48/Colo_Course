@@ -5,6 +5,8 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QCoreApplication>
+#include <QNetworkReply>
+#include <QDebug>
 #include <QUrl>
 
 namespace net {
@@ -54,7 +56,14 @@ void sendFcmPush(const QString &endpoint, const QString &topic)
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     req.setTransferTimeout(8000);
-    nam.post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    auto* reply = nam.post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
+    QObject::connect(reply, &QNetworkReply::finished, reply, [reply, url, topic]() {
+        reply->deleteLater();
+        qInfo() << "[Push] FCM" << topic << "->" << url.toString()
+                << "http=" << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                << "err=" << reply->errorString();
+    });
+    qInfo() << "[Push] FCM POST" << url.toString() << topic;
 }
 
 } // namespace net

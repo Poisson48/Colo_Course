@@ -111,6 +111,7 @@ const server = http.createServer((req, res) => {
       if (now - (lastSend.get(topic) || 0) < RATE_MS)
         return json(res, 429, { error: 'rate' });
       lastSend.set(topic, now);
+      console.log('[push] send', app, topic);
       await sendFcm(topic, app);
       return json(res, 202, { ok: true });
     } catch (e) {
