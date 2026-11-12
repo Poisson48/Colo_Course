@@ -1,0 +1,15 @@
+name: Test APK
+
+# Construit un APK signé avec la clé de release SANS publier de Release.
+# Sert à installer une version de test par-dessus l'app existante.
+on:
+  workflow_dispatch:
+
+jobs:
+  apk:
+    uses: ./.github/workflows/android.yml
+    with:
+      version_name: ${{ github.sha }}
+      version_code: ${{ github.run_number }}
+      require_release_key: true
+    secrets: inherit
