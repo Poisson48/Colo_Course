@@ -1,36 +1,26 @@
-# Relais Nostr — colo-apps.les-crevettes-cevenoles.fr
+# Relais Nostr — fichiers de déploiement
+
+Dernière mise à jour : **2026-11-12**. Aucun TURN, aucun STUN, aucun signaling.
 
 | Élément | Valeur |
 |---|---|
-| **URL relais Colo Course** | `wss://colo-apps.les-crevettes-cevenoles.fr` |
-| **IPv4 publique** | `78.122.112.36` |
-| **Backend** | Strfry Docker → `127.0.0.1:7777` |
-| **TLS nginx** | SNI `:443` → `127.0.0.1:11443` |
-| **Certificat** | Let's Encrypt DNS-01 |
-| **STUN/TURN** | `stun:colo-apps.les-crevettes-cevenoles.fr:3479` / `turns:…:5350` (voir `deploy/coturn/`) |
+| URL | `wss://colo-apps.les-crevettes-cevenoles.fr` |
+| Backend | Strfry Docker → `127.0.0.1:7777` |
+| TLS | nginx `:443` → `127.0.0.1:11443` |
+| Kind accepté | `4545` |
+| Taille max | 256 Ko |
 
-## Relais Docker
+Fichiers de ce dossier :
+
+- `nginx-colo-apps.conf` : relais + `/push` + `/ntfy/` + `/releases/` ;
+- `../relay/write-policy.py` (ou équivalent Strfry) : n'accepte que le kind 4545.
+
+## Vérification
 
 ```bash
-cd ~/colocourse-relay && docker compose up -d
+docker compose -f ~/colocourse-relay/docker-compose.yml ps
+curl -fsS https://colo-apps.les-crevettes-cevenoles.fr/
 ```
 
-Fichiers : `strfry.conf`, `write-policy.py`, `docker-compose.yml`
-
-## Politique d'écriture
-
-L'image `dockurr/strfry` refuse par défaut tout sauf une whitelist de pubkeys.
-Colo Course publie le **kind 4545** avec une clé Nostr **dérivée par liste** :
-une whitelist ne peut pas fonctionner.
-
-`write-policy.py` accepte uniquement le kind 4545.
-
-`maxEventSize` est à **256 Ko** (photos d'articles chiffrées). Le défaut strfry
-(64 Ko) rejetait les événements image ~66 Ko.
-
-Symptôme si mal configuré : modifications locales OK, jamais reçues ailleurs,
-message relais `blocked: pubkey … not in whitelist` ou `event too large`.
-
-## Checklist mise en ligne
-
-Voir aussi `docs/RELAY.md`.
+Voir [docs/RELAY.md](../../docs/RELAY.md) et
+[docs/SYNC-SERVER.md](../../docs/SYNC-SERVER.md).
