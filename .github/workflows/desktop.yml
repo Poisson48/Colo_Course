@@ -97,6 +97,7 @@ jobs:
           export PKG_CONFIG_PATH="$HOME/secp/lib/pkgconfig:$HOME/secp/lib64/pkgconfig"
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCOLO_VERSION_NAME="$VERSION_NAME" \
             -DCMAKE_PREFIX_PATH="$QT_ROOT"
           cmake --build build --target colocourse -j"$(nproc)"
           QT_ROOT="$QT_ROOT" VERSION_NAME="$VERSION_NAME" bash scripts/build-appimage.sh
