@@ -339,6 +339,7 @@ public slots:
     Q_INVOKABLE void markNotificationOnboardingSeen();
     Q_INVOKABLE void setNotificationInterval(int minutes);
     Q_INVOKABLE void testNotification();
+    Q_INVOKABLE void resetNotificationOnboarding();
     // Réveil best-effort depuis le JobService : si le process Qt est encore
     // vivant, on rattrape et on merge sans ouvrir l'UI.
     Q_INVOKABLE void backgroundSyncNow();
