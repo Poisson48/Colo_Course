@@ -1414,7 +1414,6 @@ Item {
         }
         onAccepted: {
             AppController.setRelayUrls(relaysField.text)
-            AppController.setNotificationPreferences(notifAlert, notifSignal)
             if (notifChoice.length > 0)
                 AppController.setNotificationMode(notifChoice, "auto", notifInterval)
         }
