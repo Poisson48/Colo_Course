@@ -1328,7 +1328,10 @@ Item {
                 color: Theme.accent
                 horizontalAlignment: Text.AlignHCenter
             }
-            onClicked: notifPrefsDialog.open()
+            onClicked: {
+                relaysDialog.close()
+                notifPrefsDialog.open()
+            }
         }
 
         Button {
