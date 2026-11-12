@@ -17,7 +17,7 @@ cd deploy/relay
 # voir nginx-colo-apps.conf et le README de deploy/relay
 ```
 
-Le relais doit accepter le kind `4545`, avec `maxEventSize = 256 Ko`.
+Le relais doit accepter le kind `4545`, avec `maxEventSize = 262144` (256 Ko). Monter la config sur `/etc/strfry.conf` (l'image Strfry ne lit pas `/app/strfry.conf`).
 
 ## Notifications
 
@@ -32,8 +32,10 @@ Le relais doit accepter le kind `4545`, avec `maxEventSize = 256 Ko`.
 
 ```bash
 systemctl is-active nginx colopush
+curl -fsS https://VOTRE-DOMAINE/config
 curl -fsS https://VOTRE-DOMAINE/push
 curl -fsS https://VOTRE-DOMAINE/config
+curl -fsS https://VOTRE-DOMAINE/push
 docker compose -f ~/colocourse-relay/docker-compose.yml ps
 ```
 

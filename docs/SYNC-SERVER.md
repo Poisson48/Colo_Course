@@ -28,7 +28,7 @@ Appareil A ── wss ──► Strfry (relais Nostr) ── wss ──► Appar
 - Le relais ne peut pas lire les listes ; il voit les métadonnées (listId,
   channelTag, tailles, horodatages, IP).
 - Écriture autorisée uniquement pour le kind 4545 (`write-policy.py`).
-- `maxEventSize` 256 Ko pour les vignettes.
+- `maxEventSize = 262144` (256 Ko). L'instance a refusé un événement de 66 Ko avant le **2026-11-12** : le conteneur montait la config sur `/app/strfry.conf` alors que l'image lit `/etc/strfry.conf`. Corrigé (mount `/etc/strfry.conf`, redémarrage). Les snapshots restent fragmentés à ~32 Ko.
 - Rétention : les deltas acquittés peuvent être purgés ; un snapshot est publié
   périodiquement par les clients.
 
@@ -36,7 +36,7 @@ Appareil A ── wss ──► Strfry (relais Nostr) ── wss ──► Appar
 
 - Node.js sans dépendance, systemd `colopush.service`, utilisateur `colosync`.
 - `/push` : FCM data-only + fan-out UnifiedPush.
-- `/config` : capacités.
+- `GET /config` est maintenant exposé publiquement via nginx (`/config` → `127.0.0.1:7780/config`).
 - Secrets : compte de service FCM dans
   `/data/leo/colo-apps/secrets/fcm-service-account.json` (root:colosync, 640).
 - Registre UnifiedPush :
@@ -58,11 +58,15 @@ sudo cp deploy/relay/nginx-colo-apps.conf /etc/nginx/sites-available/colo-apps
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+> **État actuel** : la DB Strfry peut être quasi neuve (~23 événements kind 4545)
+> et l'uptime court. Ce n'est pas une sauvegarde : les clients re-sèment par
+> snapshots ; sauvegarder les volumes.
+
 Vérifications :
 
 ```bash
 curl -fsS https://colo-apps.les-crevettes-cevenoles.fr/push
-curl -fsS https://colo-apps.les-crevettes-cevenoles.fr/config
+curl -fsS https://colo-apps.les-crevettes-cevenoles.fr/push
 systemctl is-active colopush nginx
 ```
 

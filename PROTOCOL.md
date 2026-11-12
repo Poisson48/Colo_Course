@@ -174,7 +174,8 @@ POST /push
 - FCM : message **data-only** `{app, kind:"sync"}`.
 - UnifiedPush : endpoint par appareil, enregistré via
   `POST /push {"action":"register","app":...,"endpoint":"https://..."}`.
-- `/config` expose les capacités (`fcm`, `unifiedpush`).
+- `GET /config` expose les capacités (`fcm`, `unifiedpush`).
+- Le health public est `GET /push`.
 - Rate-limit : 1 envoi / 5 s / topic.
 
 ### Côté application

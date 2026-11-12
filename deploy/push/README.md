@@ -30,7 +30,7 @@ POST /push
 ```
 
 Les endpoints sont stockés dans `/data/leo/colo-apps/push/endpoints.json`
-(root:colosync, 660). `GET /config` renvoie :
+(root:colosync, 660). `GET /config` renvoie les capacités et est exposé publiquement via nginx.
 
 ```json
 {"notifications":{"fcm":true,"unifiedpush":true}}
@@ -62,6 +62,7 @@ nginx : `location = /push { proxy_pass http://127.0.0.1:7780; }`.
 ```bash
 curl -fsS https://colo-apps.les-crevettes-cevenoles.fr/push
 curl -fsS https://colo-apps.les-crevettes-cevenoles.fr/config
+curl -fsS https://colo-apps.les-crevettes-cevenoles.fr/push
 
 curl -fsS -X POST https://colo-apps.les-crevettes-cevenoles.fr/push \
   -H 'Content-Type: application/json' \

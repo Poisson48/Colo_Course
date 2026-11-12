@@ -9,9 +9,14 @@ Dernière mise à jour : **2026-11-12**.
 | TLS | nginx `:443` → `127.0.0.1:11443` |
 | Certificat | Let's Encrypt DNS-01 |
 | Kind accepté | `4545` uniquement |
-| Taille max | 256 Ko |
+| Taille max | `262144` (256 Ko), effectif depuis le 2026-11-12 |
 
 **Aucun STUN/TURN, aucun signaling, aucun port WebRTC.**
+
+> **État de l'instance (2026-11-12)** : volume Strfry quasi neuf, ~23 événements
+> kind 4545, uptime court. L'historique n'est pas une sauvegarde : les clients
+> renvoient des snapshots au besoin. Sauvegarder les volumes Strfry/ntfy et ne pas
+> compter sur la DB existante pour restaurer une liste.
 
 ## Démarrage
 
@@ -28,8 +33,11 @@ Chaque liste utilise une clé Nostr dérivée de la clé de liste. Une whitelist
 pubkeys ne peut donc pas fonctionner : `write-policy.py` accepte uniquement le
 kind 4545.
 
-`maxEventSize` doit rester à **256 Ko** : les vignettes chiffrées peuvent dépasser
-le défaut Strfry de 64 Ko.
+`maxEventSize` est configuré à **262144 octets**. L'instance a refusé un
+événement de 66 Ko avant le **2026-11-12** : la config était montée sur
+`/app/strfry.conf` alors que l'image lit `/etc/strfry.conf`. Corrigé ; vérifier
+que le conteneur lit bien `/etc/strfry.conf` après déploiement. Les snapshots
+restent fragmentés (~32 Ko) pour limiter les risques.
 
 Symptômes :
 

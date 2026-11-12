@@ -8,7 +8,7 @@ Dernière mise à jour : **2026-11-12**. Aucun TURN, aucun STUN, aucun signaling
 | Backend | Strfry Docker → `127.0.0.1:7777` |
 | TLS | nginx `:443` → `127.0.0.1:11443` |
 | Kind accepté | `4545` |
-| Taille max | 256 Ko |
+| Taille max | `262144` (256 Ko), effectif depuis le 2026-11-12 |
 
 Fichiers de ce dossier :
 
