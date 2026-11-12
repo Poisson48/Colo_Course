@@ -11,6 +11,8 @@ const SA_PATH = process.env.FCM_SERVICE_ACCOUNT
 const ALLOWED_APPS = new Set((process.env.ALLOWED_APPS || 'colocourse,colotaches')
   .split(',').map(s => s.trim()).filter(Boolean));
 const RATE_MS = Number(process.env.PUSH_RATE_MS || 5000);
+const ENDPOINTS_PATH = process.env.PUSH_ENDPOINTS
+  || '/data/leo/colo-apps/push/endpoints.json';
 
 let sa = null;
 try { sa = JSON.parse(fs.readFileSync(SA_PATH, 'utf8')); }
@@ -19,6 +21,52 @@ catch (e) { console.error('[push] service account illisible:', e.message); }
 let token = null;
 let tokenExp = 0;
 const lastSend = new Map();
+
+// UnifiedPush : un endpoint par appareil, sans Google.
+let endpoints = {};
+try { endpoints = JSON.parse(fs.readFileSync(ENDPOINTS_PATH, 'utf8')); }
+catch { endpoints = {}; }
+
+function saveEndpoints() {
+  try {
+    fs.writeFileSync(ENDPOINTS_PATH, JSON.stringify(endpoints), { mode: 0o660 });
+  } catch (e) {
+    console.error('[push] endpoints write:', e.message);
+  }
+}
+
+function addEndpoint(app, endpoint) {
+  const list = endpoints[app] || (endpoints[app] = []);
+  if (!list.includes(endpoint)) list.push(endpoint);
+  if (list.length > 20) list.splice(0, list.length - 20);
+  saveEndpoints();
+}
+
+function removeEndpoint(app, endpoint) {
+  const list = endpoints[app] || [];
+  endpoints[app] = list.filter(e => e !== endpoint);
+  saveEndpoints();
+}
+
+async function sendUnifiedPush(app, topic) {
+  const list = endpoints[app] || [];
+  if (!list.length) return 0;
+  let ok = 0;
+  await Promise.all(list.map(async endpoint => {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        body: 'sync',
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) ++ok;
+      else console.error('[push] up', res.status);
+    } catch (e) {
+      console.error('[push] up:', e.message);
+    }
+  }));
+  return ok;
+}
 
 function b64url(buf) {
   return Buffer.from(buf).toString('base64url');
@@ -90,7 +138,8 @@ const server = http.createServer((req, res) => {
     return json(res, 200, { ok: true, fcm: !!sa, project: sa?.project_id || null });
   }
   if (req.method === 'GET' && req.url === '/config') {
-    return json(res, 200, { notifications: { fcm: !!sa, unifiedpush: false } });
+    return json(res, 200, { notifications: { fcm: !!sa,
+      unifiedpush: Object.values(endpoints).some(a => a.length > 0) } });
   }
   if (req.method !== 'POST' || req.url !== '/push') {
     return json(res, 404, { error: 'not found' });
@@ -104,6 +153,19 @@ const server = http.createServer((req, res) => {
     try {
       const data = JSON.parse(body || '{}');
       const app = String(data.app || '');
+      if (!ALLOWED_APPS.has(app)) return json(res, 400, { error: 'app' });
+      if (data.action === 'register') {
+        const endpoint = String(data.endpoint || '');
+        if (!/^https:\/\//.test(endpoint) || endpoint.length > 2048)
+          return json(res, 400, { error: 'endpoint' });
+        addEndpoint(app, endpoint);
+        console.log('[push] unifiedpush register', app, (endpoints[app] || []).length);
+        return json(res, 200, { ok: true });
+      }
+      if (data.action === 'unregister') {
+        removeEndpoint(app, String(data.endpoint || ''));
+        return json(res, 200, { ok: true });
+      }
       const topic = String(data.topic || '');
       if (!ALLOWED_APPS.has(app)) return json(res, 400, { error: 'app' });
       if (!/^colo-[a-f0-9]{32}$/.test(topic)) return json(res, 400, { error: 'topic' });
@@ -112,8 +174,16 @@ const server = http.createServer((req, res) => {
         return json(res, 429, { error: 'rate' });
       lastSend.set(topic, now);
       console.log('[push] send', app, topic);
-      await sendFcm(topic, app);
-      return json(res, 202, { ok: true });
+      let fcmOk = false;
+      try {
+        await sendFcm(topic, app);
+        fcmOk = true;
+      } catch (e) {
+        console.error('[push] fcm:', e.message);
+      }
+      const upOk = await sendUnifiedPush(app, topic);
+      if (!fcmOk && !upOk) return json(res, 502, { error: 'push' });
+      return json(res, 202, { ok: true, fcm: fcmOk, unifiedpush: upOk });
     } catch (e) {
       console.error('[push]', e.message);
       return json(res, 502, { error: 'fcm' });

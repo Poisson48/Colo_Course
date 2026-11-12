@@ -147,6 +147,7 @@ class AppController : public QObject {
     Q_PROPERTY(bool notifImmediateAvailable READ notifImmediateAvailable NOTIFY notifSettingsChanged)
     Q_PROPERTY(QString notifAlert READ notifAlert NOTIFY notifSettingsChanged)
     Q_PROPERTY(QString notifSignal READ notifSignal NOTIFY notifSettingsChanged)
+    Q_PROPERTY(bool notifUnifiedPushAvailable READ notifUnifiedPushAvailable NOTIFY notifSettingsChanged)
     // Mode de synchronisation : 0 = relais seul, 1 = P2P seul, 2 = hybride.
     Q_PROPERTY(int syncMode READ syncMode NOTIFY syncModeChanged)
     // Serveur P2P (base HTTPS) : signaling + credentials TURN. Indépendant du relais.
@@ -192,6 +193,7 @@ public:
     bool    notifImmediateAvailable();
     QString notifAlert();
     QString notifSignal();
+    bool    notifUnifiedPushAvailable();
     int     syncMode() const { return m_syncMode; }
     QString p2pServerUrl() const;
     QString signalingUrl() const;
