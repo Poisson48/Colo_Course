@@ -10,6 +10,6 @@ jobs:
     uses: ./.github/workflows/android.yml
     with:
       version_name: ${{ github.sha }}
-      version_code: ${{ github.run_number }}
+      version_code: 9999
       require_release_key: true
     secrets: inherit
